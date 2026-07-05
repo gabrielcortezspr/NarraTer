@@ -1,0 +1,5 @@
+[net]
+offline = false
+
+[registries.crates-io]
+protocol = "git"

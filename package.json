@@ -11,15 +11,16 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
-    "@xyflow/react": "^12",
-    "@xterm/xterm": "^6",
     "@xterm/addon-fit": "^0.11",
     "@xterm/addon-web-links": "^0.12",
-    "zustand": "^5",
+    "@xterm/xterm": "^6",
+    "@xyflow/react": "^12",
+    "clsx": "^2",
     "framer-motion": "^11",
     "lucide-react": "^0.427.0",
-    "clsx": "^2",
-    "tailwind-merge": "^2"
+    "perfect-freehand": "^1.2.3",
+    "tailwind-merge": "^2",
+    "zustand": "^5"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

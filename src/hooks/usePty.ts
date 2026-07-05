@@ -18,11 +18,11 @@ export function usePty() {
   const { addSession, setRunning, setExited, removeSession } = useTerminalsStore();
 
   const spawn = useCallback(
-    async (id: string, agentType: AgentType, cols: number, rows: number, customCommand?: string) => {
+    async (id: string, agentType: AgentType, cols: number, rows: number, customCommand?: string, label?: string) => {
       addSession(id);
       const command = getCommandForAgent(agentType, customCommand);
       try {
-        await ptySpawn({ id, command, cols, rows });
+        await ptySpawn({ id, command, cols, rows, label });
         setRunning(id);
       } catch (err) {
         console.error("PTY spawn failed:", err);

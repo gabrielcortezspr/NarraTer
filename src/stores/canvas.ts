@@ -7,6 +7,12 @@ export interface TerminalNodeData extends Record<string, unknown> {
   agentType: AgentType;
   command?: string;
   label: string;
+  instructions?: string;
+  scheduleCommand?: string;
+  scheduleIntervalSecs?: number;
+  roleId?: string;
+  roleName?: string;
+  roleColor?: string;
 }
 
 export interface NoteNodeData extends Record<string, unknown> {
@@ -22,7 +28,8 @@ interface CanvasStore {
   edges: AppEdge[];
   setNodes: (nodes: AppNode[]) => void;
   setEdges: (edges: AppEdge[]) => void;
-  addTerminalNode: (agentType: AgentType, command?: string) => string;
+  addTerminalNode: (agentType: AgentType, command?: string, instructions?: string, scheduleCommand?: string, scheduleIntervalSecs?: number, roleId?: string, roleName?: string, roleColor?: string) => string;
+  updateNodeData: (id: string, patch: Record<string, unknown>) => void;
   addNoteNode: () => void;
   removeNode: (id: string) => void;
   loadHistoria: (name: string) => Promise<void>;
@@ -38,21 +45,29 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   setNodes: (nodes) => set({ nodes }),
   setEdges: (edges) => set({ edges }),
 
-  addTerminalNode: (agentType, command) => {
+  addTerminalNode: (agentType, command, instructions, scheduleCommand, scheduleIntervalSecs, roleId, roleName, roleColor) => {
     const id = `terminal-${Date.now()}-${nodeCounter++}`;
-    const label = agentType === "custom" ? (command ?? "Terminal") : agentType;
+    const label = roleName ?? (agentType === "custom" ? (command ?? "Terminal") : agentType);
     const newNode: AppNode = {
       id,
       type: "terminal",
       position: {
-        x: 100 + (nodeCounter % 4) * 50,
-        y: 100 + (nodeCounter % 3) * 50,
+        x: 80 + (nodeCounter % 5) * 60,
+        y: 80 + (nodeCounter % 4) * 60,
       },
-      data: { agentType, command, label },
+      data: { agentType, command, label, instructions, scheduleCommand, scheduleIntervalSecs, roleId, roleName, roleColor },
       style: { width: 640, height: 420 },
     };
     set((s) => ({ nodes: [...s.nodes, newNode] }));
     return id;
+  },
+
+  updateNodeData: (id, patch) => {
+    set((s) => ({
+      nodes: s.nodes.map((n) =>
+        n.id === id ? ({ ...n, data: { ...n.data, ...patch } } as AppNode) : n
+      ),
+    }));
   },
 
   addNoteNode: () => {
@@ -89,13 +104,28 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         return {
           ...base,
           type: "terminal" as const,
-          data: { agentType: (n.agent_type ?? "shell") as AgentType, command: n.command, label: n.label ?? n.agent_type ?? "terminal" },
+          data: {
+            agentType: (n.agent_type ?? "shell") as AgentType,
+            command: n.command,
+            label: n.label ?? n.agent_type ?? "terminal",
+            instructions: n.instructions,
+            scheduleCommand: n.schedule_command,
+            scheduleIntervalSecs: n.schedule_interval_secs,
+            roleId: n.role_id,
+            roleName: n.role_name,
+            roleColor: n.role_color,
+          },
         };
       });
       const edges: AppEdge[] = data.edges.map((e) => ({
         id: e.id,
         source: e.source,
         target: e.target,
+        type: e.edge_type ?? "default",
+        animated: e.edge_type === "agent-pipe",
+        style: e.edge_type !== "agent-pipe" && e.edge_type !== "agent-note"
+          ? { stroke: "#4a4a4a", strokeWidth: 1.5 }
+          : undefined,
       }));
       set({ nodes, edges });
     } catch {
@@ -106,19 +136,28 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   saveHistoria: async (name) => {
     const { nodes, edges } = get();
     const data = {
-      nodes: nodes.map((n) => ({
-        id: n.id,
-        node_type: n.type ?? "terminal",
-        x: n.position.x,
-        y: n.position.y,
-        width: (n.style?.width as number) ?? 640,
-        height: (n.style?.height as number) ?? 420,
-        agent_type: n.type === "terminal" ? (n.data as TerminalNodeData).agentType : undefined,
-        command: n.type === "terminal" ? (n.data as TerminalNodeData).command : undefined,
-        label: n.data.label as string,
-        content: n.type === "note" ? (n.data as NoteNodeData).content : undefined,
-      })),
-      edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
+      nodes: nodes.map((n) => {
+        const tdata = n.type === "terminal" ? (n.data as TerminalNodeData) : undefined;
+        return {
+          id: n.id,
+          node_type: n.type ?? "terminal",
+          x: n.position.x,
+          y: n.position.y,
+          width: (n.style?.width as number) ?? 640,
+          height: (n.style?.height as number) ?? 420,
+          agent_type: tdata?.agentType,
+          command: tdata?.command,
+          label: n.data.label as string,
+          content: n.type === "note" ? (n.data as NoteNodeData).content : undefined,
+          instructions: tdata?.instructions,
+          schedule_command: tdata?.scheduleCommand,
+          schedule_interval_secs: tdata?.scheduleIntervalSecs,
+          role_id: tdata?.roleId,
+          role_name: tdata?.roleName,
+          role_color: tdata?.roleColor,
+        };
+      }),
+      edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, edge_type: e.type })),
     };
     await saveHistoria(name, data);
   },

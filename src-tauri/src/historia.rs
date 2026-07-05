@@ -15,6 +15,12 @@ pub struct HistoriaNode {
     pub command: Option<String>,
     pub label: Option<String>,
     pub content: Option<String>,
+    pub instructions: Option<String>,
+    pub schedule_command: Option<String>,
+    pub schedule_interval_secs: Option<u64>,
+    pub role_id: Option<String>,
+    pub role_name: Option<String>,
+    pub role_color: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -22,6 +28,7 @@ pub struct HistoriaEdge {
     pub id: String,
     pub source: String,
     pub target: String,
+    pub edge_type: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -71,4 +78,33 @@ pub fn list_historias() -> Result<Vec<String>, String> {
         })
         .collect();
     Ok(names)
+}
+
+#[tauri::command]
+pub fn delete_historia(name: String) -> Result<(), String> {
+    let path = historias_dir().join(format!("{}.json", name));
+    if path.exists() {
+        fs::remove_file(&path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn rename_historia(old_name: String, new_name: String) -> Result<(), String> {
+    let dir = historias_dir();
+    let old_path = dir.join(format!("{}.json", old_name));
+    let new_path = dir.join(format!("{}.json", new_name));
+    if old_path.exists() {
+        fs::rename(&old_path, &new_path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_in_editor(editor: String, path: String) -> Result<(), String> {
+    std::process::Command::new(&editor)
+        .arg(&path)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to open '{}': {}", editor, e))
 }

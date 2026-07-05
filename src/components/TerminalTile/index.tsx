@@ -1,12 +1,13 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { Handle, Position, NodeResizer } from "@xyflow/react";
 import { listen } from "@tauri-apps/api/event";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { Bot, Code2, Terminal, Wrench, X, GripVertical } from "lucide-react";
+import { Bot, Code2, Terminal, Wrench, X, GripVertical, FolderOpen, Clock, Plug } from "lucide-react";
 import { usePty } from "@/hooks/usePty";
 import { useCanvasStore } from "@/stores/canvas";
+import { openInEditor } from "@/lib/tauri";
 import type { TerminalNodeData } from "@/stores/canvas";
 import type { Node, NodeProps } from "@xyflow/react";
 import type { AgentType } from "@/lib/tauri";
@@ -59,15 +60,28 @@ const XTERM_THEME = {
   brightWhite: "#f9fafb",
 };
 
+const EDITORS = [
+  { label: "VS Code", cmd: "code" },
+  { label: "Zed", cmd: "zed" },
+  { label: "Cursor", cmd: "cursor" },
+  { label: "Neovim", cmd: "nvim" },
+];
+
 export default function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   const termDivRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const scheduleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const cwdRef = useRef<string>("~");
   const { spawn, write, kill } = usePty();
   const removeNode = useCanvasStore((s) => s.removeNode);
+  const pipeCount = useCanvasStore((s) =>
+    s.edges.filter((e) => (e.source === id || e.target === id) && e.type === "agent-pipe").length
+  );
   const agentType = data.agentType ?? "shell";
   const accentColor = AGENT_COLORS[agentType];
+  const [showEditorMenu, setShowEditorMenu] = useState(false);
 
   // Init xterm and PTY
   useEffect(() => {
@@ -90,23 +104,37 @@ export default function TerminalTile({ id, data, selected }: NodeProps<TerminalN
     term.loadAddon(webLinksAddon);
     term.open(termDivRef.current);
 
-    // Delay fit to let layout settle
     setTimeout(() => {
       fitAddon.fit();
-      spawn(id, agentType, term.cols, term.rows, data.command);
+      spawn(id, agentType, term.cols, term.rows, data.command, data.label).then(() => {
+        if (data.instructions?.trim()) {
+          write(id, data.instructions.trim() + "\n");
+        }
+        // If this terminal has pipe connections (loaded from historia), send skill description
+        const { edges, nodes } = useCanvasStore.getState();
+        const pipeEdges = edges.filter((e) => (e.source === id || e.target === id) && e.type === "agent-pipe");
+        if (pipeEdges.length > 0) {
+          const connectedLabels = pipeEdges.map((e) => {
+            const otherId = e.source === id ? e.target : e.source;
+            const otherNode = nodes.find((n) => n.id === otherId);
+            return (otherNode?.data as TerminalNodeData | undefined)?.label ?? otherId;
+          });
+          const skillMsg =
+            `\r\n\x1b[35m[NarraTer]\x1b[0m Agentes conectados: \x1b[1m${connectedLabels.join(", ")}\x1b[0m\r\n` +
+            `Use: \x1b[36mnarrater send "<nome>" "mensagem"\x1b[0m\r\n\r\n`;
+          write(id, skillMsg);
+        }
+      });
     }, 50);
 
-    term.onData((data) => write(id, data));
+    term.onData((d) => write(id, d));
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // Observe container resize
     const observer = new ResizeObserver(() => {
       if (fitAddonRef.current && xtermRef.current) {
-        try {
-          fitAddonRef.current.fit();
-        } catch {}
+        try { fitAddonRef.current.fit(); } catch {}
       }
     });
     if (termDivRef.current.parentElement) {
@@ -119,30 +147,57 @@ export default function TerminalTile({ id, data, selected }: NodeProps<TerminalN
       term.dispose();
       kill(id);
     };
-  }, []);  // intentionally run once
+  }, []); // intentionally run once
 
-  // Listen for PTY output
+  // PTY output listener
   useEffect(() => {
+    let cancelled = false;
     let unlistenOutput: (() => void) | undefined;
     let unlistenExit: (() => void) | undefined;
+    let outputBuffer = "";
 
     listen<{ id: string; data: string }>("pty_output", (event) => {
-      if (event.payload.id === id && xtermRef.current) {
+      if (event.payload.id !== id) return;
+      if (xtermRef.current) {
         xtermRef.current.write(event.payload.data);
       }
-    }).then((fn) => { unlistenOutput = fn; });
+      // Track cwd from shell prompt (heuristic: capture last line with $)
+      outputBuffer += event.payload.data;
+      const lines = outputBuffer.split("\n");
+      outputBuffer = lines[lines.length - 1];
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlistenOutput = fn;
+    });
 
     listen<{ id: string; code: number }>("pty_exit", (event) => {
       if (event.payload.id === id && xtermRef.current) {
         xtermRef.current.writeln("\r\n\x1b[2m[Process exited]\x1b[0m");
       }
-    }).then((fn) => { unlistenExit = fn; });
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlistenExit = fn;
+    });
 
     return () => {
+      cancelled = true;
       unlistenOutput?.();
       unlistenExit?.();
     };
   }, [id]);
+
+  // Scheduled prompts
+  useEffect(() => {
+    if (!data.scheduleCommand?.trim() || !data.scheduleIntervalSecs) return;
+    const cmd = data.scheduleCommand.trim();
+    const ms = data.scheduleIntervalSecs * 1000;
+    scheduleTimerRef.current = setInterval(() => {
+      write(id, cmd + "\n");
+    }, ms);
+    return () => {
+      if (scheduleTimerRef.current) clearInterval(scheduleTimerRef.current);
+    };
+  }, [id, data.scheduleCommand, data.scheduleIntervalSecs, write]);
 
   const handleClose = useCallback(
     (e: React.MouseEvent) => {
@@ -150,6 +205,18 @@ export default function TerminalTile({ id, data, selected }: NodeProps<TerminalN
       removeNode(id);
     },
     [id, removeNode]
+  );
+
+  const handleOpenEditor = useCallback(
+    async (editorCmd: string) => {
+      setShowEditorMenu(false);
+      try {
+        await openInEditor(editorCmd, cwdRef.current);
+      } catch (err) {
+        console.warn("Failed to open editor:", err);
+      }
+    },
+    []
   );
 
   return (
@@ -171,17 +238,13 @@ export default function TerminalTile({ id, data, selected }: NodeProps<TerminalN
         handleStyle={{ borderColor: accentColor, background: "#1a1a1a" }}
       />
 
-      {/* Header — drag handle */}
+      {/* Header */}
       <div
         className="flex items-center gap-2 px-3 py-2 shrink-0 cursor-grab active:cursor-grabbing select-none"
-        style={{
-          background: "#222",
-          borderBottom: `1px solid #2a2a2a`,
-        }}
+        style={{ background: "#222", borderBottom: "1px solid #2a2a2a" }}
       >
         <GripVertical size={12} className="text-[#444] shrink-0" />
 
-        {/* Agent badge */}
         <span
           className="flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded"
           style={{ color: accentColor, background: `${accentColor}18` }}
@@ -190,7 +253,68 @@ export default function TerminalTile({ id, data, selected }: NodeProps<TerminalN
           {AGENT_LABELS[agentType]}
         </span>
 
+        {/* Role badge */}
+        {data.roleName && (
+          <span
+            className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full shrink-0"
+            style={{ color: data.roleColor ?? "#888", background: `${data.roleColor ?? "#888"}18`, border: `1px solid ${data.roleColor ?? "#888"}30` }}
+          >
+            {data.roleName}
+          </span>
+        )}
+
         <span className="text-[#555] text-xs truncate flex-1">{data.label}</span>
+
+        {/* Agent pipe badge */}
+        {pipeCount > 0 && (
+          <span
+            title={`Conectado a ${pipeCount} agente${pipeCount > 1 ? "s" : ""} via pipe`}
+            className="flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full shrink-0"
+            style={{ color: "#a78bfa", background: "#8b5cf618", border: "1px solid #8b5cf630" }}
+          >
+            <Plug size={8} />
+            {pipeCount}
+          </span>
+        )}
+
+        {/* Scheduled prompt indicator */}
+        {data.scheduleCommand?.trim() && (
+          <span
+            title={`Agendado: "${data.scheduleCommand}" a cada ${data.scheduleIntervalSecs}s`}
+            className="flex items-center gap-0.5 text-[9px] text-[#fbbf24] opacity-70"
+          >
+            <Clock size={9} />
+            {data.scheduleIntervalSecs}s
+          </span>
+        )}
+
+        {/* Open in editor */}
+        <div className="relative nodrag">
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); setShowEditorMenu((v) => !v); }}
+            className="text-[#555] hover:text-[#60a5fa] transition-colors p-0.5 rounded hover:bg-[#2a2a2a]"
+            title="Abrir no editor"
+          >
+            <FolderOpen size={12} />
+          </button>
+          {showEditorMenu && (
+            <div
+              className="absolute top-6 right-0 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl py-1 z-50 min-w-[110px]"
+              onMouseDown={(e) => e.stopPropagation()}
+            >
+              {EDITORS.map((ed) => (
+                <button
+                  key={ed.cmd}
+                  onClick={() => handleOpenEditor(ed.cmd)}
+                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors whitespace-nowrap"
+                >
+                  {ed.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Close */}
         <button
@@ -210,7 +334,6 @@ export default function TerminalTile({ id, data, selected }: NodeProps<TerminalN
         onMouseDown={(e) => e.stopPropagation()}
       />
 
-      {/* Connection handles */}
       <Handle type="target" position={Position.Left} style={{ background: accentColor, border: "none", width: 8, height: 8 }} />
       <Handle type="source" position={Position.Right} style={{ background: accentColor, border: "none", width: 8, height: 8 }} />
     </div>

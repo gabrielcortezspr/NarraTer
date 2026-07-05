@@ -1,28 +1,32 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Canvas from "@/components/Canvas";
+import Sidebar from "@/components/Sidebar";
 import { useCanvasStore } from "@/stores/canvas";
+import { useWorkspacesStore } from "@/stores/workspaces";
+import { useRolesStore } from "@/stores/roles";
 
 export default function App() {
   const { loadHistoria } = useCanvasStore();
+  const { loadList } = useWorkspacesStore();
+  const { load: loadRoles } = useRolesStore();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
-    loadHistoria("default");
-  }, [loadHistoria]);
-
-  useEffect(() => {
-    const handleSave = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-        e.preventDefault();
-        useCanvasStore.getState().saveHistoria("default");
-      }
+    const init = async () => {
+      await Promise.all([loadList(), loadRoles(), loadHistoria("default")]);
     };
-    window.addEventListener("keydown", handleSave);
-    return () => window.removeEventListener("keydown", handleSave);
+    init();
   }, []);
 
   return (
-    <div className="w-full h-full bg-canvas-bg">
-      <Canvas />
+    <div className="w-full h-full flex bg-canvas-bg overflow-hidden">
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed((v) => !v)}
+      />
+      <div className="flex-1 min-w-0 relative">
+        <Canvas />
+      </div>
     </div>
   );
 }

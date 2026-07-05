@@ -7,6 +7,7 @@ export interface PtySpawnOptions {
   command: string;
   cols: number;
   rows: number;
+  label?: string;
   env?: Record<string, string>;
 }
 
@@ -21,12 +22,19 @@ export interface HistoriaNode {
   command?: string;
   label?: string;
   content?: string;
+  instructions?: string;
+  schedule_command?: string;
+  schedule_interval_secs?: number;
+  role_id?: string;
+  role_name?: string;
+  role_color?: string;
 }
 
 export interface HistoriaEdge {
   id: string;
   source: string;
   target: string;
+  edge_type?: string;
 }
 
 export interface HistoriaData {
@@ -46,6 +54,9 @@ export const ptyResize = (id: string, cols: number, rows: number) =>
 export const ptyKill = (id: string) =>
   invoke<void>("pty_kill", { id });
 
+export const ptyUpdateLabel = (id: string, label: string) =>
+  invoke<void>("pty_update_label", { id, label });
+
 export const loadHistoria = (name: string) =>
   invoke<HistoriaData>("load_historia", { name });
 
@@ -54,6 +65,25 @@ export const saveHistoria = (name: string, data: HistoriaData) =>
 
 export const listHistorias = () =>
   invoke<string[]>("list_historias");
+
+export const deleteHistoria = (name: string) =>
+  invoke<void>("delete_historia", { name });
+
+export const renameHistoria = (oldName: string, newName: string) =>
+  invoke<void>("rename_historia", { old_name: oldName, new_name: newName });
+
+export const openInEditor = (editor: string, path: string) =>
+  invoke<void>("open_in_editor", { editor, path });
+
+export interface Role {
+  id: string;
+  name: string;
+  color: string;
+  instructions: string;
+}
+
+export const loadRoles = () => invoke<Role[]>("load_roles");
+export const saveRoles = (roles: Role[]) => invoke<void>("save_roles", { roles });
 
 export function getCommandForAgent(agentType: AgentType, customCommand?: string): string {
   const shell = "/bin/bash";
