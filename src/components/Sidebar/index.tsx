@@ -228,10 +228,14 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
               <span className="text-[10px] text-[#555] uppercase tracking-wider font-medium">Atalhos</span>
             </div>
             {[
-              ["Ctrl+T", "Terminal"],
-              ["Ctrl+N", "Nota"],
-              ["Ctrl+D", "Desenho"],
-              ["Ctrl+Z", "Desfazer"],
+              ["V", "Seletor"],
+              ["T", "Terminal"],
+              ["N", "Nota"],
+              ["X", "Texto"],
+              ["F", "Arquivos"],
+              ["A", "Anexo"],
+              ["W", "Portal"],
+              ["D", "Desenho"],
               ["Ctrl+S", "Salvar"],
               ["Delete", "Remover"],
             ].map(([key, label]) => (

@@ -32,6 +32,11 @@ html, body, #root {
   background-color: var(--narrater-bg) !important;
 }
 
+/* Ferramenta de posicionamento ativa: o próximo clique no pane cria um nó */
+.placement-mode .react-flow__pane {
+  cursor: crosshair !important;
+}
+
 .react-flow__minimap {
   background: #111111 !important;
   border: 1px solid var(--narrater-border) !important;

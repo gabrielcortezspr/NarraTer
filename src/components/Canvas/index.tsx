@@ -16,23 +16,23 @@ import {
 import { useShallow } from "zustand/react/shallow";
 import { listen } from "@tauri-apps/api/event";
 import "@xyflow/react/dist/style.css";
-import { Plus, StickyNote, Save, Pencil, Eraser, Undo2 } from "lucide-react";
-import { motion } from "framer-motion";
 import TerminalTile from "@/components/TerminalTile";
 import NoteTile from "@/components/NoteTile";
 import AgentNoteEdge from "@/components/AgentNoteEdge";
 import AgentPipeEdge from "@/components/AgentPipeEdge";
 import AgentPicker from "@/components/AgentPicker";
 import SketchLayer from "@/components/SketchLayer";
+import Toolbar from "@/components/Toolbar";
 import { useCanvasStore } from "@/stores/canvas";
 import { useWorkspacesStore } from "@/stores/workspaces";
-import { usePersistenceStore } from "@/stores/persistence";
+import { useToolStore, PLACEMENT_TOOLS } from "@/stores/tool";
 import { saveNow } from "@/hooks/useAutoSave";
 import { useSketchStore } from "@/stores/sketch";
 import { stripAnsi, cleanLines } from "@/lib/ansi";
 import { ptyWrite, ptyNotify } from "@/lib/tauri";
 import type { AgentType } from "@/lib/tauri";
 import type { AppEdge, TerminalNodeData } from "@/stores/canvas";
+import type { Tool } from "@/stores/tool";
 
 const nodeTypes = {
   terminal: TerminalTile,
@@ -44,7 +44,17 @@ const edgeTypes = {
   "agent-pipe": AgentPipeEdge,
 } satisfies EdgeTypes;
 
-const SKETCH_COLORS = ["#8b5cf6", "#f87171", "#4ade80", "#fbbf24", "#60a5fa", "#f472b6", "#ffffff"];
+// Atalhos de ferramenta sem modificador, estilo Figma.
+const TOOL_SHORTCUTS: Record<string, Tool> = {
+  v: "select",
+  t: "terminal",
+  n: "note",
+  x: "text",
+  f: "files",
+  a: "attachment",
+  w: "portal",
+  d: "draw",
+};
 
 let edgeIdCounter = 0;
 
@@ -71,15 +81,15 @@ function CanvasInner() {
     );
   const hydrated = useCanvasStore((s) => s.hydrated);
   const { current: currentWorkspace } = useWorkspacesStore();
-  const { undo: undoSketch, clear: clearSketch, color, setColor, size, setSize } = useSketchStore();
+  const { active: activeTool, setTool } = useToolStore();
+  const undoSketch = useSketchStore((s) => s.undo);
   const { screenToFlowPosition, fitView } = useReactFlow();
 
-  const saveState = usePersistenceStore((s) => s.state);
+  const drawMode = activeTool === "draw";
+  const placementMode = PLACEMENT_TOOLS.has(activeTool);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [drawMode, setDrawMode] = useState(false);
-  const [showColorPicker, setShowColorPicker] = useState(false);
 
   // Frame the canvas once per historia load — a permanent fitView prop would
   // re-frame on every structural node change instead.
@@ -101,6 +111,24 @@ function CanvasInner() {
     const pos = screenToFlowPosition(center);
     return { x: pos.x + (Math.random() - 0.5) * 80, y: pos.y + (Math.random() - 0.5) * 80 };
   }, [screenToFlowPosition]);
+
+  // Placement tools: next click on the pane creates the node there.
+  const onPaneClick = useCallback(
+    (e: React.MouseEvent) => {
+      const tool = useToolStore.getState().active;
+      if (!PLACEMENT_TOOLS.has(tool)) return;
+      const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+      switch (tool) {
+        case "note":
+          addNoteNode(position);
+          break;
+        // text/files/portal são ligados quando seus tiles existirem
+      }
+      // Shift mantém a ferramenta para criação em série
+      if (!e.shiftKey) setTool("select");
+    },
+    [screenToFlowPosition, addNoteNode, setTool]
+  );
 
   // Agent → Note pipe: listen to all PTY output and forward to connected notes
   useEffect(() => {
@@ -226,43 +254,58 @@ function CanvasInner() {
     [addTerminalNode, viewportCenter]
   );
 
-  const handleAddNote = useCallback(() => {
-    addNoteNode(viewportCenter());
-  }, [addNoteNode, viewportCenter]);
+  const openTerminalPicker = useCallback(() => setPickerOpen(true), []);
 
-  const handleSave = useCallback(() => {
-    saveNow().catch(console.error);
-  }, []);
+  // Anexo: file picker nativo → nó no centro (ligado quando o tile existir)
+  const handleAttachment = useCallback(() => {}, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement).tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable ||
+        target.closest?.(".xterm")
+      )
+        return;
+
       if (e.ctrlKey || e.metaKey) {
-        if (e.key === "s") { e.preventDefault(); handleSave(); }
-        if (e.key === "t") { e.preventDefault(); setPickerOpen(true); }
-        if (e.key === "n") { e.preventDefault(); handleAddNote(); }
-        if (e.key === "d") { e.preventDefault(); setDrawMode((v) => !v); }
-        if (e.key === "z" && drawMode) { e.preventDefault(); undoSketch(); }
+        if (e.key === "s") { e.preventDefault(); saveNow().catch(console.error); }
+        if (e.key === "z" && useToolStore.getState().active === "draw") { e.preventDefault(); undoSketch(); }
+        return;
       }
+
       if (e.key === "Escape") {
-        setDrawMode(false);
+        setTool("select");
         setPickerOpen(false);
-        setShowColorPicker(false);
+        return;
       }
+
+      const tool = TOOL_SHORTCUTS[e.key.toLowerCase()];
+      if (!tool) return;
+      e.preventDefault();
+      if (tool === "terminal") setPickerOpen(true);
+      else if (tool === "attachment") handleAttachment();
+      else if (tool === "draw") setTool(useToolStore.getState().active === "draw" ? "select" : "draw");
+      else setTool(tool);
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [handleSave, handleAddNote, drawMode, undoSketch]);
+  }, [setTool, undoSketch, handleAttachment]);
 
   return (
-    <div ref={wrapperRef} className="w-full h-full relative">
+    <div
+      ref={wrapperRef}
+      className={`w-full h-full relative ${placementMode ? "placement-mode" : ""}`}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onPaneClick={onPaneClick}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         minZoom={0.05}
@@ -291,97 +334,7 @@ function CanvasInner() {
         <SketchLayer active={drawMode} />
       </ReactFlow>
 
-      {/* Toolbar */}
-      <div className="absolute top-4 right-4 flex items-center gap-2 z-30">
-        <motion.button
-          onClick={handleSave}
-          whileTap={{ scale: 0.95 }}
-          title="Ctrl+S"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border"
-          style={{
-            background: saveState === "saved" ? "#4ade8020" : "#1a1a1a",
-            borderColor: saveState === "saved" ? "#4ade80" : "#2a2a2a",
-            color: saveState === "saved" ? "#4ade80" : "#6b7280",
-          }}
-        >
-          <Save size={13} />
-          {saveState === "saved" ? "Salvo" : saveState === "saving" ? "Salvando…" : "Salvar"}
-        </motion.button>
-
-        <motion.button
-          onClick={handleAddNote}
-          whileTap={{ scale: 0.95 }}
-          title="Ctrl+N"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
-            bg-[#1e1a0e] border border-[#2e2810] text-[#fbbf24] hover:border-[#fbbf2460] transition-all"
-        >
-          <StickyNote size={13} />
-          Nota
-        </motion.button>
-
-        <div className="flex items-center gap-1">
-          {drawMode && (
-            <motion.div
-              initial={{ opacity: 0, x: 8 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="flex items-center gap-1"
-            >
-              <div className="relative">
-                <button
-                  onClick={() => setShowColorPicker((v) => !v)}
-                  className="w-7 h-7 rounded-lg border-2 border-[#333] transition-colors hover:border-[#555]"
-                  style={{ background: color }}
-                  title="Cor"
-                />
-                {showColorPicker && (
-                  <div className="absolute top-9 right-0 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg p-2 flex gap-1.5 z-50 shadow-xl">
-                    {SKETCH_COLORS.map((c) => (
-                      <button
-                        key={c}
-                        onClick={() => { setColor(c); setShowColorPicker(false); }}
-                        className="w-5 h-5 rounded-full border-2 transition-all hover:scale-110"
-                        style={{ background: c, borderColor: c === color ? "#fff" : "transparent" }}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-              <button onClick={() => setSize(Math.max(2, size - 2))} className="w-6 h-6 flex items-center justify-center rounded bg-[#1a1a1a] border border-[#2a2a2a] text-[#888] hover:text-white text-xs transition-colors">−</button>
-              <span className="text-[10px] text-[#666] w-3 text-center">{size}</span>
-              <button onClick={() => setSize(Math.min(20, size + 2))} className="w-6 h-6 flex items-center justify-center rounded bg-[#1a1a1a] border border-[#2a2a2a] text-[#888] hover:text-white text-xs transition-colors">+</button>
-              <button onClick={undoSketch} title="Ctrl+Z" className="p-1.5 rounded bg-[#1a1a1a] border border-[#2a2a2a] text-[#888] hover:text-white transition-colors"><Undo2 size={12} /></button>
-              <button onClick={clearSketch} className="p-1.5 rounded bg-[#1a1a1a] border border-[#2a2a2a] text-[#f87171] hover:text-white transition-colors" title="Limpar"><Eraser size={12} /></button>
-            </motion.div>
-          )}
-
-          <motion.button
-            onClick={() => { setDrawMode((v) => !v); setShowColorPicker(false); }}
-            whileTap={{ scale: 0.95 }}
-            title="Ctrl+D"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border"
-            style={{
-              background: drawMode ? "#8b5cf620" : "#1a1a1a",
-              borderColor: drawMode ? "#8b5cf6" : "#2a2a2a",
-              color: drawMode ? "#8b5cf6" : "#6b7280",
-            }}
-          >
-            <Pencil size={13} />
-            {drawMode ? "Desenhando" : "Desenho"}
-          </motion.button>
-        </div>
-
-        <motion.button
-          onClick={() => setPickerOpen(true)}
-          whileTap={{ scale: 0.95 }}
-          title="Ctrl+T"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium
-            bg-[#8b5cf6] hover:bg-[#7c3aed] text-white transition-all"
-          style={{ boxShadow: "0 0 20px rgba(139,92,246,0.25)" }}
-        >
-          <Plus size={15} />
-          Terminal
-        </motion.button>
-      </div>
+      <Toolbar onTerminal={openTerminalPicker} onAttachment={handleAttachment} />
 
       <div className="absolute top-0 left-0 h-10 flex items-center px-4 z-10 pointer-events-none">
         <span className="text-[#2a2a2a] text-xs select-none">{currentWorkspace}</span>
@@ -391,6 +344,14 @@ function CanvasInner() {
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
           <div className="bg-[#1a1a1a] border border-[#8b5cf640] text-[#8b5cf6] text-xs px-3 py-1.5 rounded-full">
             Modo desenho ativo — Esc para sair
+          </div>
+        </div>
+      )}
+
+      {placementMode && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
+          <div className="bg-[#1a1a1a] border border-[#8b5cf640] text-[#8b5cf6] text-xs px-3 py-1.5 rounded-full">
+            Clique no canvas para posicionar — Shift mantém a ferramenta, Esc cancela
           </div>
         </div>
       )}
