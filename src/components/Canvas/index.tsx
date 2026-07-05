@@ -20,6 +20,7 @@ import TerminalTile from "@/components/TerminalTile";
 import NoteTile from "@/components/NoteTile";
 import TextTile from "@/components/TextTile";
 import FileTreeTile from "@/components/FileTreeTile";
+import AttachmentTile from "@/components/AttachmentTile";
 import AgentNoteEdge from "@/components/AgentNoteEdge";
 import AgentPipeEdge from "@/components/AgentPipeEdge";
 import AgentPicker from "@/components/AgentPicker";
@@ -31,7 +32,7 @@ import { useToolStore, PLACEMENT_TOOLS } from "@/stores/tool";
 import { saveNow } from "@/hooks/useAutoSave";
 import { useSketchStore } from "@/stores/sketch";
 import { stripAnsi, cleanLines } from "@/lib/ansi";
-import { ptyWrite, ptyNotify } from "@/lib/tauri";
+import { ptyWrite, ptyNotify, pickFile } from "@/lib/tauri";
 import type { AgentType } from "@/lib/tauri";
 import type { AppEdge, TerminalNodeData } from "@/stores/canvas";
 import type { Tool } from "@/stores/tool";
@@ -41,6 +42,7 @@ const nodeTypes = {
   note: NoteTile,
   text: TextTile,
   filetree: FileTreeTile,
+  attachment: AttachmentTile,
 } satisfies NodeTypes;
 
 const edgeTypes = {
@@ -71,7 +73,7 @@ export default function Canvas() {
 }
 
 function CanvasInner() {
-  const { nodes, edges, onNodesChange, onEdgesChange, addEdge: addStoreEdge, addTerminalNode, addNoteNode, addTextNode, addFileTreeNode } =
+  const { nodes, edges, onNodesChange, onEdgesChange, addEdge: addStoreEdge, addTerminalNode, addNoteNode, addTextNode, addFileTreeNode, addAttachmentNode } =
     useCanvasStore(
       useShallow((s) => ({
         nodes: s.nodes,
@@ -83,6 +85,7 @@ function CanvasInner() {
         addNoteNode: s.addNoteNode,
         addTextNode: s.addTextNode,
         addFileTreeNode: s.addFileTreeNode,
+        addAttachmentNode: s.addAttachmentNode,
       }))
     );
   const hydrated = useCanvasStore((s) => s.hydrated);
@@ -268,8 +271,14 @@ function CanvasInner() {
 
   const openTerminalPicker = useCallback(() => setPickerOpen(true), []);
 
-  // Anexo: file picker nativo → nó no centro (ligado quando o tile existir)
-  const handleAttachment = useCallback(() => {}, []);
+  // Anexo: file picker nativo → nó no centro do viewport
+  const handleAttachment = useCallback(() => {
+    pickFile()
+      .then((path) => {
+        if (path) addAttachmentNode(viewportCenter(), path);
+      })
+      .catch(console.error);
+  }, [addAttachmentNode, viewportCenter]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
