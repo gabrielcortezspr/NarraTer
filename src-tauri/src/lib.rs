@@ -1,3 +1,4 @@
+mod fsops;
 mod historia;
 mod ipc;
 mod pty;
@@ -11,6 +12,7 @@ pub fn run() {
     let pty_state_for_ipc = pty_state.clone();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(pty_state)
         .setup(move |app| {
             let state_arc = std::sync::Arc::clone(&pty_state_for_ipc.0);
@@ -36,6 +38,10 @@ pub fn run() {
             historia::delete_historia,
             historia::rename_historia,
             historia::open_in_editor,
+            fsops::fs_list_dir,
+            fsops::fs_read_file_base64,
+            fsops::pick_file,
+            fsops::open_url,
             roles::load_roles,
             roles::save_roles,
         ])

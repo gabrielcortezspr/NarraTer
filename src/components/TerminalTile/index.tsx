@@ -11,6 +11,7 @@ import { useCanvasStore } from "@/stores/canvas";
 import { useTerminalsStore } from "@/stores/terminals";
 import type { SessionStatus } from "@/stores/terminals";
 import { openInEditor } from "@/lib/tauri";
+import { EDITORS } from "@/lib/editors";
 import type { TerminalNodeData } from "@/stores/canvas";
 import type { Node, NodeProps } from "@xyflow/react";
 import type { AgentType } from "@/lib/tauri";
@@ -69,13 +70,6 @@ const STATUS_DOT: Record<SessionStatus, { color: string; label: string }> = {
   idle: { color: "#6b7280", label: "Ocioso" },
   exited: { color: "#f87171", label: "Encerrado" },
 };
-
-const EDITORS = [
-  { label: "VS Code", cmd: "code" },
-  { label: "Zed", cmd: "zed" },
-  { label: "Cursor", cmd: "cursor" },
-  { label: "Neovim", cmd: "nvim" },
-];
 
 export default function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   const termDivRef = useRef<HTMLDivElement>(null);

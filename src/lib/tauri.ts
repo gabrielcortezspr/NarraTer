@@ -95,6 +95,29 @@ export const renameHistoria = (oldName: string, newName: string) =>
 export const openInEditor = (editor: string, path: string) =>
   invoke<void>("open_in_editor", { editor, path });
 
+export interface FsEntry {
+  name: string;
+  path: string;
+  is_dir: boolean;
+}
+
+export interface FileBlob {
+  base64: string;
+  mime: string;
+  size: number;
+}
+
+export const fsListDir = (path: string) =>
+  invoke<FsEntry[]>("fs_list_dir", { path });
+
+export const fsReadFileBase64 = (path: string) =>
+  invoke<FileBlob>("fs_read_file_base64", { path });
+
+// File picker nativo (via plugin dialog do lado Rust); null se cancelado
+export const pickFile = () => invoke<string | null>("pick_file");
+
+export const openUrl = (url: string) => invoke<void>("open_url", { url });
+
 export interface Role {
   id: string;
   name: string;

@@ -19,6 +19,7 @@ import "@xyflow/react/dist/style.css";
 import TerminalTile from "@/components/TerminalTile";
 import NoteTile from "@/components/NoteTile";
 import TextTile from "@/components/TextTile";
+import FileTreeTile from "@/components/FileTreeTile";
 import AgentNoteEdge from "@/components/AgentNoteEdge";
 import AgentPipeEdge from "@/components/AgentPipeEdge";
 import AgentPicker from "@/components/AgentPicker";
@@ -39,6 +40,7 @@ const nodeTypes = {
   terminal: TerminalTile,
   note: NoteTile,
   text: TextTile,
+  filetree: FileTreeTile,
 } satisfies NodeTypes;
 
 const edgeTypes = {
@@ -69,7 +71,7 @@ export default function Canvas() {
 }
 
 function CanvasInner() {
-  const { nodes, edges, onNodesChange, onEdgesChange, addEdge: addStoreEdge, addTerminalNode, addNoteNode, addTextNode } =
+  const { nodes, edges, onNodesChange, onEdgesChange, addEdge: addStoreEdge, addTerminalNode, addNoteNode, addTextNode, addFileTreeNode } =
     useCanvasStore(
       useShallow((s) => ({
         nodes: s.nodes,
@@ -80,6 +82,7 @@ function CanvasInner() {
         addTerminalNode: s.addTerminalNode,
         addNoteNode: s.addNoteNode,
         addTextNode: s.addTextNode,
+        addFileTreeNode: s.addFileTreeNode,
       }))
     );
   const hydrated = useCanvasStore((s) => s.hydrated);
@@ -128,12 +131,15 @@ function CanvasInner() {
         case "text":
           addTextNode(position);
           break;
-        // files/portal são ligados quando seus tiles existirem
+        case "files":
+          addFileTreeNode(position);
+          break;
+        // portal é ligado quando seu tile existir
       }
       // Shift mantém a ferramenta para criação em série
       if (!e.shiftKey) setTool("select");
     },
-    [screenToFlowPosition, addNoteNode, addTextNode, setTool]
+    [screenToFlowPosition, addNoteNode, addTextNode, addFileTreeNode, setTool]
   );
 
   // Agent → Note pipe: listen to all PTY output and forward to connected notes
