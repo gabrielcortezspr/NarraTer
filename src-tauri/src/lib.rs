@@ -1,3 +1,4 @@
+mod canvas_bridge;
 mod fsops;
 mod historia;
 mod ipc;
@@ -42,6 +43,7 @@ pub fn run() {
             fsops::fs_read_file_base64,
             fsops::pick_file,
             fsops::open_url,
+            canvas_bridge::canvas_respond,
             roles::load_roles,
             roles::save_roles,
         ])

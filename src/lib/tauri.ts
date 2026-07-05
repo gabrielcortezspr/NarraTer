@@ -118,6 +118,10 @@ export const pickFile = () => invoke<string | null>("pick_file");
 
 export const openUrl = (url: string) => invoke<void>("open_url", { url });
 
+// Resolve uma requisição de canvas vinda de um agente (evento canvas_request)
+export const canvasRespond = (reqId: string, result: string) =>
+  invoke<void>("canvas_respond", { reqId, result });
+
 export interface Role {
   id: string;
   name: string;

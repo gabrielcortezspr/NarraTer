@@ -2,7 +2,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use serde::Deserialize;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
 use tokio::sync::{mpsc, oneshot};
@@ -13,6 +13,7 @@ use crate::pty::{
 };
 
 const ASK_DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
+const CANVAS_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Deserialize)]
 struct IpcRequest {
@@ -24,11 +25,17 @@ struct IpcRequest {
     to: Option<String>,
     #[serde(default)]
     msg: Option<String>,
-    /// "send" | "ask" | "peers" | "whoami"
+    /// "send" | "ask" | "peers" | "whoami" | "canvas"
     #[serde(default)]
     mode: Option<String>,
     #[serde(default)]
     timeout_secs: Option<u64>,
+    /// mode "canvas": ação (list_nodes, create_note, update_note…)
+    #[serde(default)]
+    action: Option<String>,
+    /// mode "canvas": argumentos da ação, repassados ao frontend como vieram
+    #[serde(default)]
+    params: Option<serde_json::Value>,
 }
 
 pub async fn start_ipc_server(app: AppHandle, state: Arc<Mutex<PtyStateInner>>) {
@@ -89,6 +96,7 @@ async fn handle_connection(
         Some("peers") => handle_peers(&req, &state),
         Some("send") => handle_send(&req, &app, &state),
         Some("ask") => handle_ask(&req, &app, &state).await,
+        Some("canvas") => handle_canvas(&req, &app, &state).await,
         _ => "Uso: narrater send|ask <alvo> <mensagem> | narrater peers | narrater whoami\n".to_string(),
     };
 
@@ -267,6 +275,63 @@ async fn handle_ask(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStat
     strip_injected_echo(&response, &from_label, &msg)
 }
 
+#[derive(Clone, serde::Serialize)]
+struct CanvasRequestEvent {
+    req_id: String,
+    from: String,
+    from_label: String,
+    action: String,
+    params: serde_json::Value,
+}
+
+/// Ponte agente → canvas: registra um waiter, emite `canvas_request` para o
+/// frontend (que aplica a ação no store e responde via canvas_respond) e
+/// espera o resultado. ACL v1: qualquer agente com sessão válida pode
+/// manipular o canvas — as edges seguem governando só a comunicação
+/// agente↔agente (ver docs/mcp-canvas-tools.md).
+async fn handle_canvas(
+    req: &IpcRequest,
+    app: &AppHandle,
+    state: &Arc<Mutex<PtyStateInner>>,
+) -> String {
+    let action = match req.action.as_deref() {
+        Some(a) if !a.is_empty() => a.to_string(),
+        _ => return "Erro: ação de canvas não informada\n".to_string(),
+    };
+    if req.from.is_empty() {
+        return "Erro: NARRATER_ID não definido. Você está dentro de um terminal NarraTer?\n".into();
+    }
+
+    let req_id = uuid::Uuid::new_v4().to_string();
+    let (tx, rx) = oneshot::channel::<String>();
+    let from_label = {
+        let mut inner = state.lock().unwrap();
+        if !inner.sessions.contains_key(&req.from) {
+            return "Erro: sessão desconhecida — você está dentro de um terminal NarraTer?\n".to_string();
+        }
+        inner.canvas_waiters.insert(req_id.clone(), tx);
+        label_of(&inner, &req.from)
+    };
+
+    let _ = app.emit("canvas_request", CanvasRequestEvent {
+        req_id: req_id.clone(),
+        from: req.from.clone(),
+        from_label,
+        action,
+        params: req.params.clone().unwrap_or(serde_json::Value::Null),
+    });
+
+    match timeout(CANVAS_TIMEOUT, rx).await {
+        Ok(Ok(result)) => {
+            if result.ends_with('\n') { result } else { format!("{}\n", result) }
+        }
+        _ => {
+            state.lock().unwrap().canvas_waiters.remove(&req_id);
+            "Erro: timeout aguardando o canvas\n".to_string()
+        }
+    }
+}
+
 /// The target PTY echoes the injected line back — `[narrater de <label>]: ...`
 /// for AI agents, the bare command for shells. Cut everything up to and
 /// including that echo so the caller sees only the actual reply.
@@ -430,6 +495,38 @@ TOOLS = [
         "description": "Mostra sua identidade (id e label) no canvas NarraTer.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "canvas_list_nodes",
+        "description": "Lista todos os nos do canvas NarraTer (terminais, notas, textos etc.) com id, tipo, label e posicao. Use antes de criar ou editar notas para descobrir o que ja existe.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "canvas_create_note",
+        "description": "Cria uma nota no canvas NarraTer. Por padrao nasce ao lado do seu terminal. Use notas para publicar resultados persistentes visiveis ao usuario. Retorna o id da nota criada.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "Conteudo da nota"},
+                "label": {"type": "string", "description": "Titulo opcional"},
+                "x": {"type": "number", "description": "Posicao X opcional no canvas"},
+                "y": {"type": "number", "description": "Posicao Y opcional no canvas"},
+            },
+            "required": ["content"],
+        },
+    },
+    {
+        "name": "canvas_update_note",
+        "description": "Anexa ou substitui o conteudo de uma nota existente do canvas NarraTer, identificada por id ou label (veja canvas_list_nodes).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "Id ou label da nota"},
+                "content": {"type": "string", "description": "Conteudo"},
+                "mode": {"type": "string", "enum": ["append", "replace"], "description": "append (default) ou replace"},
+            },
+            "required": ["id", "content"],
+        },
+    },
 ]
 
 MODE = {"send_message": "send", "ask_agent": "ask", "list_peers": "peers", "whoami": "whoami"}
@@ -485,16 +582,24 @@ def main():
             params = msg.get("params", {})
             name = params.get("name", "")
             args = params.get("arguments", {}) or {}
-            mode = MODE.get(name)
-            if not mode:
-                reply(msg_id, {"content": [{"type": "text", "text": f"Erro: ferramenta desconhecida '{name}'"}], "isError": True})
-                continue
-            payload = {"from": os.environ.get("NARRATER_ID", ""), "mode": mode}
-            if mode in ("send", "ask"):
-                payload["to"] = args.get("to", "")
-                payload["msg"] = args.get("msg", "")
-                if args.get("timeout_secs"):
-                    payload["timeout_secs"] = int(args["timeout_secs"])
+            if name.startswith("canvas_"):
+                payload = {
+                    "from": os.environ.get("NARRATER_ID", ""),
+                    "mode": "canvas",
+                    "action": name[len("canvas_"):],
+                    "params": args,
+                }
+            else:
+                mode = MODE.get(name)
+                if not mode:
+                    reply(msg_id, {"content": [{"type": "text", "text": f"Erro: ferramenta desconhecida '{name}'"}], "isError": True})
+                    continue
+                payload = {"from": os.environ.get("NARRATER_ID", ""), "mode": mode}
+                if mode in ("send", "ask"):
+                    payload["to"] = args.get("to", "")
+                    payload["msg"] = args.get("msg", "")
+                    if args.get("timeout_secs"):
+                        payload["timeout_secs"] = int(args["timeout_secs"])
             text = narrater_request(payload).strip() or "(sem resposta)"
             reply(msg_id, {"content": [{"type": "text", "text": text}], "isError": text.startswith("Erro")})
         elif msg_id is not None:

@@ -7,6 +7,7 @@ import { useWorkspacesStore } from "@/stores/workspaces";
 import { useRolesStore } from "@/stores/roles";
 import { useTerminalsStore } from "@/stores/terminals";
 import { useAutoSave } from "@/hooks/useAutoSave";
+import { initCanvasBridge } from "@/lib/canvasBridge";
 
 export default function App() {
   const { loadHistoria } = useCanvasStore();
@@ -39,6 +40,9 @@ export default function App() {
     listen<{ id: string; pending: number }>("pty_queue", (event) => {
       useTerminalsStore.getState().setQueue(event.payload.id, event.payload.pending);
     }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
+
+    // Agentes manipulando o canvas via MCP (canvas_request → store → respond)
+    initCanvasBridge().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
     return () => {
       cancelled = true;

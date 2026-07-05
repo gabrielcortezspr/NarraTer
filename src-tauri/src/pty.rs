@@ -91,6 +91,9 @@ pub struct PtyStateInner {
     pub connections: HashSet<(String, String)>,
     /// Per-terminal inbound message queue, drained on idle by the monitor.
     pub inbox: HashMap<String, VecDeque<QueuedMsg>>,
+    /// In-flight canvas requests (MCP → frontend), keyed by request id; the
+    /// frontend resolves them via the canvas_respond command.
+    pub canvas_waiters: HashMap<String, tokio::sync::oneshot::Sender<String>>,
 }
 
 #[derive(Clone)]
@@ -105,6 +108,7 @@ impl Default for PtyState {
             response_listeners: HashMap::new(),
             connections: HashSet::new(),
             inbox: HashMap::new(),
+            canvas_waiters: HashMap::new(),
         })))
     }
 }

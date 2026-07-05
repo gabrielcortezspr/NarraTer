@@ -30,6 +30,11 @@ export function buildAgentSystemPrompt({ label, roleName, instructions }: AgentP
       "- Use ask_agent quando precisar da resposta para continuar (a chamada bloqueia esperando o outro agente terminar); use send_message para delegar ou notificar sem esperar.",
       "- Só é possível falar com agentes conectados a você por uma edge no canvas. Se a rota não existir, avise o usuário em vez de insistir.",
       "- Seja objetivo nas mensagens entre agentes: contexto mínimo, o que precisa ser feito e o critério de pronto.",
+      "",
+      "## Canvas",
+      "",
+      "Você também pode manipular o canvas com canvas_list_nodes, canvas_create_note e canvas_update_note.",
+      "Use notas para publicar resultados persistentes visíveis ao usuário (relatórios, resumos, decisões) — elas ficam salvas no canvas mesmo depois que sua sessão terminar.",
     ].join("\n")
   );
 
