@@ -1,0 +1,36 @@
+{
+  "name": "narrater",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2",
+    "@xyflow/react": "^12",
+    "@xterm/xterm": "^6",
+    "@xterm/addon-fit": "^0.11",
+    "@xterm/addon-web-links": "^0.12",
+    "zustand": "^5",
+    "framer-motion": "^11",
+    "lucide-react": "^0.427.0",
+    "clsx": "^2",
+    "tailwind-merge": "^2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2",
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@vitejs/plugin-react": "^4",
+    "autoprefixer": "^10",
+    "postcss": "^8",
+    "tailwindcss": "^3",
+    "typescript": "^5",
+    "vite": "^5"
+  }
+}
