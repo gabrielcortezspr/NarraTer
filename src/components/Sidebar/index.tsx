@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import { useCanvasStore } from "@/stores/canvas";
+import { saveNow } from "@/hooks/useAutoSave";
 import { useSketchStore } from "@/stores/sketch";
 import { useRolesStore } from "@/stores/roles";
 import RoleManager from "@/components/RoleManager";
@@ -24,7 +25,7 @@ interface Props {
 export default function Sidebar({ collapsed, onToggle }: Props) {
   const { list, current, setCurrent, createWorkspace, deleteWorkspace, renameWorkspace } =
     useWorkspacesStore();
-  const { saveHistoria, loadHistoria } = useCanvasStore();
+  const loadHistoria = useCanvasStore((s) => s.loadHistoria);
   const clearSketch = useSketchStore((s) => s.clear);
   const { roles, loaded, load: loadRoles } = useRolesStore();
   const [roleManagerOpen, setRoleManagerOpen] = useState(false);
@@ -60,13 +61,15 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
   const switchWorkspace = useCallback(
     async (name: string) => {
       if (name === current) return;
-      await saveHistoria(current);
+      // saveNow (não saveHistoria direto): cancela o timer do auto-save — um
+      // timer disparando após o load gravaria o canvas novo no arquivo antigo.
+      await saveNow();
       await loadHistoria(name);
       setCurrent(name);
       clearSketch();
       setContextMenu(null);
     },
-    [current, saveHistoria, loadHistoria, setCurrent, clearSketch]
+    [current, loadHistoria, setCurrent, clearSketch]
   );
 
   const handleCreate = async () => {

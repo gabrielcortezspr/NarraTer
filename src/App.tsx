@@ -6,12 +6,15 @@ import { useCanvasStore } from "@/stores/canvas";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import { useRolesStore } from "@/stores/roles";
 import { useTerminalsStore } from "@/stores/terminals";
+import { useAutoSave } from "@/hooks/useAutoSave";
 
 export default function App() {
   const { loadHistoria } = useCanvasStore();
   const { loadList } = useWorkspacesStore();
   const { load: loadRoles } = useRolesStore();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  useAutoSave();
 
   useEffect(() => {
     const init = async () => {

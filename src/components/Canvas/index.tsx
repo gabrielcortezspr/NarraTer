@@ -26,6 +26,8 @@ import AgentPicker from "@/components/AgentPicker";
 import SketchLayer from "@/components/SketchLayer";
 import { useCanvasStore } from "@/stores/canvas";
 import { useWorkspacesStore } from "@/stores/workspaces";
+import { usePersistenceStore } from "@/stores/persistence";
+import { saveNow } from "@/hooks/useAutoSave";
 import { useSketchStore } from "@/stores/sketch";
 import { stripAnsi, cleanLines } from "@/lib/ansi";
 import { ptyWrite, ptyNotify } from "@/lib/tauri";
@@ -55,7 +57,7 @@ export default function Canvas() {
 }
 
 function CanvasInner() {
-  const { nodes, edges, onNodesChange, onEdgesChange, addEdge: addStoreEdge, addTerminalNode, addNoteNode, saveHistoria } =
+  const { nodes, edges, onNodesChange, onEdgesChange, addEdge: addStoreEdge, addTerminalNode, addNoteNode } =
     useCanvasStore(
       useShallow((s) => ({
         nodes: s.nodes,
@@ -65,7 +67,6 @@ function CanvasInner() {
         addEdge: s.addEdge,
         addTerminalNode: s.addTerminalNode,
         addNoteNode: s.addNoteNode,
-        saveHistoria: s.saveHistoria,
       }))
     );
   const hydrated = useCanvasStore((s) => s.hydrated);
@@ -73,9 +74,10 @@ function CanvasInner() {
   const { undo: undoSketch, clear: clearSketch, color, setColor, size, setSize } = useSketchStore();
   const { screenToFlowPosition, fitView } = useReactFlow();
 
+  const saveState = usePersistenceStore((s) => s.state);
+
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
 
@@ -228,11 +230,9 @@ function CanvasInner() {
     addNoteNode(viewportCenter());
   }, [addNoteNode, viewportCenter]);
 
-  const handleSave = useCallback(async () => {
-    setSaving(true);
-    await saveHistoria(currentWorkspace);
-    setTimeout(() => setSaving(false), 800);
-  }, [saveHistoria, currentWorkspace]);
+  const handleSave = useCallback(() => {
+    saveNow().catch(console.error);
+  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -299,13 +299,13 @@ function CanvasInner() {
           title="Ctrl+S"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all border"
           style={{
-            background: saving ? "#4ade8020" : "#1a1a1a",
-            borderColor: saving ? "#4ade80" : "#2a2a2a",
-            color: saving ? "#4ade80" : "#6b7280",
+            background: saveState === "saved" ? "#4ade8020" : "#1a1a1a",
+            borderColor: saveState === "saved" ? "#4ade80" : "#2a2a2a",
+            color: saveState === "saved" ? "#4ade80" : "#6b7280",
           }}
         >
           <Save size={13} />
-          {saving ? "Salvo" : "Salvar"}
+          {saveState === "saved" ? "Salvo" : saveState === "saving" ? "Salvando…" : "Salvar"}
         </motion.button>
 
         <motion.button
