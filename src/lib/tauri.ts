@@ -8,6 +8,7 @@ export interface PtySpawnOptions {
   cols: number;
   rows: number;
   label?: string;
+  agentType?: AgentType;
   env?: Record<string, string>;
 }
 

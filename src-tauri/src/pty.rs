@@ -75,6 +75,9 @@ pub struct PtySession {
     child: Box<dyn Child + Send + Sync>,
     pub last_output: Instant,
     pub status: RunStatus,
+    /// Agent type running in this terminal ("shell", "claude", ...). Decides
+    /// how inbound messages are framed on delivery.
+    pub agent_type: String,
 }
 
 pub struct PtyStateInner {
@@ -127,6 +130,7 @@ pub fn pty_spawn(
     cols: u16,
     rows: u16,
     label: Option<String>,
+    agent_type: Option<String>,
     app_handle: AppHandle,
     state: State<'_, PtyState>,
 ) -> Result<String, String> {
@@ -192,6 +196,7 @@ pub fn pty_spawn(
             child,
             last_output: Instant::now(),
             status: RunStatus::Running,
+            agent_type: agent_type.unwrap_or_else(|| "shell".to_string()),
         });
     }
 
@@ -361,7 +366,7 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
         }
 
         // Deliver at most one queued message per terminal per tick
-        let deliveries: Vec<(String, QueuedMsg, usize)> = {
+        let deliveries: Vec<(String, QueuedMsg, usize, bool)> = {
             let mut inner = state.lock().unwrap();
             let ids: Vec<String> = inner.inbox.keys().cloned().collect();
             let mut out = Vec::new();
@@ -389,19 +394,29 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
                         }
                         // Mark Running right away so the whole queue isn't
                         // flushed before the injected command produces output
+                        let mut is_shell = true;
                         if let Some(s) = inner.sessions.get_mut(&id) {
                             s.status = RunStatus::Running;
                             s.last_output = Instant::now();
+                            is_shell = s.agent_type == "shell";
                         }
-                        out.push((id.clone(), msg, pending));
+                        out.push((id.clone(), msg, pending, is_shell));
                     }
                 }
             }
             out
         };
 
-        for (id, mut qmsg, pending) in deliveries {
-            let framed = format!("\n[narrater de {}]: {}\n", qmsg.from_label, qmsg.msg);
+        for (id, mut qmsg, pending, is_shell) in deliveries {
+            // \r submits the line (terminals send Enter as carriage return —
+            // \n is not enough for raw-mode TUIs). Shells get the bare command
+            // (the sender frame would break it) preceded by kill-line (^U) to
+            // clear any half-typed input; AI agents get the sender frame.
+            let framed = if is_shell {
+                format!("\x15{}\r", qmsg.msg)
+            } else {
+                format!("[narrater de {}]: {}\r", qmsg.from_label, qmsg.msg)
+            };
             write_to_pty(&state, &id, &framed);
             if let Some(tx) = qmsg.delivered_tx.take() {
                 let _ = tx.send(());

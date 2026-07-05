@@ -23,7 +23,7 @@ export function usePty() {
       addSession(id);
       const command = getCommandForAgent(agentType, customCommand);
       try {
-        const effectiveLabel = await ptySpawn({ id, command, cols, rows, label });
+        const effectiveLabel = await ptySpawn({ id, command, cols, rows, label, agentType });
         setRunning(id);
         // Backend deduplicates labels (they address agents in narrater send);
         // reflect the effective one on the node so UI and routing agree

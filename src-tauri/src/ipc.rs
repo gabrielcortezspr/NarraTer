@@ -205,7 +205,7 @@ async fn handle_ask(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStat
 
     enqueue_message(state, app, &target_id, QueuedMsg {
         from_label: from_label.clone(),
-        msg,
+        msg: msg.clone(),
         enqueued: Instant::now(),
         delivered_tx: Some(delivered_tx),
     });
@@ -263,15 +263,16 @@ async fn handle_ask(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStat
     }
 
     state.lock().unwrap().response_listeners.remove(&req_id);
-    strip_injected_echo(&response, &from_label)
+    strip_injected_echo(&response, &from_label, &msg)
 }
 
-/// The target PTY echoes the injected `[narrater de <label>]: ...` line back;
-/// cut everything up to and including that echo so the caller sees only the
-/// actual reply.
-fn strip_injected_echo(response: &str, from_label: &str) -> String {
+/// The target PTY echoes the injected line back — `[narrater de <label>]: ...`
+/// for AI agents, the bare command for shells. Cut everything up to and
+/// including that echo so the caller sees only the actual reply.
+fn strip_injected_echo(response: &str, from_label: &str, msg: &str) -> String {
     let marker = format!("[narrater de {}]", from_label);
-    if let Some(pos) = response.find(&marker) {
+    let pos = response.find(&marker).or_else(|| response.find(msg));
+    if let Some(pos) = pos {
         if let Some(nl) = response[pos..].find('\n') {
             let rest = &response[pos + nl + 1..];
             return rest.trim_start_matches(['\r', '\n']).to_string();
