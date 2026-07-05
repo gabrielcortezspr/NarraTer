@@ -418,12 +418,22 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
             // \n is not enough for raw-mode TUIs). Shells get the bare command
             // (the sender frame would break it) preceded by kill-line (^U) to
             // clear any half-typed input; AI agents get the sender frame.
-            let framed = if is_shell {
-                format!("\x15{}\r", qmsg.msg)
+            if is_shell {
+                write_to_pty(&state, &id, &format!("\x15{}\r", qmsg.msg));
             } else {
-                format!("[narrater de {}]: {}\r", qmsg.from_label, qmsg.msg)
-            };
-            write_to_pty(&state, &id, &framed);
+                // TUIs like claude code treat a fast text+\r burst as a paste,
+                // turning the \r into a literal newline in the composer. Send
+                // the text first and the \r alone after the paste-detection
+                // window so it registers as a real Enter.
+                let framed = format!("[narrater de {}]: {}", qmsg.from_label, qmsg.msg);
+                write_to_pty(&state, &id, &framed);
+                let state_clone = Arc::clone(&state);
+                let id_clone = id.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    write_to_pty(&state_clone, &id_clone, "\r");
+                });
+            }
             if let Some(tx) = qmsg.delivered_tx.take() {
                 let _ = tx.send(());
             }
