@@ -139,7 +139,13 @@ pub fn pty_spawn(
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| e.to_string())?;
 
-    let mut cmd = CommandBuilder::new(&command);
+    // The command may carry arguments (whitespace-separated, no quoting)
+    let mut parts = command.split_whitespace();
+    let program = parts.next().ok_or("comando vazio")?;
+    let mut cmd = CommandBuilder::new(program);
+    for arg in parts {
+        cmd.arg(arg);
+    }
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
 

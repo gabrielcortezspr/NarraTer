@@ -97,7 +97,8 @@ export function getCommandForAgent(agentType: AgentType, customCommand?: string)
   const shell = "/bin/bash";
   switch (agentType) {
     case "shell": return shell;
-    case "claude": return "claude";
+    // Pre-approve narrater so agents can message peers without permission prompts
+    case "claude": return "claude --allowedTools Bash(narrater) Bash(narrater:*)";
     case "codex": return "codex";
     case "custom": return customCommand ?? shell;
   }
