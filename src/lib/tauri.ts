@@ -30,6 +30,12 @@ export interface HistoriaNode {
   role_id?: string;
   role_name?: string;
   role_color?: string;
+  // filetree.rootPath / attachment.path
+  path?: string;
+  // portal
+  url?: string;
+  // filetree
+  expanded_paths?: string[];
 }
 
 export interface HistoriaEdge {

@@ -21,6 +21,15 @@ pub struct HistoriaNode {
     pub role_id: Option<String>,
     pub role_name: Option<String>,
     pub role_color: Option<String>,
+    // filetree.rootPath / attachment.path
+    #[serde(default)]
+    pub path: Option<String>,
+    // portal
+    #[serde(default)]
+    pub url: Option<String>,
+    // filetree
+    #[serde(default)]
+    pub expanded_paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

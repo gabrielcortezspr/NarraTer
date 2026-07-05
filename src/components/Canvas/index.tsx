@@ -18,6 +18,7 @@ import { listen } from "@tauri-apps/api/event";
 import "@xyflow/react/dist/style.css";
 import TerminalTile from "@/components/TerminalTile";
 import NoteTile from "@/components/NoteTile";
+import TextTile from "@/components/TextTile";
 import AgentNoteEdge from "@/components/AgentNoteEdge";
 import AgentPipeEdge from "@/components/AgentPipeEdge";
 import AgentPicker from "@/components/AgentPicker";
@@ -37,6 +38,7 @@ import type { Tool } from "@/stores/tool";
 const nodeTypes = {
   terminal: TerminalTile,
   note: NoteTile,
+  text: TextTile,
 } satisfies NodeTypes;
 
 const edgeTypes = {
@@ -67,7 +69,7 @@ export default function Canvas() {
 }
 
 function CanvasInner() {
-  const { nodes, edges, onNodesChange, onEdgesChange, addEdge: addStoreEdge, addTerminalNode, addNoteNode } =
+  const { nodes, edges, onNodesChange, onEdgesChange, addEdge: addStoreEdge, addTerminalNode, addNoteNode, addTextNode } =
     useCanvasStore(
       useShallow((s) => ({
         nodes: s.nodes,
@@ -77,6 +79,7 @@ function CanvasInner() {
         addEdge: s.addEdge,
         addTerminalNode: s.addTerminalNode,
         addNoteNode: s.addNoteNode,
+        addTextNode: s.addTextNode,
       }))
     );
   const hydrated = useCanvasStore((s) => s.hydrated);
@@ -122,12 +125,15 @@ function CanvasInner() {
         case "note":
           addNoteNode(position);
           break;
-        // text/files/portal são ligados quando seus tiles existirem
+        case "text":
+          addTextNode(position);
+          break;
+        // files/portal são ligados quando seus tiles existirem
       }
       // Shift mantém a ferramenta para criação em série
       if (!e.shiftKey) setTool("select");
     },
-    [screenToFlowPosition, addNoteNode, setTool]
+    [screenToFlowPosition, addNoteNode, addTextNode, setTool]
   );
 
   // Agent → Note pipe: listen to all PTY output and forward to connected notes
@@ -323,6 +329,10 @@ function CanvasInner() {
         <MiniMap
           nodeColor={(node) => {
             if (node.type === "note") return "#fbbf2440";
+            if (node.type === "text") return "#e5e7eb30";
+            if (node.type === "filetree") return "#60a5fa40";
+            if (node.type === "attachment") return "#f472b640";
+            if (node.type === "portal") return "#22d3ee40";
             const t = (node.data as { agentType?: string })?.agentType ?? "shell";
             return { shell: "#6b728050", claude: "#8b5cf650", codex: "#3b82f650", custom: "#14b8a650" }[t] ?? "#6b728050";
           }}

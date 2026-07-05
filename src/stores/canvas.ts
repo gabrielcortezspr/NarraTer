@@ -21,7 +21,31 @@ export interface NoteNodeData extends Record<string, unknown> {
   label: string;
 }
 
-export type AppNode = Node<TerminalNodeData, "terminal"> | Node<NoteNodeData, "note">;
+export interface TextNodeData extends Record<string, unknown> {
+  text: string;
+}
+
+export interface FileTreeNodeData extends Record<string, unknown> {
+  rootPath: string;
+  expandedPaths: string[];
+}
+
+export interface AttachmentNodeData extends Record<string, unknown> {
+  path: string;
+  fileName: string;
+}
+
+export interface PortalNodeData extends Record<string, unknown> {
+  url: string;
+}
+
+export type AppNode =
+  | Node<TerminalNodeData, "terminal">
+  | Node<NoteNodeData, "note">
+  | Node<TextNodeData, "text">
+  | Node<FileTreeNodeData, "filetree">
+  | Node<AttachmentNodeData, "attachment">
+  | Node<PortalNodeData, "portal">;
 export type AppEdge = Edge;
 
 export interface AddTerminalOpts {
@@ -47,6 +71,10 @@ interface CanvasStore {
   addTerminalNode: (opts: AddTerminalOpts, position?: XYPosition) => string;
   updateNodeData: (id: string, patch: Record<string, unknown>) => void;
   addNoteNode: (position?: XYPosition, initial?: Partial<NoteNodeData>) => string;
+  addTextNode: (position?: XYPosition) => string;
+  addFileTreeNode: (position?: XYPosition, rootPath?: string) => string;
+  addAttachmentNode: (position: XYPosition, path: string) => string;
+  addPortalNode: (position?: XYPosition, url?: string) => string;
   appendNoteContent: (noteId: string, text: string) => void;
   removeNode: (id: string) => void;
   loadHistoria: (name: string) => Promise<void>;
@@ -124,6 +152,59 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     return id;
   },
 
+  addTextNode: (position) => {
+    const id = `text-${Date.now()}-${nodeCounter++}`;
+    const newNode: AppNode = {
+      id,
+      type: "text",
+      position: position ?? { x: 200 + nodeCounter * 20, y: 200 + nodeCounter * 20 },
+      data: { text: "" },
+      style: { width: 240, height: 80 },
+    };
+    set((s) => ({ nodes: [...s.nodes, newNode] }));
+    return id;
+  },
+
+  addFileTreeNode: (position, rootPath) => {
+    const id = `filetree-${Date.now()}-${nodeCounter++}`;
+    const newNode: AppNode = {
+      id,
+      type: "filetree",
+      position: position ?? { x: 200 + nodeCounter * 20, y: 200 + nodeCounter * 20 },
+      data: { rootPath: rootPath ?? "~", expandedPaths: [] },
+      style: { width: 280, height: 360 },
+    };
+    set((s) => ({ nodes: [...s.nodes, newNode] }));
+    return id;
+  },
+
+  addAttachmentNode: (position, path) => {
+    const id = `attachment-${Date.now()}-${nodeCounter++}`;
+    const fileName = path.split("/").pop() ?? path;
+    const newNode: AppNode = {
+      id,
+      type: "attachment",
+      position,
+      data: { path, fileName },
+      style: { width: 260, height: 220 },
+    };
+    set((s) => ({ nodes: [...s.nodes, newNode] }));
+    return id;
+  },
+
+  addPortalNode: (position, url) => {
+    const id = `portal-${Date.now()}-${nodeCounter++}`;
+    const newNode: AppNode = {
+      id,
+      type: "portal",
+      position: position ?? { x: 200 + nodeCounter * 20, y: 200 + nodeCounter * 20 },
+      data: { url: url ?? "" },
+      style: { width: 720, height: 520 },
+    };
+    set((s) => ({ nodes: [...s.nodes, newNode] }));
+    return id;
+  },
+
   appendNoteContent: (noteId, text) => {
     set((s) => ({
       nodes: s.nodes.map((n) => {
@@ -159,6 +240,27 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         };
         if (n.node_type === "note") {
           return { ...base, type: "note" as const, data: { content: n.content ?? "", label: n.label ?? "Note" } };
+        }
+        if (n.node_type === "text") {
+          return { ...base, type: "text" as const, data: { text: n.content ?? "" } };
+        }
+        if (n.node_type === "filetree") {
+          return {
+            ...base,
+            type: "filetree" as const,
+            data: { rootPath: n.path ?? "~", expandedPaths: n.expanded_paths ?? [] },
+          };
+        }
+        if (n.node_type === "attachment") {
+          const path = n.path ?? "";
+          return {
+            ...base,
+            type: "attachment" as const,
+            data: { path, fileName: path.split("/").pop() ?? path },
+          };
+        }
+        if (n.node_type === "portal") {
+          return { ...base, type: "portal" as const, data: { url: n.url ?? "" } };
         }
         return {
           ...base,
@@ -211,8 +313,17 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           height: n.height ?? (n.style?.height as number) ?? 420,
           agent_type: tdata?.agentType,
           command: tdata?.command,
-          label: n.data.label as string,
-          content: n.type === "note" ? (n.data as NoteNodeData).content : undefined,
+          label: n.data.label as string | undefined,
+          content:
+            n.type === "note" ? (n.data as NoteNodeData).content
+            : n.type === "text" ? (n.data as TextNodeData).text
+            : undefined,
+          path:
+            n.type === "filetree" ? (n.data as FileTreeNodeData).rootPath
+            : n.type === "attachment" ? (n.data as AttachmentNodeData).path
+            : undefined,
+          url: n.type === "portal" ? (n.data as PortalNodeData).url : undefined,
+          expanded_paths: n.type === "filetree" ? (n.data as FileTreeNodeData).expandedPaths : undefined,
           instructions: tdata?.instructions,
           schedule_command: tdata?.scheduleCommand,
           schedule_interval_secs: tdata?.scheduleIntervalSecs,
