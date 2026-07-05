@@ -27,8 +27,7 @@ const TOOL_BUTTONS: ToolButton[] = [
   { tool: "portal", icon: Globe, label: "Portal", shortcut: "W" },
 ];
 
-// Ferramentas ainda sem tile implementado — botão visível porém inerte.
-const DISABLED_TOOLS: ReadonlySet<Tool> = new Set(["portal"]);
+const DISABLED_TOOLS: ReadonlySet<Tool> = new Set();
 
 interface Props {
   // Terminal e Anexo são ações (abrem picker/dialog), não modos persistentes —

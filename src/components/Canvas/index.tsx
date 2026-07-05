@@ -21,6 +21,7 @@ import NoteTile from "@/components/NoteTile";
 import TextTile from "@/components/TextTile";
 import FileTreeTile from "@/components/FileTreeTile";
 import AttachmentTile from "@/components/AttachmentTile";
+import PortalTile from "@/components/PortalTile";
 import AgentNoteEdge from "@/components/AgentNoteEdge";
 import AgentPipeEdge from "@/components/AgentPipeEdge";
 import AgentPicker from "@/components/AgentPicker";
@@ -43,6 +44,7 @@ const nodeTypes = {
   text: TextTile,
   filetree: FileTreeTile,
   attachment: AttachmentTile,
+  portal: PortalTile,
 } satisfies NodeTypes;
 
 const edgeTypes = {
@@ -73,7 +75,7 @@ export default function Canvas() {
 }
 
 function CanvasInner() {
-  const { nodes, edges, onNodesChange, onEdgesChange, addEdge: addStoreEdge, addTerminalNode, addNoteNode, addTextNode, addFileTreeNode, addAttachmentNode } =
+  const { nodes, edges, onNodesChange, onEdgesChange, addEdge: addStoreEdge, addTerminalNode, addNoteNode, addTextNode, addFileTreeNode, addAttachmentNode, addPortalNode } =
     useCanvasStore(
       useShallow((s) => ({
         nodes: s.nodes,
@@ -86,6 +88,7 @@ function CanvasInner() {
         addTextNode: s.addTextNode,
         addFileTreeNode: s.addFileTreeNode,
         addAttachmentNode: s.addAttachmentNode,
+        addPortalNode: s.addPortalNode,
       }))
     );
   const hydrated = useCanvasStore((s) => s.hydrated);
@@ -137,12 +140,14 @@ function CanvasInner() {
         case "files":
           addFileTreeNode(position);
           break;
-        // portal é ligado quando seu tile existir
+        case "portal":
+          addPortalNode(position);
+          break;
       }
       // Shift mantém a ferramenta para criação em série
       if (!e.shiftKey) setTool("select");
     },
-    [screenToFlowPosition, addNoteNode, addTextNode, addFileTreeNode, setTool]
+    [screenToFlowPosition, addNoteNode, addTextNode, addFileTreeNode, addPortalNode, setTool]
   );
 
   // Agent → Note pipe: listen to all PTY output and forward to connected notes
