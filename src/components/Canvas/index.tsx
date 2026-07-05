@@ -1,20 +1,19 @@
 import { useCallback, useState, useEffect, useRef } from "react";
 import {
   ReactFlow,
+  ReactFlowProvider,
   Background,
   BackgroundVariant,
   Controls,
   MiniMap,
-  addEdge,
-  useNodesState,
-  useEdgesState,
+  useReactFlow,
   type OnConnect,
   type NodeTypes,
   type EdgeTypes,
-  type NodeChange,
-  type EdgeChange,
   type Connection,
+  type XYPosition,
 } from "@xyflow/react";
+import { useShallow } from "zustand/react/shallow";
 import { listen } from "@tauri-apps/api/event";
 import "@xyflow/react/dist/style.css";
 import { Plus, StickyNote, Save, Pencil, Eraser, Undo2 } from "lucide-react";
@@ -30,8 +29,8 @@ import { useWorkspacesStore } from "@/stores/workspaces";
 import { useSketchStore } from "@/stores/sketch";
 import { stripAnsi, cleanLines } from "@/lib/ansi";
 import { ptyWrite, ptyNotify } from "@/lib/tauri";
-import type { AgentType, HistoriaEdge as _HistoriaEdge } from "@/lib/tauri";
-import type { AppNode, AppEdge, NoteNodeData, TerminalNodeData } from "@/stores/canvas";
+import type { AgentType } from "@/lib/tauri";
+import type { AppEdge, TerminalNodeData } from "@/stores/canvas";
 
 const nodeTypes = {
   terminal: TerminalTile,
@@ -48,46 +47,58 @@ const SKETCH_COLORS = ["#8b5cf6", "#f87171", "#4ade80", "#fbbf24", "#60a5fa", "#
 let edgeIdCounter = 0;
 
 export default function Canvas() {
-  const {
-    nodes: storeNodes,
-    edges: storeEdges,
-    setNodes: setStoreNodes,
-    setEdges: setStoreEdges,
-    addEdge: addStoreEdge,
-    removeEdges: removeStoreEdges,
-    addTerminalNode,
-    addNoteNode,
-    saveHistoria,
-  } = useCanvasStore();
+  return (
+    <ReactFlowProvider>
+      <CanvasInner />
+    </ReactFlowProvider>
+  );
+}
+
+function CanvasInner() {
+  const { nodes, edges, onNodesChange, onEdgesChange, addEdge: addStoreEdge, addTerminalNode, addNoteNode, saveHistoria } =
+    useCanvasStore(
+      useShallow((s) => ({
+        nodes: s.nodes,
+        edges: s.edges,
+        onNodesChange: s.onNodesChange,
+        onEdgesChange: s.onEdgesChange,
+        addEdge: s.addEdge,
+        addTerminalNode: s.addTerminalNode,
+        addNoteNode: s.addNoteNode,
+        saveHistoria: s.saveHistoria,
+      }))
+    );
+  const hydrated = useCanvasStore((s) => s.hydrated);
   const { current: currentWorkspace } = useWorkspacesStore();
   const { undo: undoSketch, clear: clearSketch, color, setColor, size, setSize } = useSketchStore();
+  const { screenToFlowPosition, fitView } = useReactFlow();
 
-  const [nodes, setNodes, onNodesChange] = useNodesState<AppNode>(storeNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<AppEdge>(storeEdges);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
-  const prevWorkspace = useRef(currentWorkspace);
 
-  // Refs for use in event callbacks without re-subscribing
-  const nodesRef = useRef(nodes);
-  const edgesRef = useRef(edges);
-  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
-  useEffect(() => { edgesRef.current = edges; }, [edges]);
-
-  // Sync store → local when workspace changes
+  // Frame the canvas once per historia load — a permanent fitView prop would
+  // re-frame on every structural node change instead.
+  const fitDoneFor = useRef<string | null>(null);
   useEffect(() => {
-    if (prevWorkspace.current !== currentWorkspace) {
-      prevWorkspace.current = currentWorkspace;
-      setNodes(useCanvasStore.getState().nodes as AppNode[]);
-      setEdges(useCanvasStore.getState().edges as AppEdge[]);
-      clearSketch();
+    if (hydrated && fitDoneFor.current !== currentWorkspace) {
+      fitDoneFor.current = currentWorkspace;
+      requestAnimationFrame(() => fitView({ padding: 0.2 }));
     }
-  }, [currentWorkspace, setNodes, setEdges, clearSketch]);
+  }, [hydrated, currentWorkspace, fitView]);
 
-  useEffect(() => { setNodes(storeNodes as AppNode[]); }, [storeNodes, setNodes]);
-  useEffect(() => { setEdges(storeEdges as AppEdge[]); }, [storeEdges, setEdges]);
+  // New nodes spawn at the center of the current viewport, slightly jittered
+  // so consecutive spawns don't stack exactly.
+  const viewportCenter = useCallback((): XYPosition => {
+    const rect = wrapperRef.current?.getBoundingClientRect();
+    const center = rect
+      ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
+      : { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    const pos = screenToFlowPosition(center);
+    return { x: pos.x + (Math.random() - 0.5) * 80, y: pos.y + (Math.random() - 0.5) * 80 };
+  }, [screenToFlowPosition]);
 
   // Agent → Note pipe: listen to all PTY output and forward to connected notes
   useEffect(() => {
@@ -96,8 +107,7 @@ export default function Canvas() {
 
     listen<{ id: string; data: string }>("pty_output", (event) => {
       const { id: termId, data: rawData } = event.payload;
-      const currentEdges = edgesRef.current;
-      const currentNodes = nodesRef.current;
+      const { edges: currentEdges, appendNoteContent } = useCanvasStore.getState();
 
       // Find agent-note edges where this terminal is source or target
       const agentNoteEdges = currentEdges.filter(
@@ -110,21 +120,7 @@ export default function Canvas() {
 
       agentNoteEdges.forEach((edge) => {
         const noteId = edge.source === termId ? edge.target : edge.source;
-        setNodes((nds) =>
-          nds.map((n) => {
-            if (n.id !== noteId || n.type !== "note") return n;
-            const current = (n.data as NoteNodeData).content ?? "";
-            const separator = current.length > 0 ? "\n" : "";
-            return {
-              ...n,
-              data: {
-                ...n.data,
-                content: current + separator + clean,
-                isAgentLive: true,
-              },
-            };
-          })
-        );
+        appendNoteContent(noteId, clean);
       });
     }).then((fn) => {
       if (cancelled) fn();
@@ -135,24 +131,13 @@ export default function Canvas() {
       cancelled = true;
       unlisten?.();
     };
-  }, [setNodes]);
-
-  const handleNodesChange = useCallback((changes: NodeChange<AppNode>[]) => onNodesChange(changes), [onNodesChange]);
-
-  const handleEdgesChange = useCallback(
-    (changes: EdgeChange<AppEdge>[]) => {
-      onEdgesChange(changes);
-      // Mirror deletions to the store so the backend routing table updates
-      const removedIds = changes.filter((c) => c.type === "remove").map((c) => c.id);
-      if (removedIds.length > 0) removeStoreEdges(removedIds);
-    },
-    [onEdgesChange, removeStoreEdges]
-  );
+  }, []);
 
   const onConnect: OnConnect = useCallback(
     (connection: Connection) => {
-      const sourceNode = nodesRef.current.find((n) => n.id === connection.source);
-      const targetNode = nodesRef.current.find((n) => n.id === connection.target);
+      const currentNodes = useCanvasStore.getState().nodes;
+      const sourceNode = currentNodes.find((n) => n.id === connection.source);
+      const targetNode = currentNodes.find((n) => n.id === connection.target);
 
       const isAgentNote =
         (sourceNode?.type === "terminal" && targetNode?.type === "note") ||
@@ -176,8 +161,7 @@ export default function Canvas() {
         style: edgeType === "default" ? { stroke: "#4a4a4a", strokeWidth: 1.5 } : undefined,
       };
 
-      // Store is the source of truth: it mirrors the route to the backend and
-      // the store→local effect brings the edge into React Flow state
+      // Store is the source of truth: it mirrors the route to the backend
       addStoreEdge(newEdge);
 
       // Tell both endpoints about the new route. AI agents get a queued
@@ -231,25 +215,24 @@ export default function Canvas() {
       roleName?: string,
       roleColor?: string,
     ) => {
-      addTerminalNode(agentType, command, instructions, scheduleCommand, scheduleIntervalSecs, roleId, roleName, roleColor);
-      setNodes(useCanvasStore.getState().nodes as AppNode[]);
+      addTerminalNode(
+        { agentType, command, instructions, scheduleCommand, scheduleIntervalSecs, roleId, roleName, roleColor },
+        viewportCenter()
+      );
       setPickerOpen(false);
     },
-    [addTerminalNode, setNodes]
+    [addTerminalNode, viewportCenter]
   );
 
   const handleAddNote = useCallback(() => {
-    addNoteNode();
-    setNodes(useCanvasStore.getState().nodes as AppNode[]);
-  }, [addNoteNode, setNodes]);
+    addNoteNode(viewportCenter());
+  }, [addNoteNode, viewportCenter]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
-    setStoreNodes(nodes);
-    setStoreEdges(edges);
     await saveHistoria(currentWorkspace);
     setTimeout(() => setSaving(false), 800);
-  }, [nodes, edges, setStoreNodes, setStoreEdges, saveHistoria, currentWorkspace]);
+  }, [saveHistoria, currentWorkspace]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -273,17 +256,15 @@ export default function Canvas() {
   }, [handleSave, handleAddNote, drawMode, undoSketch]);
 
   return (
-    <div className="w-full h-full relative">
+    <div ref={wrapperRef} className="w-full h-full relative">
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={handleNodesChange}
-        onEdgesChange={handleEdgesChange}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.2 }}
         minZoom={0.05}
         maxZoom={3}
         deleteKeyCode={drawMode ? null : "Delete"}

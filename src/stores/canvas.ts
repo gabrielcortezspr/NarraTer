@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import type { Node, Edge } from "@xyflow/react";
+import { applyNodeChanges, applyEdgeChanges } from "@xyflow/react";
+import type { Node, Edge, NodeChange, EdgeChange, XYPosition } from "@xyflow/react";
 import { loadHistoria, saveHistoria, connectionsSync } from "@/lib/tauri";
 import type { AgentType } from "@/lib/tauri";
 
@@ -23,16 +24,30 @@ export interface NoteNodeData extends Record<string, unknown> {
 export type AppNode = Node<TerminalNodeData, "terminal"> | Node<NoteNodeData, "note">;
 export type AppEdge = Edge;
 
+export interface AddTerminalOpts {
+  agentType: AgentType;
+  command?: string;
+  instructions?: string;
+  scheduleCommand?: string;
+  scheduleIntervalSecs?: number;
+  roleId?: string;
+  roleName?: string;
+  roleColor?: string;
+}
+
 interface CanvasStore {
   nodes: AppNode[];
   edges: AppEdge[];
-  setNodes: (nodes: AppNode[]) => void;
-  setEdges: (edges: AppEdge[]) => void;
+  // True once a historia finished loading — gates auto-save and fitView so
+  // neither runs against a canvas that is mid-hydration.
+  hydrated: boolean;
+  onNodesChange: (changes: NodeChange<AppNode>[]) => void;
+  onEdgesChange: (changes: EdgeChange<AppEdge>[]) => void;
   addEdge: (edge: AppEdge) => void;
-  removeEdges: (ids: string[]) => void;
-  addTerminalNode: (agentType: AgentType, command?: string, instructions?: string, scheduleCommand?: string, scheduleIntervalSecs?: number, roleId?: string, roleName?: string, roleColor?: string) => string;
+  addTerminalNode: (opts: AddTerminalOpts, position?: XYPosition) => string;
   updateNodeData: (id: string, patch: Record<string, unknown>) => void;
-  addNoteNode: () => void;
+  addNoteNode: (position?: XYPosition, initial?: Partial<NoteNodeData>) => string;
+  appendNoteContent: (noteId: string, text: string) => void;
   removeNode: (id: string) => void;
   loadHistoria: (name: string) => Promise<void>;
   saveHistoria: (name: string) => Promise<void>;
@@ -52,11 +67,16 @@ function syncConnections(edges: AppEdge[]) {
 export const useCanvasStore = create<CanvasStore>((set, get) => ({
   nodes: [],
   edges: [],
+  hydrated: false,
 
-  setNodes: (nodes) => set({ nodes }),
-  setEdges: (edges) => {
+  onNodesChange: (changes) => {
+    set({ nodes: applyNodeChanges(changes, get().nodes) });
+  },
+
+  onEdgesChange: (changes) => {
+    const edges = applyEdgeChanges(changes, get().edges);
     set({ edges });
-    syncConnections(edges);
+    if (changes.some((c) => c.type === "remove")) syncConnections(edges);
   },
 
   addEdge: (edge) => {
@@ -65,23 +85,18 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     syncConnections(edges);
   },
 
-  removeEdges: (ids) => {
-    const edges = get().edges.filter((e) => !ids.includes(e.id));
-    set({ edges });
-    syncConnections(edges);
-  },
-
-  addTerminalNode: (agentType, command, instructions, scheduleCommand, scheduleIntervalSecs, roleId, roleName, roleColor) => {
+  addTerminalNode: (opts, position) => {
     const id = `terminal-${Date.now()}-${nodeCounter++}`;
+    const { agentType, command, roleName } = opts;
     const label = roleName ?? (agentType === "custom" ? (command ?? "Terminal") : agentType);
     const newNode: AppNode = {
       id,
       type: "terminal",
-      position: {
+      position: position ?? {
         x: 80 + (nodeCounter % 5) * 60,
         y: 80 + (nodeCounter % 4) * 60,
       },
-      data: { agentType, command, label, instructions, scheduleCommand, scheduleIntervalSecs, roleId, roleName, roleColor },
+      data: { ...opts, label },
       style: { width: 640, height: 420 },
     };
     set((s) => ({ nodes: [...s.nodes, newNode] }));
@@ -96,16 +111,31 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     }));
   },
 
-  addNoteNode: () => {
+  addNoteNode: (position, initial) => {
     const id = `note-${Date.now()}-${nodeCounter++}`;
     const newNode: AppNode = {
       id,
       type: "note",
-      position: { x: 200 + nodeCounter * 20, y: 200 + nodeCounter * 20 },
-      data: { content: "", label: "Note" },
+      position: position ?? { x: 200 + nodeCounter * 20, y: 200 + nodeCounter * 20 },
+      data: { content: "", label: "Note", ...initial },
       style: { width: 280, height: 200 },
     };
     set((s) => ({ nodes: [...s.nodes, newNode] }));
+    return id;
+  },
+
+  appendNoteContent: (noteId, text) => {
+    set((s) => ({
+      nodes: s.nodes.map((n) => {
+        if (n.id !== noteId || n.type !== "note") return n;
+        const current = (n.data as NoteNodeData).content ?? "";
+        const separator = current.length > 0 ? "\n" : "";
+        return {
+          ...n,
+          data: { ...n.data, content: current + separator + text, isAgentLive: true },
+        } as AppNode;
+      }),
+    }));
   },
 
   removeNode: (id) => {
@@ -118,6 +148,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   loadHistoria: async (name) => {
+    set({ hydrated: false });
     try {
       const data = await loadHistoria(name);
       const nodes: AppNode[] = data.nodes.map((n): AppNode => {
@@ -157,10 +188,12 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           ? { stroke: "#4a4a4a", strokeWidth: 1.5 }
           : undefined,
       }));
-      set({ nodes, edges });
+      set({ nodes, edges, hydrated: true });
       syncConnections(edges);
     } catch {
       // No saved historia yet — start empty
+      set({ nodes: [], edges: [], hydrated: true });
+      syncConnections([]);
     }
   },
 
@@ -174,8 +207,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           node_type: n.type ?? "terminal",
           x: n.position.x,
           y: n.position.y,
-          width: (n.style?.width as number) ?? 640,
-          height: (n.style?.height as number) ?? 420,
+          width: n.width ?? (n.style?.width as number) ?? 640,
+          height: n.height ?? (n.style?.height as number) ?? 420,
           agent_type: tdata?.agentType,
           command: tdata?.command,
           label: n.data.label as string,

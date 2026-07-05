@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Handle, Position, NodeResizer, useReactFlow } from "@xyflow/react";
+import { Handle, Position, NodeResizer } from "@xyflow/react";
 import { X, StickyNote, Radio } from "lucide-react";
 import { useCanvasStore } from "@/stores/canvas";
 import type { NoteNodeData } from "@/stores/canvas";
@@ -9,7 +9,7 @@ type NoteNode = Node<NoteNodeData, "note">;
 
 export default function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
   const [content, setContent] = useState(data.content ?? "");
-  const { updateNodeData } = useReactFlow();
+  const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const prevExternalContent = useRef(data.content);
   const isLive = data.isAgentLive as boolean | undefined;
@@ -22,7 +22,7 @@ export default function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
     }
   }, [data.content]);
 
-  // Write local edits back to React Flow so they're included on save
+  // Write local edits back to the store so they're included on save
   const handleChange = useCallback(
     (value: string) => {
       setContent(value);

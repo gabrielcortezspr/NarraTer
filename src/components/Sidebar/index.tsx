@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import { useCanvasStore } from "@/stores/canvas";
+import { useSketchStore } from "@/stores/sketch";
 import { useRolesStore } from "@/stores/roles";
 import RoleManager from "@/components/RoleManager";
 
@@ -24,6 +25,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
   const { list, current, setCurrent, createWorkspace, deleteWorkspace, renameWorkspace } =
     useWorkspacesStore();
   const { saveHistoria, loadHistoria } = useCanvasStore();
+  const clearSketch = useSketchStore((s) => s.clear);
   const { roles, loaded, load: loadRoles } = useRolesStore();
   const [roleManagerOpen, setRoleManagerOpen] = useState(false);
 
@@ -61,9 +63,10 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
       await saveHistoria(current);
       await loadHistoria(name);
       setCurrent(name);
+      clearSketch();
       setContextMenu(null);
     },
-    [current, saveHistoria, loadHistoria, setCurrent]
+    [current, saveHistoria, loadHistoria, setCurrent, clearSketch]
   );
 
   const handleCreate = async () => {
