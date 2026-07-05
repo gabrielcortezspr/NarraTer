@@ -29,6 +29,10 @@ pub struct HistoriaEdge {
     pub source: String,
     pub target: String,
     pub edge_type: Option<String>,
+    #[serde(default)]
+    pub source_handle: Option<String>,
+    #[serde(default)]
+    pub target_handle: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

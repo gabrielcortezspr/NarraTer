@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import type { Node, Edge } from "@xyflow/react";
-import { loadHistoria, saveHistoria } from "@/lib/tauri";
+import { loadHistoria, saveHistoria, connectionsSync } from "@/lib/tauri";
 import type { AgentType } from "@/lib/tauri";
 
 export interface TerminalNodeData extends Record<string, unknown> {
@@ -28,6 +28,8 @@ interface CanvasStore {
   edges: AppEdge[];
   setNodes: (nodes: AppNode[]) => void;
   setEdges: (edges: AppEdge[]) => void;
+  addEdge: (edge: AppEdge) => void;
+  removeEdges: (ids: string[]) => void;
   addTerminalNode: (agentType: AgentType, command?: string, instructions?: string, scheduleCommand?: string, scheduleIntervalSecs?: number, roleId?: string, roleName?: string, roleColor?: string) => string;
   updateNodeData: (id: string, patch: Record<string, unknown>) => void;
   addNoteNode: () => void;
@@ -38,12 +40,36 @@ interface CanvasStore {
 
 let nodeCounter = 0;
 
+// Mirror agent-pipe edges into the backend routing table — narrater send/ask
+// is only allowed along these directed routes.
+function syncConnections(edges: AppEdge[]) {
+  const pairs = edges
+    .filter((e) => e.type === "agent-pipe")
+    .map((e) => [e.source, e.target] as [string, string]);
+  connectionsSync(pairs).catch(console.error);
+}
+
 export const useCanvasStore = create<CanvasStore>((set, get) => ({
   nodes: [],
   edges: [],
 
   setNodes: (nodes) => set({ nodes }),
-  setEdges: (edges) => set({ edges }),
+  setEdges: (edges) => {
+    set({ edges });
+    syncConnections(edges);
+  },
+
+  addEdge: (edge) => {
+    const edges = [...get().edges, edge];
+    set({ edges });
+    syncConnections(edges);
+  },
+
+  removeEdges: (ids) => {
+    const edges = get().edges.filter((e) => !ids.includes(e.id));
+    set({ edges });
+    syncConnections(edges);
+  },
 
   addTerminalNode: (agentType, command, instructions, scheduleCommand, scheduleIntervalSecs, roleId, roleName, roleColor) => {
     const id = `terminal-${Date.now()}-${nodeCounter++}`;
@@ -83,10 +109,12 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   removeNode: (id) => {
+    const edges = get().edges.filter((e) => e.source !== id && e.target !== id);
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
-      edges: s.edges.filter((e) => e.source !== id && e.target !== id),
+      edges,
     }));
+    syncConnections(edges);
   },
 
   loadHistoria: async (name) => {
@@ -121,6 +149,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         id: e.id,
         source: e.source,
         target: e.target,
+        sourceHandle: e.source_handle,
+        targetHandle: e.target_handle,
         type: e.edge_type ?? "default",
         animated: e.edge_type === "agent-pipe",
         style: e.edge_type !== "agent-pipe" && e.edge_type !== "agent-note"
@@ -128,6 +158,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           : undefined,
       }));
       set({ nodes, edges });
+      syncConnections(edges);
     } catch {
       // No saved historia yet — start empty
     }
@@ -157,7 +188,14 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           role_color: tdata?.roleColor,
         };
       }),
-      edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, edge_type: e.type })),
+      edges: edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        edge_type: e.type,
+        source_handle: e.sourceHandle ?? undefined,
+        target_handle: e.targetHandle ?? undefined,
+      })),
     };
     await saveHistoria(name, data);
   },

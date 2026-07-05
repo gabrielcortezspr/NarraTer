@@ -12,9 +12,11 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(pty_state)
-        .setup(move |_app| {
+        .setup(move |app| {
             let state_arc = std::sync::Arc::clone(&pty_state_for_ipc.0);
-            tauri::async_runtime::spawn(ipc::start_ipc_server(state_arc));
+            tauri::async_runtime::spawn(ipc::start_ipc_server(std::sync::Arc::clone(&state_arc)));
+            let app_handle = tauri::Manager::app_handle(app).clone();
+            tauri::async_runtime::spawn(pty::start_status_monitor(app_handle, state_arc));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -23,6 +25,7 @@ pub fn run() {
             pty::pty_resize,
             pty::pty_kill,
             pty::pty_update_label,
+            pty::connections_sync,
             historia::load_historia,
             historia::save_historia,
             historia::list_historias,

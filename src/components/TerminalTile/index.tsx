@@ -7,6 +7,8 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Bot, Code2, Terminal, Wrench, X, GripVertical, FolderOpen, Clock, Plug } from "lucide-react";
 import { usePty } from "@/hooks/usePty";
 import { useCanvasStore } from "@/stores/canvas";
+import { useTerminalsStore } from "@/stores/terminals";
+import type { SessionStatus } from "@/stores/terminals";
 import { openInEditor } from "@/lib/tauri";
 import type { TerminalNodeData } from "@/stores/canvas";
 import type { Node, NodeProps } from "@xyflow/react";
@@ -60,6 +62,13 @@ const XTERM_THEME = {
   brightWhite: "#f9fafb",
 };
 
+const STATUS_DOT: Record<SessionStatus, { color: string; label: string }> = {
+  spawning: { color: "#fbbf24", label: "Iniciando…" },
+  running: { color: "#4ade80", label: "Executando" },
+  idle: { color: "#6b7280", label: "Ocioso" },
+  exited: { color: "#f87171", label: "Encerrado" },
+};
+
 const EDITORS = [
   { label: "VS Code", cmd: "code" },
   { label: "Zed", cmd: "zed" },
@@ -74,13 +83,15 @@ export default function TerminalTile({ id, data, selected }: NodeProps<TerminalN
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const scheduleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cwdRef = useRef<string>("~");
-  const { spawn, write, kill } = usePty();
+  const { spawn, write, resize, kill } = usePty();
   const removeNode = useCanvasStore((s) => s.removeNode);
   const pipeCount = useCanvasStore((s) =>
     s.edges.filter((e) => (e.source === id || e.target === id) && e.type === "agent-pipe").length
   );
   const agentType = data.agentType ?? "shell";
   const accentColor = AGENT_COLORS[agentType];
+  const sessionStatus = useTerminalsStore((s) => s.sessions[id]?.status ?? "spawning");
+  const statusDot = STATUS_DOT[sessionStatus];
   const [showEditorMenu, setShowEditorMenu] = useState(false);
 
   // Init xterm and PTY
@@ -134,7 +145,10 @@ export default function TerminalTile({ id, data, selected }: NodeProps<TerminalN
 
     const observer = new ResizeObserver(() => {
       if (fitAddonRef.current && xtermRef.current) {
-        try { fitAddonRef.current.fit(); } catch {}
+        try {
+          fitAddonRef.current.fit();
+          resize(id, xtermRef.current.cols, xtermRef.current.rows);
+        } catch {}
       }
     });
     if (termDivRef.current.parentElement) {
@@ -244,6 +258,17 @@ export default function TerminalTile({ id, data, selected }: NodeProps<TerminalN
         style={{ background: "#222", borderBottom: "1px solid #2a2a2a" }}
       >
         <GripVertical size={12} className="text-[#444] shrink-0" />
+
+        <span
+          title={statusDot.label}
+          className="shrink-0 rounded-full"
+          style={{
+            width: 7,
+            height: 7,
+            background: statusDot.color,
+            boxShadow: sessionStatus === "running" ? `0 0 6px ${statusDot.color}` : "none",
+          }}
+        />
 
         <span
           className="flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded"

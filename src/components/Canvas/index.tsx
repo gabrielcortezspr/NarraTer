@@ -45,12 +45,16 @@ const edgeTypes = {
 
 const SKETCH_COLORS = ["#8b5cf6", "#f87171", "#4ade80", "#fbbf24", "#60a5fa", "#f472b6", "#ffffff"];
 
+let edgeIdCounter = 0;
+
 export default function Canvas() {
   const {
     nodes: storeNodes,
     edges: storeEdges,
     setNodes: setStoreNodes,
     setEdges: setStoreEdges,
+    addEdge: addStoreEdge,
+    removeEdges: removeStoreEdges,
     addTerminalNode,
     addNoteNode,
     saveHistoria,
@@ -134,7 +138,16 @@ export default function Canvas() {
   }, [setNodes]);
 
   const handleNodesChange = useCallback((changes: NodeChange<AppNode>[]) => onNodesChange(changes), [onNodesChange]);
-  const handleEdgesChange = useCallback((changes: EdgeChange<AppEdge>[]) => onEdgesChange(changes), [onEdgesChange]);
+
+  const handleEdgesChange = useCallback(
+    (changes: EdgeChange<AppEdge>[]) => {
+      onEdgesChange(changes);
+      // Mirror deletions to the store so the backend routing table updates
+      const removedIds = changes.filter((c) => c.type === "remove").map((c) => c.id);
+      if (removedIds.length > 0) removeStoreEdges(removedIds);
+    },
+    [onEdgesChange, removeStoreEdges]
+  );
 
   const onConnect: OnConnect = useCallback(
     (connection: Connection) => {
@@ -153,7 +166,7 @@ export default function Canvas() {
       else if (isAgentPipe) edgeType = "agent-pipe";
 
       const newEdge: AppEdge = {
-        id: `edge-${Date.now()}`,
+        id: `edge-${Date.now()}-${edgeIdCounter++}`,
         source: connection.source,
         target: connection.target,
         sourceHandle: connection.sourceHandle ?? undefined,
@@ -163,7 +176,9 @@ export default function Canvas() {
         style: edgeType === "default" ? { stroke: "#4a4a4a", strokeWidth: 1.5 } : undefined,
       };
 
-      setEdges((eds) => [...eds, newEdge]);
+      // Store is the source of truth: it mirrors the route to the backend and
+      // the store→local effect brings the edge into React Flow state
+      addStoreEdge(newEdge);
 
       // Inject narrater skill description into both running PTYs
       if (isAgentPipe && connection.source && connection.target) {
@@ -178,7 +193,7 @@ export default function Canvas() {
         ptyWrite(connection.target, msgFor(tgtLabel, srcLabel)).catch(console.error);
       }
     },
-    [setEdges]
+    [addStoreEdge]
   );
 
   const handleAgentPicked = useCallback(

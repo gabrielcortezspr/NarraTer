@@ -35,6 +35,8 @@ export interface HistoriaEdge {
   source: string;
   target: string;
   edge_type?: string;
+  source_handle?: string;
+  target_handle?: string;
 }
 
 export interface HistoriaData {
@@ -42,8 +44,9 @@ export interface HistoriaData {
   edges: HistoriaEdge[];
 }
 
+// Returns the effective label assigned by the backend (deduplicated if taken)
 export const ptySpawn = (opts: PtySpawnOptions) =>
-  invoke<void>("pty_spawn", opts as unknown as Record<string, unknown>);
+  invoke<string>("pty_spawn", opts as unknown as Record<string, unknown>);
 
 export const ptyWrite = (id: string, data: string) =>
   invoke<void>("pty_write", { id, data });
@@ -56,6 +59,10 @@ export const ptyKill = (id: string) =>
 
 export const ptyUpdateLabel = (id: string, label: string) =>
   invoke<void>("pty_update_label", { id, label });
+
+// Mirrors the canvas agent-pipe edges to the backend routing table
+export const connectionsSync = (connections: Array<[string, string]>) =>
+  invoke<void>("connections_sync", { connections });
 
 export const loadHistoria = (name: string) =>
   invoke<HistoriaData>("load_historia", { name });

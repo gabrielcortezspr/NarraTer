@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { ptySpawn, ptyWrite, ptyResize, ptyKill, getCommandForAgent } from "@/lib/tauri";
 import { useTerminalsStore } from "@/stores/terminals";
+import { useCanvasStore } from "@/stores/canvas";
 import type { AgentType } from "@/lib/tauri";
 
 export interface PtyOutputEvent {
@@ -22,8 +23,13 @@ export function usePty() {
       addSession(id);
       const command = getCommandForAgent(agentType, customCommand);
       try {
-        await ptySpawn({ id, command, cols, rows, label });
+        const effectiveLabel = await ptySpawn({ id, command, cols, rows, label });
         setRunning(id);
+        // Backend deduplicates labels (they address agents in narrater send);
+        // reflect the effective one on the node so UI and routing agree
+        if (effectiveLabel && effectiveLabel !== label) {
+          useCanvasStore.getState().updateNodeData(id, { label: effectiveLabel });
+        }
       } catch (err) {
         console.error("PTY spawn failed:", err);
         setExited(id, 1);

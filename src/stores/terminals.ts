@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type SessionStatus = "spawning" | "running" | "exited";
+export type SessionStatus = "spawning" | "running" | "idle" | "exited";
 
 export interface TerminalSession {
   id: string;
@@ -12,6 +12,7 @@ interface TerminalsStore {
   sessions: Record<string, TerminalSession>;
   addSession: (id: string) => void;
   setRunning: (id: string) => void;
+  setStatus: (id: string, status: "running" | "idle") => void;
   setExited: (id: string, code: number) => void;
   removeSession: (id: string) => void;
 }
@@ -28,6 +29,14 @@ export const useTerminalsStore = create<TerminalsStore>((set) => ({
     set((s) => ({
       sessions: { ...s.sessions, [id]: { ...s.sessions[id], status: "running" } },
     })),
+
+  setStatus: (id, status) =>
+    set((s) => {
+      const session = s.sessions[id];
+      // Ignore late status ticks for sessions already gone or exited
+      if (!session || session.status === "exited") return s;
+      return { sessions: { ...s.sessions, [id]: { ...session, status } } };
+    }),
 
   setExited: (id, code) =>
     set((s) => ({
