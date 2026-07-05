@@ -14,8 +14,11 @@ pub fn run() {
         .manage(pty_state)
         .setup(move |app| {
             let state_arc = std::sync::Arc::clone(&pty_state_for_ipc.0);
-            tauri::async_runtime::spawn(ipc::start_ipc_server(std::sync::Arc::clone(&state_arc)));
             let app_handle = tauri::Manager::app_handle(app).clone();
+            tauri::async_runtime::spawn(ipc::start_ipc_server(
+                app_handle.clone(),
+                std::sync::Arc::clone(&state_arc),
+            ));
             tauri::async_runtime::spawn(pty::start_status_monitor(app_handle, state_arc));
             Ok(())
         })

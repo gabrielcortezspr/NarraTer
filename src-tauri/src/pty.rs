@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -10,6 +10,9 @@ use tokio::sync::mpsc;
 /// Silence window after which a Running terminal is considered Idle.
 pub const IDLE_THRESHOLD: Duration = Duration::from_millis(1500);
 const STATUS_TICK: Duration = Duration::from_millis(500);
+/// A queued message is injected even into a busy terminal after this long,
+/// so TUI agents that never go idle (constant redraws) don't starve the queue.
+pub const MAX_QUEUE_WAIT: Duration = Duration::from_secs(30);
 
 #[derive(Serialize, Clone)]
 pub struct PtyOutput {
@@ -27,6 +30,28 @@ pub struct PtyExit {
 pub struct PtyStatusEvent {
     pub id: String,
     pub status: &'static str,
+}
+
+#[derive(Serialize, Clone)]
+pub struct PtyQueueEvent {
+    pub id: String,
+    pub pending: usize,
+}
+
+/// Message waiting to be injected into a terminal's stdin.
+pub struct QueuedMsg {
+    pub from_label: String,
+    pub msg: String,
+    pub enqueued: Instant,
+    /// Fired when the message is actually written to the target PTY, so an
+    /// `ask` starts capturing output only from that point.
+    pub delivered_tx: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+/// One in-flight `ask` capture, keyed by request id in the state map.
+pub struct ResponseListener {
+    pub target_id: String,
+    pub tx: mpsc::Sender<String>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -56,10 +81,13 @@ pub struct PtyStateInner {
     pub sessions: HashMap<String, PtySession>,
     pub labels: HashMap<String, String>,
     pub label_to_id: HashMap<String, String>,
-    pub response_listeners: HashMap<String, mpsc::Sender<String>>,
+    /// In-flight ask captures, keyed by request id (concurrent asks coexist).
+    pub response_listeners: HashMap<String, ResponseListener>,
     /// Directed agent-pipe routes (source node id → target node id), mirrored
     /// from the canvas edges. Communication is only allowed along these.
     pub connections: HashSet<(String, String)>,
+    /// Per-terminal inbound message queue, drained on idle by the monitor.
+    pub inbox: HashMap<String, VecDeque<QueuedMsg>>,
 }
 
 #[derive(Clone)]
@@ -73,6 +101,7 @@ impl Default for PtyState {
             label_to_id: HashMap::new(),
             response_listeners: HashMap::new(),
             connections: HashSet::new(),
+            inbox: HashMap::new(),
         })))
     }
 }
@@ -122,15 +151,11 @@ pub fn pty_spawn(
     let socket_path = format!("/tmp/narrater-{}.sock", std::process::id());
     cmd.env("NARRATER_SOCKET", &socket_path);
 
-    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
-    drop(pair.slave);
-    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
-    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
-
+    // Labels address agents in `narrater send`; disambiguate duplicates so
+    // two "claude" terminals never clobber each other's route. Reserved before
+    // spawn so the child sees its own identity in the environment.
     let effective_label = {
         let mut inner = state.0.lock().unwrap();
-        // Labels address agents in `narrater send`; disambiguate duplicates so
-        // two "claude" terminals never clobber each other's route.
         let base = label.unwrap_or_else(|| id.clone());
         let mut candidate = base.clone();
         let mut n = 2;
@@ -140,6 +165,27 @@ pub fn pty_spawn(
         }
         inner.labels.insert(id.clone(), candidate.clone());
         inner.label_to_id.insert(candidate.clone(), id.clone());
+        candidate
+    };
+    cmd.env("NARRATER_ID", &id);
+    cmd.env("NARRATER_LABEL", &effective_label);
+
+    let spawn_result = pair.slave.spawn_command(cmd);
+    let child = match spawn_result {
+        Ok(c) => c,
+        Err(e) => {
+            let mut inner = state.0.lock().unwrap();
+            inner.labels.remove(&id);
+            inner.label_to_id.remove(&effective_label);
+            return Err(e.to_string());
+        }
+    };
+    drop(pair.slave);
+    let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+    let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
+
+    {
+        let mut inner = state.0.lock().unwrap();
         inner.sessions.insert(id.clone(), PtySession {
             writer: Box::new(writer),
             master: pair.master,
@@ -147,8 +193,7 @@ pub fn pty_spawn(
             last_output: Instant::now(),
             status: RunStatus::Running,
         });
-        candidate
-    };
+    }
 
     let id_clone = id.clone();
     let app_clone = app_handle.clone();
@@ -162,7 +207,8 @@ pub fn pty_spawn(
                 Ok(0) | Err(_) => {
                     let child = {
                         let mut inner = state_arc.lock().unwrap();
-                        inner.response_listeners.remove(&id_clone);
+                        inner.response_listeners.retain(|_, l| l.target_id != id_clone);
+                        inner.inbox.remove(&id_clone);
                         if let Some(label) = inner.labels.remove(&id_clone) {
                             inner.label_to_id.remove(&label);
                         }
@@ -183,7 +229,7 @@ pub fn pty_spawn(
                     }
                     let _ = app_clone.emit("pty_output", PtyOutput { id: id_clone.clone(), data: data.clone() });
 
-                    let (sender, became_running) = {
+                    let (senders, became_running) = {
                         let mut inner = state_arc.lock().unwrap();
                         let mut became_running = false;
                         if let Some(session) = inner.sessions.get_mut(&id_clone) {
@@ -193,7 +239,13 @@ pub fn pty_spawn(
                                 became_running = true;
                             }
                         }
-                        (inner.response_listeners.get(&id_clone).cloned(), became_running)
+                        let senders: Vec<mpsc::Sender<String>> = inner
+                            .response_listeners
+                            .values()
+                            .filter(|l| l.target_id == id_clone)
+                            .map(|l| l.tx.clone())
+                            .collect();
+                        (senders, became_running)
                     };
                     if became_running {
                         let _ = app_clone.emit("pty_status", PtyStatusEvent {
@@ -201,8 +253,8 @@ pub fn pty_spawn(
                             status: RunStatus::Running.as_str(),
                         });
                     }
-                    if let Some(tx) = sender {
-                        let _ = tx.try_send(data);
+                    for tx in senders {
+                        let _ = tx.try_send(data.clone());
                     }
                 }
             }
@@ -265,12 +317,33 @@ pub fn connections_sync(connections: Vec<(String, String)>, state: State<'_, Pty
     Ok(())
 }
 
+/// Enqueues a message for idle-gated delivery into `target_id`'s stdin.
+/// Returns the queue position (0 = next to be delivered).
+pub fn enqueue_message(
+    state_arc: &Arc<Mutex<PtyStateInner>>,
+    app: &AppHandle,
+    target_id: &str,
+    msg: QueuedMsg,
+) -> usize {
+    let pending = {
+        let mut inner = state_arc.lock().unwrap();
+        let queue = inner.inbox.entry(target_id.to_string()).or_default();
+        queue.push_back(msg);
+        queue.len()
+    };
+    let _ = app.emit("pty_queue", PtyQueueEvent { id: target_id.to_string(), pending });
+    pending - 1
+}
+
 /// Background task: flips Running sessions to Idle after IDLE_THRESHOLD of
-/// output silence and notifies the frontend on each transition.
+/// output silence, notifies the frontend on each transition, and drains the
+/// per-terminal inbox — a queued message is injected when its target is Idle
+/// (or after MAX_QUEUE_WAIT, so never-idle TUIs don't starve the queue).
 pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner>>) {
     let mut interval = tokio::time::interval(STATUS_TICK);
     loop {
         interval.tick().await;
+
         let newly_idle: Vec<String> = {
             let mut inner = state.lock().unwrap();
             inner
@@ -285,6 +358,56 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
         };
         for id in newly_idle {
             let _ = app.emit("pty_status", PtyStatusEvent { id, status: RunStatus::Idle.as_str() });
+        }
+
+        // Deliver at most one queued message per terminal per tick
+        let deliveries: Vec<(String, QueuedMsg, usize)> = {
+            let mut inner = state.lock().unwrap();
+            let ids: Vec<String> = inner.inbox.keys().cloned().collect();
+            let mut out = Vec::new();
+            for id in ids {
+                let Some(session) = inner.sessions.get(&id) else {
+                    inner.inbox.remove(&id);
+                    continue;
+                };
+                let ready = match session.status {
+                    RunStatus::Idle => true,
+                    RunStatus::Running => inner
+                        .inbox
+                        .get(&id)
+                        .and_then(|q| q.front())
+                        .is_some_and(|m| m.enqueued.elapsed() >= MAX_QUEUE_WAIT),
+                };
+                if !ready {
+                    continue;
+                }
+                if let Some(queue) = inner.inbox.get_mut(&id) {
+                    if let Some(msg) = queue.pop_front() {
+                        let pending = queue.len();
+                        if queue.is_empty() {
+                            inner.inbox.remove(&id);
+                        }
+                        // Mark Running right away so the whole queue isn't
+                        // flushed before the injected command produces output
+                        if let Some(s) = inner.sessions.get_mut(&id) {
+                            s.status = RunStatus::Running;
+                            s.last_output = Instant::now();
+                        }
+                        out.push((id.clone(), msg, pending));
+                    }
+                }
+            }
+            out
+        };
+
+        for (id, mut qmsg, pending) in deliveries {
+            let framed = format!("\n[narrater de {}]: {}\n", qmsg.from_label, qmsg.msg);
+            write_to_pty(&state, &id, &framed);
+            if let Some(tx) = qmsg.delivered_tx.take() {
+                let _ = tx.send(());
+            }
+            let _ = app.emit("pty_status", PtyStatusEvent { id: id.clone(), status: RunStatus::Running.as_str() });
+            let _ = app.emit("pty_queue", PtyQueueEvent { id, pending });
         }
     }
 }

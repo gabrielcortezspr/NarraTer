@@ -10,15 +10,19 @@ export interface TerminalSession {
 
 interface TerminalsStore {
   sessions: Record<string, TerminalSession>;
+  /// Pending queued messages per terminal (backend inbox, event pty_queue)
+  queues: Record<string, number>;
   addSession: (id: string) => void;
   setRunning: (id: string) => void;
   setStatus: (id: string, status: "running" | "idle") => void;
+  setQueue: (id: string, pending: number) => void;
   setExited: (id: string, code: number) => void;
   removeSession: (id: string) => void;
 }
 
 export const useTerminalsStore = create<TerminalsStore>((set) => ({
   sessions: {},
+  queues: {},
 
   addSession: (id) =>
     set((s) => ({
@@ -38,6 +42,9 @@ export const useTerminalsStore = create<TerminalsStore>((set) => ({
       return { sessions: { ...s.sessions, [id]: { ...session, status } } };
     }),
 
+  setQueue: (id, pending) =>
+    set((s) => ({ queues: { ...s.queues, [id]: pending } })),
+
   setExited: (id, code) =>
     set((s) => ({
       sessions: {
@@ -50,6 +57,8 @@ export const useTerminalsStore = create<TerminalsStore>((set) => ({
     set((s) => {
       const next = { ...s.sessions };
       delete next[id];
-      return { sessions: next };
+      const queues = { ...s.queues };
+      delete queues[id];
+      return { sessions: next, queues };
     }),
 }));

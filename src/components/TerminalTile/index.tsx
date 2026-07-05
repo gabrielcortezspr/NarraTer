@@ -92,6 +92,7 @@ export default function TerminalTile({ id, data, selected }: NodeProps<TerminalN
   const accentColor = AGENT_COLORS[agentType];
   const sessionStatus = useTerminalsStore((s) => s.sessions[id]?.status ?? "spawning");
   const statusDot = STATUS_DOT[sessionStatus];
+  const queuePending = useTerminalsStore((s) => s.queues[id] ?? 0);
   const [showEditorMenu, setShowEditorMenu] = useState(false);
 
   // Init xterm and PTY
@@ -123,16 +124,27 @@ export default function TerminalTile({ id, data, selected }: NodeProps<TerminalN
         }
         // If this terminal has pipe connections (loaded from historia), send skill description
         const { edges, nodes } = useCanvasStore.getState();
-        const pipeEdges = edges.filter((e) => (e.source === id || e.target === id) && e.type === "agent-pipe");
-        if (pipeEdges.length > 0) {
-          const connectedLabels = pipeEdges.map((e) => {
-            const otherId = e.source === id ? e.target : e.source;
-            const otherNode = nodes.find((n) => n.id === otherId);
-            return (otherNode?.data as TerminalNodeData | undefined)?.label ?? otherId;
-          });
-          const skillMsg =
-            `\r\n\x1b[35m[NarraTer]\x1b[0m Agentes conectados: \x1b[1m${connectedLabels.join(", ")}\x1b[0m\r\n` +
-            `Use: \x1b[36mnarrater send "<nome>" "mensagem"\x1b[0m\r\n\r\n`;
+        const labelFor = (nodeId: string) => {
+          const node = nodes.find((n) => n.id === nodeId);
+          return (node?.data as TerminalNodeData | undefined)?.label ?? nodeId;
+        };
+        const outgoing = edges
+          .filter((e) => e.source === id && e.type === "agent-pipe")
+          .map((e) => labelFor(e.target));
+        const incoming = edges
+          .filter((e) => e.target === id && e.type === "agent-pipe")
+          .map((e) => labelFor(e.source));
+        if (outgoing.length > 0 || incoming.length > 0) {
+          let skillMsg = "\r\n";
+          if (outgoing.length > 0) {
+            skillMsg +=
+              `\x1b[35m[NarraTer]\x1b[0m Você pode enviar para: \x1b[1m${outgoing.join(", ")}\x1b[0m\r\n` +
+              `Use: \x1b[36mnarrater send "<nome>" "mensagem"\x1b[0m ou \x1b[36mnarrater ask "<nome>" "pergunta"\x1b[0m\r\n`;
+          }
+          if (incoming.length > 0) {
+            skillMsg += `\x1b[35m[NarraTer]\x1b[0m Recebe mensagens de: \x1b[1m${incoming.join(", ")}\x1b[0m\r\n`;
+          }
+          skillMsg += "\r\n";
           write(id, skillMsg);
         }
       });
@@ -289,6 +301,18 @@ export default function TerminalTile({ id, data, selected }: NodeProps<TerminalN
         )}
 
         <span className="text-[#555] text-xs truncate flex-1">{data.label}</span>
+
+        {/* Queued messages badge */}
+        {queuePending > 0 && (
+          <span
+            title={`${queuePending} mensagem${queuePending > 1 ? "s" : ""} aguardando entrega`}
+            className="flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full shrink-0"
+            style={{ color: "#fbbf24", background: "#fbbf2418", border: "1px solid #fbbf2430" }}
+          >
+            <Clock size={8} />
+            {queuePending}
+          </span>
+        )}
 
         {/* Agent pipe badge */}
         {pipeCount > 0 && (

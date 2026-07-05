@@ -33,6 +33,10 @@ export default function App() {
       useTerminalsStore.getState().setExited(event.payload.id, event.payload.code);
     }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
+    listen<{ id: string; pending: number }>("pty_queue", (event) => {
+      useTerminalsStore.getState().setQueue(event.payload.id, event.payload.pending);
+    }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
+
     return () => {
       cancelled = true;
       unlisteners.forEach((fn) => fn());

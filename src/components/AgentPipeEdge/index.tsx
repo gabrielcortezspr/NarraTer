@@ -1,7 +1,10 @@
 import { getBezierPath, type EdgeProps } from "@xyflow/react";
+import { useTerminalsStore } from "@/stores/terminals";
 
 export default function AgentPipeEdge({
   id,
+  source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -18,8 +21,17 @@ export default function AgentPipeEdge({
     targetPosition,
   });
 
+  const pending = useTerminalsStore((s) => s.queues[target] ?? 0);
+  const targetStatus = useTerminalsStore((s) => s.sessions[target]?.status);
+  const sourceStatus = useTerminalsStore((s) => s.sessions[source]?.status);
+  // Flow animation when a message is queued or either endpoint is working
+  const active = pending > 0 || targetStatus === "running" || sourceStatus === "running";
+
   const gradientId = `pipe-gradient-${id}`;
   const glowId = `pipe-glow-${id}`;
+  const label = pending > 0 ? `⧗ ${pending} na fila` : "⟶ agent pipe";
+  const labelColor = pending > 0 ? "#fbbf24" : "#a78bfa";
+  const labelStroke = pending > 0 ? "#fbbf2440" : "#8b5cf640";
 
   return (
     <g>
@@ -44,10 +56,10 @@ export default function AgentPipeEdge({
         stroke="#8b5cf6"
         strokeWidth={8}
         fill="none"
-        opacity={0.12}
+        opacity={active ? 0.18 : 0.08}
       />
 
-      {/* Animated flow line */}
+      {/* Flow line — animated only while there is activity on the route */}
       <path
         id={id}
         d={edgePath}
@@ -55,22 +67,20 @@ export default function AgentPipeEdge({
         strokeWidth={2}
         fill="none"
         strokeDasharray="8 4"
-        opacity={0.85}
-        filter={`url(#${glowId})`}
-        style={{
-          animation: "narrater-pipe-flow 1.2s linear infinite",
-        }}
+        opacity={active ? 0.9 : 0.5}
+        filter={active ? `url(#${glowId})` : undefined}
+        style={active ? { animation: "narrater-pipe-flow 1.2s linear infinite" } : undefined}
       />
 
       {/* Label */}
       <g transform={`translate(${labelX},${labelY})`}>
-        <rect x={-38} y={-11} width={76} height={22} rx={11} fill="#110d1e" stroke="#8b5cf640" strokeWidth={1} />
+        <rect x={-38} y={-11} width={76} height={22} rx={11} fill="#110d1e" stroke={labelStroke} strokeWidth={1} />
         <text
           textAnchor="middle"
           dominantBaseline="middle"
-          style={{ fontSize: 9, fill: "#a78bfa", fontFamily: "inherit", fontWeight: 500, letterSpacing: "0.03em" }}
+          style={{ fontSize: 9, fill: labelColor, fontFamily: "inherit", fontWeight: 500, letterSpacing: "0.03em" }}
         >
-          ⟶ agent pipe
+          {label}
         </text>
       </g>
 

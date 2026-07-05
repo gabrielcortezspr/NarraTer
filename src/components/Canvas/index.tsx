@@ -180,17 +180,23 @@ export default function Canvas() {
       // the store→local effect brings the edge into React Flow state
       addStoreEdge(newEdge);
 
-      // Inject narrater skill description into both running PTYs
+      // Inject narrater skill description into both running PTYs.
+      // The route is directed: source can message target, not the reverse.
       if (isAgentPipe && connection.source && connection.target) {
         const srcLabel = (sourceNode?.data as TerminalNodeData | undefined)?.label ?? connection.source;
         const tgtLabel = (targetNode?.data as TerminalNodeData | undefined)?.label ?? connection.target;
 
-        const msgFor = (myLabel: string, otherLabel: string) =>
-          `\r\n\x1b[35m[NarraTer]\x1b[0m Conectado ao agente \x1b[1m"${otherLabel}"\x1b[0m\r\n` +
-          `Use: \x1b[36mnarrater send "${otherLabel}" "sua mensagem"\x1b[0m\r\n\r\n`;
+        const sourceMsg =
+          `\r\n\x1b[35m[NarraTer]\x1b[0m Conectado \x1b[1m→ "${tgtLabel}"\x1b[0m\r\n` +
+          `Use: \x1b[36mnarrater send "${tgtLabel}" "mensagem"\x1b[0m (não espera resposta)\r\n` +
+          `     \x1b[36mnarrater ask "${tgtLabel}" "pergunta"\x1b[0m (espera resposta)\r\n` +
+          `     \x1b[36mnarrater peers\x1b[0m lista seus agentes conectados\r\n\r\n`;
+        const targetMsg =
+          `\r\n\x1b[35m[NarraTer]\x1b[0m Agente \x1b[1m"${srcLabel}" →\x1b[0m conectado a você.\r\n` +
+          `Mensagens dele chegarão como \x1b[36m[narrater de ${srcLabel}]\x1b[0m\r\n\r\n`;
 
-        ptyWrite(connection.source, msgFor(srcLabel, tgtLabel)).catch(console.error);
-        ptyWrite(connection.target, msgFor(tgtLabel, srcLabel)).catch(console.error);
+        ptyWrite(connection.source, sourceMsg).catch(console.error);
+        ptyWrite(connection.target, targetMsg).catch(console.error);
       }
     },
     [addStoreEdge]
