@@ -33,6 +33,7 @@ struct IpcRequest {
 
 pub async fn start_ipc_server(app: AppHandle, state: Arc<Mutex<PtyStateInner>>) {
     write_narrater_script();
+    write_narrater_mcp_script();
 
     let socket_path = format!("/tmp/narrater-{}.sock", std::process::id());
     let _ = std::fs::remove_file(&socket_path);
@@ -281,7 +282,7 @@ fn strip_injected_echo(response: &str, from_label: &str, msg: &str) -> String {
     response.to_string()
 }
 
-fn write_narrater_script() {
+fn write_executable_script(name: &str, content: &str) {
     let home = match std::env::var("HOME") {
         Ok(h) => h,
         Err(_) => return,
@@ -293,7 +294,20 @@ fn write_narrater_script() {
         return;
     }
 
-    let script_path = bin_dir.join("narrater");
+    let script_path = bin_dir.join(name);
+    if let Err(e) = std::fs::write(&script_path, content) {
+        eprintln!("[NarraTer IPC] Failed to write {}: {}", name, e);
+        return;
+    }
+
+    if let Ok(meta) = std::fs::metadata(&script_path) {
+        let mut perms = meta.permissions();
+        perms.set_mode(0o755);
+        let _ = std::fs::set_permissions(&script_path, perms);
+    }
+}
+
+fn write_narrater_script() {
 
     let script = r#"#!/usr/bin/env python3
 """narrater - comunicacao entre agentes NarraTer
@@ -370,14 +384,127 @@ if __name__ == "__main__":
     main()
 "#;
 
-    if let Err(e) = std::fs::write(&script_path, script) {
-        eprintln!("[NarraTer IPC] Failed to write narrater script: {}", e);
-        return;
-    }
+    write_executable_script("narrater", script);
+}
 
-    if let Ok(meta) = std::fs::metadata(&script_path) {
-        let mut perms = meta.permissions();
-        perms.set_mode(0o755);
-        let _ = std::fs::set_permissions(&script_path, perms);
-    }
+/// MCP stdio server exposing narrater communication as native tools for AI
+/// agents (claude --mcp-config). Pure bridge to the same Unix socket.
+fn write_narrater_mcp_script() {
+    let script = r#"#!/usr/bin/env python3
+"""narrater-mcp - servidor MCP que expoe a comunicacao entre agentes NarraTer"""
+import json, os, socket, sys
+
+TOOLS = [
+    {
+        "name": "send_message",
+        "description": "Envia uma mensagem para outro agente do canvas NarraTer (fire-and-forget; a entrega ocorre quando o agente alvo estiver ocioso). Use para delegar tarefas, notificar ou responder a uma mensagem recebida.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Label do agente alvo (veja list_peers)"},
+                "msg": {"type": "string", "description": "Mensagem a enviar"},
+            },
+            "required": ["to", "msg"],
+        },
+    },
+    {
+        "name": "ask_agent",
+        "description": "Envia uma pergunta a outro agente do canvas NarraTer e espera a resposta dele (bloqueia ate o agente terminar). Use quando precisar do resultado para continuar.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "to": {"type": "string", "description": "Label do agente alvo (veja list_peers)"},
+                "msg": {"type": "string", "description": "Pergunta ou tarefa"},
+                "timeout_secs": {"type": "integer", "description": "Tempo maximo de espera em segundos (default 120)"},
+            },
+            "required": ["to", "msg"],
+        },
+    },
+    {
+        "name": "list_peers",
+        "description": "Lista os agentes do canvas NarraTer que voce pode contatar (conectados a voce por uma edge), com o status de cada um.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "whoami",
+        "description": "Mostra sua identidade (id e label) no canvas NarraTer.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+]
+
+MODE = {"send_message": "send", "ask_agent": "ask", "list_peers": "peers", "whoami": "whoami"}
+
+
+def narrater_request(payload):
+    sock_path = os.environ.get("NARRATER_SOCKET", "")
+    if not sock_path:
+        return "Erro: NARRATER_SOCKET nao definido"
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        s.connect(sock_path)
+        s.sendall(json.dumps(payload).encode("utf-8"))
+        s.shutdown(socket.SHUT_WR)
+        r = b""
+        while True:
+            c = s.recv(4096)
+            if not c:
+                break
+            r += c
+        return r.decode("utf-8")
+    except Exception as e:
+        return f"Erro: {e}"
+    finally:
+        s.close()
+
+
+def reply(msg_id, result):
+    sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": msg_id, "result": result}) + "\n")
+    sys.stdout.flush()
+
+
+def main():
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue
+        method = msg.get("method", "")
+        msg_id = msg.get("id")
+        if method == "initialize":
+            reply(msg_id, {
+                "protocolVersion": msg.get("params", {}).get("protocolVersion", "2024-11-05"),
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "narrater", "version": "1.0.0"},
+            })
+        elif method == "tools/list":
+            reply(msg_id, {"tools": TOOLS})
+        elif method == "tools/call":
+            params = msg.get("params", {})
+            name = params.get("name", "")
+            args = params.get("arguments", {}) or {}
+            mode = MODE.get(name)
+            if not mode:
+                reply(msg_id, {"content": [{"type": "text", "text": f"Erro: ferramenta desconhecida '{name}'"}], "isError": True})
+                continue
+            payload = {"from": os.environ.get("NARRATER_ID", ""), "mode": mode}
+            if mode in ("send", "ask"):
+                payload["to"] = args.get("to", "")
+                payload["msg"] = args.get("msg", "")
+                if args.get("timeout_secs"):
+                    payload["timeout_secs"] = int(args["timeout_secs"])
+            text = narrater_request(payload).strip() or "(sem resposta)"
+            reply(msg_id, {"content": [{"type": "text", "text": text}], "isError": text.startswith("Erro")})
+        elif msg_id is not None:
+            sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": msg_id, "error": {"code": -32601, "message": f"method not found: {method}"}}) + "\n")
+            sys.stdout.flush()
+
+
+if __name__ == "__main__":
+    main()
+"#;
+
+    write_executable_script("narrater-mcp", script);
 }

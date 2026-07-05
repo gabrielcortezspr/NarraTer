@@ -5,6 +5,7 @@ export type AgentType = "shell" | "claude" | "codex" | "custom";
 export interface PtySpawnOptions {
   id: string;
   command: string;
+  args?: string[];
   cols: number;
   rows: number;
   label?: string;
@@ -61,6 +62,11 @@ export const ptyKill = (id: string) =>
 export const ptyUpdateLabel = (id: string, label: string) =>
   invoke<void>("pty_update_label", { id, label });
 
+// Queues a system notification for an AI terminal (idle-gated, auto-submitted
+// as "[narrater de sistema]: ..."). Never call for shell targets.
+export const ptyNotify = (id: string, text: string) =>
+  invoke<void>("pty_notify", { id, text });
+
 // Mirrors the canvas agent-pipe edges to the backend routing table
 export const connectionsSync = (connections: Array<[string, string]>) =>
   invoke<void>("connections_sync", { connections });
@@ -93,13 +99,33 @@ export interface Role {
 export const loadRoles = () => invoke<Role[]>("load_roles");
 export const saveRoles = (roles: Role[]) => invoke<void>("save_roles", { roles });
 
-export function getCommandForAgent(agentType: AgentType, customCommand?: string): string {
+export interface SpawnSpec {
+  command: string;
+  args?: string[];
+}
+
+const NARRATER_MCP_CONFIG = '{"mcpServers":{"narrater":{"command":"narrater-mcp"}}}';
+
+export function getSpawnSpec(agentType: AgentType, customCommand?: string, systemPrompt?: string): SpawnSpec {
   const shell = "/bin/bash";
   switch (agentType) {
-    case "shell": return shell;
-    // Pre-approve narrater so agents can message peers without permission prompts
-    case "claude": return "claude --allowedTools Bash(narrater) Bash(narrater:*)";
-    case "codex": return "codex";
-    case "custom": return customCommand ?? shell;
+    case "shell":
+      return { command: shell };
+    case "claude": {
+      // Narrater exposed as native MCP tools, pre-approved (plus the CLI as
+      // fallback); identity/role/protocol go in the system prompt
+      const args = [
+        "--mcp-config", NARRATER_MCP_CONFIG,
+        "--allowedTools", "mcp__narrater", "Bash(narrater)", "Bash(narrater:*)",
+      ];
+      if (systemPrompt?.trim()) {
+        args.push("--append-system-prompt", systemPrompt);
+      }
+      return { command: "claude", args };
+    }
+    case "codex":
+      return { command: "codex" };
+    case "custom":
+      return { command: customCommand ?? shell };
   }
 }

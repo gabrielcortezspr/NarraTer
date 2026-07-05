@@ -29,6 +29,7 @@ pub fn run() {
             pty::pty_kill,
             pty::pty_update_label,
             pty::connections_sync,
+            pty::pty_notify,
             historia::load_historia,
             historia::save_historia,
             historia::list_historias,

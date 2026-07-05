@@ -29,7 +29,7 @@ import { useCanvasStore } from "@/stores/canvas";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import { useSketchStore } from "@/stores/sketch";
 import { stripAnsi, cleanLines } from "@/lib/ansi";
-import { ptyWrite } from "@/lib/tauri";
+import { ptyWrite, ptyNotify } from "@/lib/tauri";
 import type { AgentType, HistoriaEdge as _HistoriaEdge } from "@/lib/tauri";
 import type { AppNode, AppEdge, NoteNodeData, TerminalNodeData } from "@/stores/canvas";
 
@@ -180,23 +180,41 @@ export default function Canvas() {
       // the store→local effect brings the edge into React Flow state
       addStoreEdge(newEdge);
 
-      // Inject narrater skill description into both running PTYs.
-      // The route is directed: source can message target, not the reverse.
+      // Tell both endpoints about the new route. AI agents get a queued
+      // system message (auto-submitted, becomes part of the conversation);
+      // shells/custom get a visual hint only — queued delivery would execute
+      // the text as a command. The route is directed: source → target.
       if (isAgentPipe && connection.source && connection.target) {
         const srcLabel = (sourceNode?.data as TerminalNodeData | undefined)?.label ?? connection.source;
         const tgtLabel = (targetNode?.data as TerminalNodeData | undefined)?.label ?? connection.target;
+        const srcType = (sourceNode?.data as TerminalNodeData | undefined)?.agentType ?? "shell";
+        const tgtType = (targetNode?.data as TerminalNodeData | undefined)?.agentType ?? "shell";
+        const isAi = (t: string) => t === "claude" || t === "codex";
 
-        const sourceMsg =
-          `\r\n\x1b[35m[NarraTer]\x1b[0m Conectado \x1b[1m→ "${tgtLabel}"\x1b[0m\r\n` +
-          `Use: \x1b[36mnarrater send "${tgtLabel}" "mensagem"\x1b[0m (não espera resposta)\r\n` +
-          `     \x1b[36mnarrater ask "${tgtLabel}" "pergunta"\x1b[0m (espera resposta)\r\n` +
-          `     \x1b[36mnarrater peers\x1b[0m lista seus agentes conectados\r\n\r\n`;
-        const targetMsg =
-          `\r\n\x1b[35m[NarraTer]\x1b[0m Agente \x1b[1m"${srcLabel}" →\x1b[0m conectado a você.\r\n` +
-          `Mensagens dele chegarão como \x1b[36m[narrater de ${srcLabel}]\x1b[0m\r\n\r\n`;
+        if (isAi(srcType)) {
+          ptyNotify(
+            connection.source,
+            `Novo agente conectado: você → "${tgtLabel}". Você pode enviar mensagens a ele com send_message/ask_agent (to: "${tgtLabel}").`
+          ).catch(console.error);
+        } else {
+          ptyWrite(
+            connection.source,
+            `\r\n\x1b[35m[NarraTer]\x1b[0m Conectado \x1b[1m→ "${tgtLabel}"\x1b[0m\r\n` +
+              `Use: \x1b[36mnarrater send "${tgtLabel}" "mensagem"\x1b[0m ou \x1b[36mnarrater ask "${tgtLabel}" "pergunta"\x1b[0m\r\n\r\n`
+          ).catch(console.error);
+        }
 
-        ptyWrite(connection.source, sourceMsg).catch(console.error);
-        ptyWrite(connection.target, targetMsg).catch(console.error);
+        if (isAi(tgtType)) {
+          ptyNotify(
+            connection.target,
+            `Novo agente conectado: "${srcLabel}" → você. Mensagens dele chegarão como [narrater de ${srcLabel}].`
+          ).catch(console.error);
+        } else {
+          ptyWrite(
+            connection.target,
+            `\r\n\x1b[35m[NarraTer]\x1b[0m Agente \x1b[1m"${srcLabel}" →\x1b[0m conectado a você.\r\n\r\n`
+          ).catch(console.error);
+        }
       }
     },
     [addStoreEdge]

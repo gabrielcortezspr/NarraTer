@@ -6,6 +6,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Bot, Code2, Terminal, Wrench, X, GripVertical, FolderOpen, Clock, Plug } from "lucide-react";
 import { usePty } from "@/hooks/usePty";
+import { buildAgentSystemPrompt } from "@/lib/agentPrompt";
 import { useCanvasStore } from "@/stores/canvas";
 import { useTerminalsStore } from "@/stores/terminals";
 import type { SessionStatus } from "@/stores/terminals";
@@ -118,7 +119,18 @@ export default function TerminalTile({ id, data, selected }: NodeProps<TerminalN
 
     setTimeout(() => {
       fitAddon.fit();
-      spawn(id, agentType, term.cols, term.rows, data.command, data.label).then(() => {
+      // Claude gets identity/role/protocol as a durable system prompt (plus
+      // the narrater MCP tools); other agents keep the composer injection
+      const isClaude = agentType === "claude";
+      const systemPrompt = isClaude
+        ? buildAgentSystemPrompt({
+            label: data.label,
+            roleName: data.roleName,
+            instructions: data.instructions,
+          })
+        : undefined;
+      spawn(id, agentType, term.cols, term.rows, data.command, data.label, systemPrompt).then(() => {
+        if (isClaude) return;
         if (data.instructions?.trim()) {
           write(id, data.instructions.trim() + "\n");
         }

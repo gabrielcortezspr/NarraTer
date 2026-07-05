@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ptySpawn, ptyWrite, ptyResize, ptyKill, getCommandForAgent } from "@/lib/tauri";
+import { ptySpawn, ptyWrite, ptyResize, ptyKill, getSpawnSpec } from "@/lib/tauri";
 import { useTerminalsStore } from "@/stores/terminals";
 import { useCanvasStore } from "@/stores/canvas";
 import type { AgentType } from "@/lib/tauri";
@@ -19,11 +19,19 @@ export function usePty() {
   const { addSession, setRunning, setExited, removeSession } = useTerminalsStore();
 
   const spawn = useCallback(
-    async (id: string, agentType: AgentType, cols: number, rows: number, customCommand?: string, label?: string) => {
+    async (
+      id: string,
+      agentType: AgentType,
+      cols: number,
+      rows: number,
+      customCommand?: string,
+      label?: string,
+      systemPrompt?: string
+    ) => {
       addSession(id);
-      const command = getCommandForAgent(agentType, customCommand);
+      const { command, args } = getSpawnSpec(agentType, customCommand, systemPrompt);
       try {
-        const effectiveLabel = await ptySpawn({ id, command, cols, rows, label, agentType });
+        const effectiveLabel = await ptySpawn({ id, command, args, cols, rows, label, agentType });
         setRunning(id);
         // Backend deduplicates labels (they address agents in narrater send);
         // reflect the effective one on the node so UI and routing agree

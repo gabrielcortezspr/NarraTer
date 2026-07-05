@@ -127,6 +127,7 @@ fn drain_utf8(buf: &mut Vec<u8>) -> String {
 pub fn pty_spawn(
     id: String,
     command: String,
+    args: Option<Vec<String>>,
     cols: u16,
     rows: u16,
     label: Option<String>,
@@ -139,14 +140,29 @@ pub fn pty_spawn(
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| e.to_string())?;
 
-    // The command may carry arguments (whitespace-separated, no quoting)
-    let mut parts = command.split_whitespace();
-    let program = parts.next().ok_or("comando vazio")?;
-    let mut cmd = CommandBuilder::new(program);
-    for arg in parts {
-        cmd.arg(arg);
-    }
+    // With explicit args, `command` is the program; otherwise fall back to
+    // whitespace-splitting the command string (custom agents, no quoting)
+    let mut cmd = match args {
+        Some(args) => {
+            let mut cmd = CommandBuilder::new(&command);
+            for arg in args {
+                cmd.arg(arg);
+            }
+            cmd
+        }
+        None => {
+            let mut parts = command.split_whitespace();
+            let program = parts.next().ok_or("comando vazio")?;
+            let mut cmd = CommandBuilder::new(program);
+            for arg in parts {
+                cmd.arg(arg);
+            }
+            cmd
+        }
+    };
     cmd.env("TERM", "xterm-256color");
+    // Generous MCP tool-call timeout so long ask_agent calls don't get cut
+    cmd.env("MCP_TOOL_TIMEOUT", "300000");
     cmd.env("COLORTERM", "truecolor");
 
     if let Ok(home) = std::env::var("HOME") {
@@ -325,6 +341,20 @@ pub fn pty_update_label(id: String, label: String, state: State<'_, PtyState>) -
 pub fn connections_sync(connections: Vec<(String, String)>, state: State<'_, PtyState>) -> Result<(), String> {
     let mut inner = state.0.lock().unwrap();
     inner.connections = connections.into_iter().collect();
+    Ok(())
+}
+
+/// Queues a system notification for an AI terminal — delivered idle-gated and
+/// auto-submitted as `[narrater de sistema]: <text>`. Never use on shell
+/// targets: shell delivery executes the text as a command.
+#[tauri::command]
+pub fn pty_notify(id: String, text: String, app_handle: AppHandle, state: State<'_, PtyState>) -> Result<(), String> {
+    enqueue_message(&state.0, &app_handle, &id, QueuedMsg {
+        from_label: "sistema".to_string(),
+        msg: text,
+        enqueued: Instant::now(),
+        delivered_tx: None,
+    });
     Ok(())
 }
 
