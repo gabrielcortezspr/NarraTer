@@ -63,19 +63,21 @@ responde de propósito":
   edge OU grant. Elimina o conflito com o "SEMPRE reporte de volta" do prompt
   para o send_message (o reply do ask já não passava por rota).
 
-## Fase 3 — Protocolo e MCP mais ricos
+## Fase 3 — Protocolo e MCP mais ricos ✅ (implementada)
 
-- **broadcast**: enviar para todos os peers de uma vez (padrão
-  orquestrador → workers).
-- **check_messages/inbox**: tool para o agente puxar mensagens pendentes em
-  vez de depender só da injeção — cobre o caso do agente ocupado por muito
-  tempo.
-- **Progress notifications no MCP** durante ask longo (o protocolo MCP suporta
-  `notifications/progress`), para o agente chamador não parecer travado por
-  120s.
-- **Codex e custom com paridade**: codex aceita MCP via `-c mcp_servers...`;
-  gerar a config equivalente em `getSpawnSpec` e estender o framing/prompt por
-  tipo de agente.
+- **broadcast**: `narrater broadcast <msg>` / tool `broadcast_message` envia
+  para todos os peers de saída de uma vez (padrão orquestrador → workers).
+- **check_messages/inbox**: `narrater inbox` / tool `check_messages` puxa e
+  drena as mensagens pendentes (concedendo os reply grants e liberando asks
+  como na entrega normal) — cobre o agente ocupado por muito tempo.
+- **Progress notifications no MCP**: o narrater-mcp agora roda cada tools/call
+  numa thread (um ask bloqueante não trava as demais tools) e, quando o
+  cliente manda `progressToken`, emite `notifications/progress` a cada 10s
+  durante asks.
+- **Codex com paridade de MCP**: spawnado com
+  `-c mcp_servers.narrater.command=narrater-mcp`. ⚠️ validar manualmente a
+  sintaxe do override na versão instalada do codex. Prompt de protocolo para
+  codex/custom segue pendente (vem com o framing por tipo de agente).
 
 ## Fase 4 — Observabilidade no canvas
 

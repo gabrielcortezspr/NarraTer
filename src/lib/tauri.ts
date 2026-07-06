@@ -157,7 +157,9 @@ export function getSpawnSpec(agentType: AgentType, customCommand?: string, syste
       return { command: "claude", args };
     }
     case "codex":
-      return { command: "codex" };
+      // Paridade com o claude: narrater como MCP server via override de
+      // config (-c aceita chaves TOML pontilhadas; narrater-mcp está no PATH)
+      return { command: "codex", args: ["-c", "mcp_servers.narrater.command=narrater-mcp"] };
     case "custom":
       return { command: customCommand ?? shell };
   }

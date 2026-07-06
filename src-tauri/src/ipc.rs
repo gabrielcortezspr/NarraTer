@@ -102,9 +102,11 @@ async fn handle_connection(
         Some("send") => handle_send(&req, &app, &state),
         Some("ask") => handle_ask(&req, &app, &state).await,
         Some("reply") => handle_reply(&req, &state),
+        Some("broadcast") => handle_broadcast(&req, &app, &state),
+        Some("inbox") => handle_inbox(&req, &app, &state),
         Some("notify-idle") => handle_notify_idle(&req, &app, &state),
         Some("canvas") => handle_canvas(&req, &app, &state).await,
-        _ => "Uso: narrater send|ask <alvo> <mensagem> | narrater reply <id> <resposta> | narrater peers | narrater whoami\n".to_string(),
+        _ => "Uso: narrater send|ask <alvo> <mensagem> | narrater reply <id> <resposta> | narrater broadcast <mensagem> | narrater inbox | narrater peers | narrater whoami\n".to_string(),
     };
 
     let _ = stream.write_all(reply.as_bytes()).await;
@@ -232,6 +234,89 @@ async fn handle_ask(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStat
     } else {
         ask_by_reply(req, app, state, target_id, from_label, msg).await
     }
+}
+
+/// Envia a mesma mensagem para todos os peers (edges de saída) de uma vez —
+/// padrão orquestrador → workers. Fire-and-forget como o send.
+fn handle_broadcast(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInner>>) -> String {
+    if req.from.is_empty() {
+        return "Erro: NARRATER_ID não definido. Você está dentro de um terminal NarraTer?\n".into();
+    }
+    let msg = match req.msg.as_deref() {
+        Some(m) if !m.is_empty() => m.to_string(),
+        _ => return "Erro: mensagem vazia\n".to_string(),
+    };
+
+    let (from_label, targets): (String, Vec<(String, String)>) = {
+        let inner = state.lock().unwrap();
+        let targets = inner
+            .connections
+            .iter()
+            .filter(|(from, _)| *from == req.from)
+            .filter(|(_, to)| inner.sessions.contains_key(to))
+            .map(|(_, to)| (to.clone(), label_of(&inner, to)))
+            .collect();
+        (label_of(&inner, &req.from), targets)
+    };
+    if targets.is_empty() {
+        return "Erro: nenhum agente conectado — crie edges no canvas\n".to_string();
+    }
+
+    for (target_id, _) in &targets {
+        enqueue_message(state, app, target_id, QueuedMsg {
+            from_label: from_label.clone(),
+            from_id: Some(req.from.clone()),
+            msg: msg.clone(),
+            enqueued: Instant::now(),
+            msg_id: None,
+            delivered_tx: None,
+        });
+    }
+    let mut labels: Vec<String> = targets.into_iter().map(|(_, l)| l).collect();
+    labels.sort();
+    format!("ok: mensagem enviada para {} agente(s): {}\n", labels.len(), labels.join(", "))
+}
+
+/// Puxa (e drena) as mensagens pendentes do chamador em vez de esperar a
+/// injeção idle-gated — cobre o agente que fica ocupado por muito tempo.
+fn handle_inbox(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInner>>) -> String {
+    let msgs: Vec<QueuedMsg> = {
+        let mut inner = state.lock().unwrap();
+        if req.from.is_empty() || !inner.sessions.contains_key(&req.from) {
+            return "Erro: sessão desconhecida — você está dentro de um terminal NarraTer?\n".to_string();
+        }
+        let msgs: Vec<QueuedMsg> = inner
+            .inbox
+            .remove(&req.from)
+            .map(|q| q.into_iter().collect())
+            .unwrap_or_default();
+        // Puxar a mensagem também concede a rota de resposta, como na entrega
+        for m in &msgs {
+            if let Some(from_id) = m.from_id.clone() {
+                inner.reply_grants.insert((req.from.clone(), from_id), Instant::now());
+            }
+        }
+        msgs
+    };
+
+    if msgs.is_empty() {
+        return "(nenhuma mensagem pendente)\n".to_string();
+    }
+    let _ = app.emit("pty_queue", crate::pty::PtyQueueEvent { id: req.from.clone(), pending: 0 });
+
+    let lines: Vec<String> = msgs
+        .into_iter()
+        .map(|mut m| {
+            // Um ask pendente foi "entregue" por pull: libera o chamador para
+            // esperar o reply
+            if let Some(tx) = m.delivered_tx.take() {
+                let _ = tx.send(());
+            }
+            let id_part = m.msg_id.as_deref().map(|i| format!(" #{}", i)).unwrap_or_default();
+            format!("de {}{}: {}", m.from_label, id_part, m.msg)
+        })
+        .collect();
+    lines.join("\n") + "\n"
 }
 
 /// Ask com resposta explícita: entrega `[narrater de X #id]: msg` e espera o
@@ -622,6 +707,8 @@ Uso:
   narrater send <alvo> <mensagem>              envia e retorna imediatamente
   narrater ask <alvo> <mensagem> [--timeout N] envia e espera a resposta
   narrater reply <id> <resposta>               responde a um ask recebido (o #id do frame)
+  narrater broadcast <mensagem>                envia para todos os peers de uma vez
+  narrater inbox                               puxa (e drena) suas mensagens pendentes
   narrater peers                               lista agentes alcancaveis
   narrater whoami                              mostra sua identidade
 """
@@ -683,7 +770,12 @@ def main():
             sys.exit(1)
         payload["msg_id"] = rest[0]
         payload["msg"] = " ".join(rest[1:])
-    elif mode not in ("peers", "whoami", "notify-idle"):
+    elif mode == "broadcast":
+        if len(args) < 2:
+            print("Uso: narrater broadcast <mensagem>", file=sys.stderr)
+            sys.exit(1)
+        payload["msg"] = " ".join(args[1:])
+    elif mode not in ("peers", "whoami", "inbox", "notify-idle"):
         print(__doc__.strip(), file=sys.stderr)
         sys.exit(1)
 
@@ -706,7 +798,7 @@ if __name__ == "__main__":
 fn write_narrater_mcp_script() {
     let script = r#"#!/usr/bin/env python3
 """narrater-mcp - servidor MCP que expoe a comunicacao entre agentes NarraTer"""
-import json, os, socket, sys
+import json, os, socket, sys, threading
 
 TOOLS = [
     {
@@ -745,6 +837,22 @@ TOOLS = [
             },
             "required": ["id", "msg"],
         },
+    },
+    {
+        "name": "broadcast_message",
+        "description": "Envia a mesma mensagem para todos os agentes conectados a voce, de uma vez (fire-and-forget). Util para orquestrar varios workers.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "msg": {"type": "string", "description": "Mensagem a enviar a todos os peers"},
+            },
+            "required": ["msg"],
+        },
+    },
+    {
+        "name": "check_messages",
+        "description": "Puxa (e drena) as mensagens pendentes na sua fila do NarraTer sem esperar a entrega automatica. Use no meio de tarefas longas para ver se alguem te chamou. Perguntas puxadas assim (com #id) devem ser respondidas com reply_message.",
+        "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "list_peers",
@@ -839,7 +947,15 @@ TOOLS = [
     },
 ]
 
-MODE = {"send_message": "send", "ask_agent": "ask", "reply_message": "reply", "list_peers": "peers", "whoami": "whoami"}
+MODE = {
+    "send_message": "send",
+    "ask_agent": "ask",
+    "reply_message": "reply",
+    "broadcast_message": "broadcast",
+    "check_messages": "inbox",
+    "list_peers": "peers",
+    "whoami": "whoami",
+}
 
 
 def narrater_request(payload):
@@ -864,9 +980,70 @@ def narrater_request(payload):
         s.close()
 
 
+_stdout_lock = threading.Lock()
+
+
+def _write(obj):
+    with _stdout_lock:
+        sys.stdout.write(json.dumps(obj) + "\n")
+        sys.stdout.flush()
+
+
 def reply(msg_id, result):
-    sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": msg_id, "result": result}) + "\n")
-    sys.stdout.flush()
+    _write({"jsonrpc": "2.0", "id": msg_id, "result": result})
+
+
+def notify_progress(token, progress, message):
+    _write({"jsonrpc": "2.0", "method": "notifications/progress",
+            "params": {"progressToken": token, "progress": progress, "message": message}})
+
+
+def handle_tool_call(msg_id, params):
+    name = params.get("name", "")
+    args = params.get("arguments", {}) or {}
+    if name.startswith("canvas_"):
+        payload = {
+            "from": os.environ.get("NARRATER_ID", ""),
+            "mode": "canvas",
+            "action": name[len("canvas_"):],
+            "params": args,
+        }
+    else:
+        mode = MODE.get(name)
+        if not mode:
+            reply(msg_id, {"content": [{"type": "text", "text": f"Erro: ferramenta desconhecida '{name}'"}], "isError": True})
+            return
+        payload = {"from": os.environ.get("NARRATER_ID", ""), "mode": mode}
+        if mode in ("send", "ask"):
+            payload["to"] = args.get("to", "")
+            payload["msg"] = args.get("msg", "")
+            if args.get("timeout_secs"):
+                payload["timeout_secs"] = int(args["timeout_secs"])
+        elif mode == "reply":
+            payload["msg_id"] = args.get("id", "")
+            payload["msg"] = args.get("msg", "")
+        elif mode == "broadcast":
+            payload["msg"] = args.get("msg", "")
+
+    # Progress durante asks longos, para o chamador nao parecer travado
+    done = threading.Event()
+    token = (params.get("_meta") or {}).get("progressToken")
+    if token is not None and name == "ask_agent":
+        target = args.get("to", "?")
+
+        def ping():
+            waited = 0
+            while not done.wait(10):
+                waited += 10
+                notify_progress(token, waited, f"aguardando resposta de {target} ({waited}s)")
+
+        threading.Thread(target=ping, daemon=True).start()
+
+    try:
+        text = narrater_request(payload).strip() or "(sem resposta)"
+    finally:
+        done.set()
+    reply(msg_id, {"content": [{"type": "text", "text": text}], "isError": text.startswith("Erro")})
 
 
 def main():
@@ -889,35 +1066,10 @@ def main():
         elif method == "tools/list":
             reply(msg_id, {"tools": TOOLS})
         elif method == "tools/call":
-            params = msg.get("params", {})
-            name = params.get("name", "")
-            args = params.get("arguments", {}) or {}
-            if name.startswith("canvas_"):
-                payload = {
-                    "from": os.environ.get("NARRATER_ID", ""),
-                    "mode": "canvas",
-                    "action": name[len("canvas_"):],
-                    "params": args,
-                }
-            else:
-                mode = MODE.get(name)
-                if not mode:
-                    reply(msg_id, {"content": [{"type": "text", "text": f"Erro: ferramenta desconhecida '{name}'"}], "isError": True})
-                    continue
-                payload = {"from": os.environ.get("NARRATER_ID", ""), "mode": mode}
-                if mode in ("send", "ask"):
-                    payload["to"] = args.get("to", "")
-                    payload["msg"] = args.get("msg", "")
-                    if args.get("timeout_secs"):
-                        payload["timeout_secs"] = int(args["timeout_secs"])
-                elif mode == "reply":
-                    payload["msg_id"] = args.get("id", "")
-                    payload["msg"] = args.get("msg", "")
-            text = narrater_request(payload).strip() or "(sem resposta)"
-            reply(msg_id, {"content": [{"type": "text", "text": text}], "isError": text.startswith("Erro")})
+            # Thread por chamada: um ask bloqueante nao trava as demais tools
+            threading.Thread(target=handle_tool_call, args=(msg_id, msg.get("params", {})), daemon=True).start()
         elif msg_id is not None:
-            sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": msg_id, "error": {"code": -32601, "message": f"method not found: {method}"}}) + "\n")
-            sys.stdout.flush()
+            _write({"jsonrpc": "2.0", "id": msg_id, "error": {"code": -32601, "message": f"method not found: {method}"}})
 
 
 if __name__ == "__main__":

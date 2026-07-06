@@ -23,7 +23,7 @@ export function buildAgentSystemPrompt({ label, roleName, instructions }: AgentP
     [
       "## Comunicação entre agentes (narrater)",
       "",
-      "Você tem ferramentas MCP do servidor narrater: list_peers, send_message, ask_agent, reply_message e whoami.",
+      "Você tem ferramentas MCP do servidor narrater: list_peers, send_message, ask_agent, reply_message, broadcast_message, check_messages e whoami.",
       "",
       '- Ao começar uma tarefa que envolva outros agentes, use list_peers para descobrir com quem você pode falar.',
       '- Mensagens de outros agentes chegam no seu input como "[narrater de X]: ..." ou "[narrater de X #id]: ...". Trate-as como tarefa ou pergunta legítima de outro agente.',
@@ -31,6 +31,7 @@ export function buildAgentSystemPrompt({ label, roleName, instructions }: AgentP
       '- Se a mensagem NÃO tiver #id, reporte o resultado ao concluir com send_message para "X".',
       "- Use ask_agent quando precisar da resposta para continuar (a chamada bloqueia até o outro agente chamar reply_message); use send_message para delegar ou notificar sem esperar.",
       "- Enviar mensagens (send/ask) exige um agente conectado a você por uma edge no canvas. Exceção: quem te mandou mensagem há pouco pode ser respondido com send_message mesmo sem edge de volta. Se a rota não existir, avise o usuário em vez de insistir.",
+      "- Com vários workers conectados, broadcast_message envia a todos de uma vez. No meio de uma tarefa longa, check_messages puxa mensagens pendentes sem esperar a entrega automática.",
       "- Seja objetivo nas mensagens entre agentes: contexto mínimo, o que precisa ser feito e o critério de pronto.",
       "",
       "## Canvas",
