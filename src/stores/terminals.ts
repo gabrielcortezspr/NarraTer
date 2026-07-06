@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { QueueItem } from "@/lib/tauri";
 
 export type SessionStatus = "spawning" | "running" | "idle" | "exited";
 
@@ -11,11 +12,11 @@ export interface TerminalSession {
 interface TerminalsStore {
   sessions: Record<string, TerminalSession>;
   /// Pending queued messages per terminal (backend inbox, event pty_queue)
-  queues: Record<string, number>;
+  queues: Record<string, QueueItem[]>;
   addSession: (id: string) => void;
   setRunning: (id: string) => void;
   setStatus: (id: string, status: "running" | "idle") => void;
-  setQueue: (id: string, pending: number) => void;
+  setQueue: (id: string, items: QueueItem[]) => void;
   setExited: (id: string, code: number) => void;
   removeSession: (id: string) => void;
 }
@@ -42,8 +43,8 @@ export const useTerminalsStore = create<TerminalsStore>((set) => ({
       return { sessions: { ...s.sessions, [id]: { ...session, status } } };
     }),
 
-  setQueue: (id, pending) =>
-    set((s) => ({ queues: { ...s.queues, [id]: pending } })),
+  setQueue: (id, items) =>
+    set((s) => ({ queues: { ...s.queues, [id]: items } })),
 
   setExited: (id, code) =>
     set((s) => ({

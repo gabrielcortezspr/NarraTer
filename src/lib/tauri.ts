@@ -52,6 +52,25 @@ export interface HistoriaData {
   edges: HistoriaEdge[];
 }
 
+/** Mensagem pendente na fila de um terminal (evento pty_queue). */
+export interface QueueItem {
+  from_label: string;
+  msg: string;
+  msg_id?: string | null;
+}
+
+/** Registro do ledger de mensagens entre agentes (evento narrater_msg). */
+export interface LedgerEntry {
+  from: string;
+  to: string;
+  from_label: string;
+  to_label: string;
+  kind: "send" | "ask" | "reply" | "broadcast";
+  msg: string;
+  msg_id?: string | null;
+  ts: number;
+}
+
 // Returns the effective label assigned by the backend (deduplicated if taken)
 export const ptySpawn = (opts: PtySpawnOptions) =>
   invoke<string>("pty_spawn", opts as unknown as Record<string, unknown>);
@@ -67,6 +86,13 @@ export const ptyKill = (id: string) =>
 
 export const ptyUpdateLabel = (id: string, label: string) =>
   invoke<void>("pty_update_label", { id, label });
+
+export const ptyQueueCancel = (id: string, index: number) =>
+  invoke<void>("pty_queue_cancel", { id, index });
+
+/** Conversa entre dois nós (ambas as direções), mais antiga primeiro. */
+export const narraterLedger = (a: string, b: string) =>
+  invoke<LedgerEntry[]>("narrater_ledger", { a, b });
 
 // Queues a system notification for an AI terminal (idle-gated, auto-submitted
 // as "[narrater de sistema]: ..."). Never call for shell targets.

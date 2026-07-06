@@ -25,9 +25,11 @@ import PortalTile from "@/components/PortalTile";
 import AgentNoteEdge from "@/components/AgentNoteEdge";
 import AgentPipeEdge from "@/components/AgentPipeEdge";
 import AgentPicker from "@/components/AgentPicker";
+import EdgeHistoryPanel from "@/components/EdgeHistoryPanel";
 import SketchLayer from "@/components/SketchLayer";
 import Toolbar from "@/components/Toolbar";
 import { useCanvasStore } from "@/stores/canvas";
+import { useLedgerStore } from "@/stores/ledger";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import { useToolStore, PLACEMENT_TOOLS } from "@/stores/tool";
 import { saveNow } from "@/hooks/useAutoSave";
@@ -149,6 +151,13 @@ function CanvasInner() {
     },
     [screenToFlowPosition, addNoteNode, addTextNode, addFileTreeNode, addPortalNode, setTool]
   );
+
+  // Clique numa edge agent-pipe abre o histórico daquela conversa
+  const onEdgeClick = useCallback((_: React.MouseEvent, edge: AppEdge) => {
+    if (edge.type === "agent-pipe") {
+      useLedgerStore.getState().setOpenEdge({ source: edge.source, target: edge.target });
+    }
+  }, []);
 
   // Agent → Note pipe: espelha output de terminais nas notas conectadas.
   // Chunks são bufferizados por nota e aplicados em batch (~100ms) — um agente
@@ -338,6 +347,7 @@ function CanvasInner() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onPaneClick={onPaneClick}
+        onEdgeClick={onEdgeClick}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         minZoom={0.05}
@@ -371,6 +381,9 @@ function CanvasInner() {
       </ReactFlow>
 
       <Toolbar onTerminal={openTerminalPicker} onAttachment={handleAttachment} />
+
+      {/* Histórico da conversa da edge agent-pipe clicada */}
+      <EdgeHistoryPanel />
 
       <div className="absolute top-0 left-0 h-10 flex items-center px-4 z-10 pointer-events-none">
         <span className="text-[#2a2a2a] text-xs select-none">{currentWorkspace}</span>

@@ -79,14 +79,19 @@ responde de propósito":
   sintaxe do override na versão instalada do codex. Prompt de protocolo para
   codex/custom segue pendente (vem com o framing por tipo de agente).
 
-## Fase 4 — Observabilidade no canvas
+## Fase 4 — Observabilidade no canvas ✅ (implementada)
 
-- **Ledger de mensagens** no backend (ring buffer por par origem→destino)
-  emitido ao front por evento.
-- Clicar numa edge agent-pipe abre o **histórico daquela conversa**; a edge
-  anima/pulsa quando uma mensagem passa.
-- No tile: mostrar o **conteúdo da fila pendente** (não só o contador) com
-  opção de cancelar mensagem enfileirada.
+- **Ledger de mensagens** no backend: ring buffer global (500 registros) com
+  from/to/labels/kind/msg/#id/ts para todo send, ask, reply e broadcast; cada
+  registro é emitido ao front via evento `narrater_msg`, e o comando
+  `narrater_ledger(a, b)` devolve a conversa de um par (ambas as direções).
+- Clicar numa edge agent-pipe abre o **histórico daquela conversa**
+  (EdgeHistoryPanel, estilo chat, ao vivo via lastActivity); a edge **pulsa em
+  verde** quando uma mensagem passa pela rota.
+- No tile: o badge da fila virou popover com o **conteúdo pendente**
+  (remetente, #id, texto) e botão de **cancelar** por mensagem
+  (`pty_queue_cancel`; cancelar um ask acorda o chamador com erro de entrega).
+  O evento `pty_queue` agora carrega os itens, não só o contador.
 
 ## Fase 5 — Segurança e testes
 

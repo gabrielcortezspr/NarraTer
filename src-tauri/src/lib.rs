@@ -33,6 +33,8 @@ pub fn run() {
             pty::pty_update_label,
             pty::connections_sync,
             pty::pty_notify,
+            pty::pty_queue_cancel,
+            pty::narrater_ledger,
             historia::load_historia,
             historia::save_historia,
             historia::list_historias,

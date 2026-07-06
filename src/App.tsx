@@ -6,8 +6,10 @@ import { useCanvasStore } from "@/stores/canvas";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import { useRolesStore } from "@/stores/roles";
 import { useTerminalsStore } from "@/stores/terminals";
+import { useLedgerStore } from "@/stores/ledger";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { initCanvasBridge } from "@/lib/canvasBridge";
+import type { LedgerEntry, QueueItem } from "@/lib/tauri";
 
 export default function App() {
   const { loadHistoria } = useCanvasStore();
@@ -37,8 +39,14 @@ export default function App() {
       useTerminalsStore.getState().setExited(event.payload.id, event.payload.code);
     }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
-    listen<{ id: string; pending: number }>("pty_queue", (event) => {
-      useTerminalsStore.getState().setQueue(event.payload.id, event.payload.pending);
+    listen<{ id: string; pending: number; items: QueueItem[] }>("pty_queue", (event) => {
+      useTerminalsStore.getState().setQueue(event.payload.id, event.payload.items ?? []);
+    }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
+
+    // Ledger de mensagens entre agentes → pulso nas edges e histórico ao vivo
+    listen<LedgerEntry>("narrater_msg", (event) => {
+      const { from, to, ts } = event.payload;
+      useLedgerStore.getState().bump(from, to, ts);
     }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
     // Agentes manipulando o canvas via MCP (canvas_request → store → respond)

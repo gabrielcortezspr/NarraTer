@@ -11,7 +11,8 @@ import { buildAgentSystemPrompt } from "@/lib/agentPrompt";
 import { useCanvasStore } from "@/stores/canvas";
 import { useTerminalsStore } from "@/stores/terminals";
 import type { SessionStatus } from "@/stores/terminals";
-import { openInEditor } from "@/lib/tauri";
+import { openInEditor, ptyQueueCancel } from "@/lib/tauri";
+import type { QueueItem } from "@/lib/tauri";
 import { EDITORS } from "@/lib/editors";
 import type { TerminalNodeData } from "@/stores/canvas";
 import type { Node, NodeProps } from "@xyflow/react";
@@ -65,6 +66,9 @@ const XTERM_THEME = {
   brightWhite: "#f9fafb",
 };
 
+// Referência estável para o selector da fila (evita re-render por identidade)
+const NO_QUEUE: QueueItem[] = [];
+
 const STATUS_DOT: Record<SessionStatus, { color: string; label: string }> = {
   spawning: { color: "#fbbf24", label: "Iniciando…" },
   running: { color: "#4ade80", label: "Executando" },
@@ -88,8 +92,10 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   const accentColor = AGENT_COLORS[agentType];
   const sessionStatus = useTerminalsStore((s) => s.sessions[id]?.status ?? "spawning");
   const statusDot = STATUS_DOT[sessionStatus];
-  const queuePending = useTerminalsStore((s) => s.queues[id] ?? 0);
+  const queueItems = useTerminalsStore((s) => s.queues[id] ?? NO_QUEUE);
+  const queuePending = queueItems.length;
   const [showEditorMenu, setShowEditorMenu] = useState(false);
+  const [showQueueMenu, setShowQueueMenu] = useState(false);
 
   // Init xterm and PTY
   useEffect(() => {
@@ -296,16 +302,49 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
 
         <span className="text-[#555] text-xs truncate flex-1">{data.label}</span>
 
-        {/* Queued messages badge */}
+        {/* Queued messages badge — clique mostra a fila e permite cancelar */}
         {queuePending > 0 && (
-          <span
-            title={`${queuePending} mensagem${queuePending > 1 ? "s" : ""} aguardando entrega`}
-            className="flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full shrink-0"
-            style={{ color: "#fbbf24", background: "#fbbf2418", border: "1px solid #fbbf2430" }}
-          >
-            <Clock size={8} />
-            {queuePending}
-          </span>
+          <div className="relative nodrag shrink-0">
+            <button
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); setShowQueueMenu((v) => !v); }}
+              title={`${queuePending} mensagem${queuePending > 1 ? "s" : ""} aguardando entrega — clique para ver`}
+              className="flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+              style={{ color: "#fbbf24", background: "#fbbf2418", border: "1px solid #fbbf2430" }}
+            >
+              <Clock size={8} />
+              {queuePending}
+            </button>
+            {showQueueMenu && (
+              <div
+                className="absolute top-6 right-0 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl py-1 z-50 w-[260px]"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-[#666] select-none">
+                  Fila de mensagens
+                </div>
+                {queueItems.map((item, i) => (
+                  <div
+                    key={`${i}-${item.msg_id ?? item.msg.slice(0, 12)}`}
+                    className="flex items-start gap-2 px-3 py-1.5 text-[10px] hover:bg-[#222]"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <span className="text-[#fbbf24] font-medium">{item.from_label}</span>
+                      {item.msg_id && <span className="text-[#666]"> #{item.msg_id}</span>}
+                      <div className="truncate text-[#999]" title={item.msg}>{item.msg}</div>
+                    </div>
+                    <button
+                      onClick={() => ptyQueueCancel(id, i).catch(console.error)}
+                      title="Cancelar mensagem"
+                      className="text-[#555] hover:text-[#f87171] transition-colors shrink-0 mt-0.5"
+                    >
+                      <X size={10} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Agent pipe badge */}

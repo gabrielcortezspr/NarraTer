@@ -9,8 +9,8 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
 use crate::pty::{
-    enqueue_message, AskWaiter, PtyStateInner, PtyStatusEvent, QueuedMsg, ResponseListener,
-    RunStatus, MAX_QUEUE_WAIT, REPLY_GRANT_TTL,
+    enqueue_message, now_ms, record_msg, AskWaiter, LedgerEntry, PtyStateInner, PtyStatusEvent,
+    QueuedMsg, ResponseListener, RunStatus, MAX_QUEUE_WAIT, REPLY_GRANT_TTL,
 };
 
 const ASK_DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -101,7 +101,7 @@ async fn handle_connection(
         Some("peers") => handle_peers(&req, &state),
         Some("send") => handle_send(&req, &app, &state),
         Some("ask") => handle_ask(&req, &app, &state).await,
-        Some("reply") => handle_reply(&req, &state),
+        Some("reply") => handle_reply(&req, &app, &state),
         Some("broadcast") => handle_broadcast(&req, &app, &state),
         Some("inbox") => handle_inbox(&req, &app, &state),
         Some("notify-idle") => handle_notify_idle(&req, &app, &state),
@@ -192,13 +192,24 @@ fn handle_send(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInne
         _ => return "Erro: mensagem vazia\n".to_string(),
     };
 
+    let to_label = { label_of(&state.lock().unwrap(), &target_id) };
     let position = enqueue_message(state, app, &target_id, QueuedMsg {
-        from_label,
+        from_label: from_label.clone(),
         from_id: Some(req.from.clone()),
-        msg,
+        msg: msg.clone(),
         enqueued: Instant::now(),
         msg_id: None,
         delivered_tx: None,
+    });
+    record_msg(state, app, LedgerEntry {
+        from: req.from.clone(),
+        to: target_id,
+        from_label,
+        to_label,
+        kind: "send".to_string(),
+        msg,
+        msg_id: None,
+        ts: now_ms(),
     });
     let to = req.to.clone().unwrap_or_default();
     if position == 0 {
@@ -262,7 +273,7 @@ fn handle_broadcast(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStat
         return "Erro: nenhum agente conectado — crie edges no canvas\n".to_string();
     }
 
-    for (target_id, _) in &targets {
+    for (target_id, target_label) in &targets {
         enqueue_message(state, app, target_id, QueuedMsg {
             from_label: from_label.clone(),
             from_id: Some(req.from.clone()),
@@ -270,6 +281,16 @@ fn handle_broadcast(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStat
             enqueued: Instant::now(),
             msg_id: None,
             delivered_tx: None,
+        });
+        record_msg(state, app, LedgerEntry {
+            from: req.from.clone(),
+            to: target_id.clone(),
+            from_label: from_label.clone(),
+            to_label: target_label.clone(),
+            kind: "broadcast".to_string(),
+            msg: msg.clone(),
+            msg_id: None,
+            ts: now_ms(),
         });
     }
     let mut labels: Vec<String> = targets.into_iter().map(|(_, l)| l).collect();
@@ -302,7 +323,11 @@ fn handle_inbox(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInn
     if msgs.is_empty() {
         return "(nenhuma mensagem pendente)\n".to_string();
     }
-    let _ = app.emit("pty_queue", crate::pty::PtyQueueEvent { id: req.from.clone(), pending: 0 });
+    let _ = app.emit("pty_queue", crate::pty::PtyQueueEvent {
+        id: req.from.clone(),
+        pending: 0,
+        items: Vec::new(),
+    });
 
     let lines: Vec<String> = msgs
         .into_iter()
@@ -332,23 +357,34 @@ async fn ask_by_reply(
     let (tx, rx) = oneshot::channel::<String>();
     let (delivered_tx, delivered_rx) = oneshot::channel::<()>();
 
-    let msg_id = {
+    let (msg_id, to_label) = {
         let mut inner = state.lock().unwrap();
         let id = new_ask_id(&inner.ask_waiters);
         inner.ask_waiters.insert(id.clone(), AskWaiter {
             responder_id: target_id.clone(),
+            asker_id: req.from.clone(),
             tx,
         });
-        id
+        (id, label_of(&inner, &target_id))
     };
 
     enqueue_message(state, app, &target_id, QueuedMsg {
-        from_label,
+        from_label: from_label.clone(),
         from_id: Some(req.from.clone()),
-        msg,
+        msg: msg.clone(),
         enqueued: Instant::now(),
         msg_id: Some(msg_id.clone()),
         delivered_tx: Some(delivered_tx),
+    });
+    record_msg(state, app, LedgerEntry {
+        from: req.from.clone(),
+        to: target_id.clone(),
+        from_label,
+        to_label,
+        kind: "ask".to_string(),
+        msg,
+        msg_id: Some(msg_id.clone()),
+        ts: now_ms(),
     });
 
     if timeout(MAX_QUEUE_WAIT + Duration::from_secs(5), delivered_rx)
@@ -390,7 +426,7 @@ fn new_ask_id(pending: &std::collections::HashMap<String, AskWaiter>) -> String 
 /// Responde a um ask pendente: resolve o oneshot registrado pelo id curto.
 /// Sem checagem de edge — o reply é o canal de volta de uma pergunta que já
 /// chegou até você; só o terminal que recebeu o ask pode respondê-lo.
-fn handle_reply(req: &IpcRequest, state: &Arc<Mutex<PtyStateInner>>) -> String {
+fn handle_reply(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInner>>) -> String {
     let msg_id = match req.msg_id.as_deref() {
         Some(i) if !i.is_empty() => i.trim_start_matches('#').to_string(),
         _ => return "Erro: informe o id da mensagem (o #id do frame recebido)\n".to_string(),
@@ -400,24 +436,39 @@ fn handle_reply(req: &IpcRequest, state: &Arc<Mutex<PtyStateInner>>) -> String {
         _ => return "Erro: resposta vazia\n".to_string(),
     };
 
-    let mut inner = state.lock().unwrap();
-    if req.from.is_empty() || !inner.sessions.contains_key(&req.from) {
-        return "Erro: sessão desconhecida — você está dentro de um terminal NarraTer?\n".to_string();
-    }
-    match inner.ask_waiters.get(&msg_id) {
-        None => format!(
-            "Erro: nenhuma pergunta pendente com id '{}' — ela expirou, já foi respondida, ou o id está errado\n",
-            msg_id
-        ),
-        Some(w) if w.responder_id != req.from => {
-            "Erro: essa pergunta não foi direcionada a você\n".to_string()
+    let entry = {
+        let mut inner = state.lock().unwrap();
+        if req.from.is_empty() || !inner.sessions.contains_key(&req.from) {
+            return "Erro: sessão desconhecida — você está dentro de um terminal NarraTer?\n".to_string();
         }
-        Some(_) => {
-            let waiter = inner.ask_waiters.remove(&msg_id).unwrap();
-            let _ = waiter.tx.send(text);
-            "ok: resposta entregue\n".to_string()
+        match inner.ask_waiters.get(&msg_id) {
+            None => {
+                return format!(
+                    "Erro: nenhuma pergunta pendente com id '{}' — ela expirou, já foi respondida, ou o id está errado\n",
+                    msg_id
+                )
+            }
+            Some(w) if w.responder_id != req.from => {
+                return "Erro: essa pergunta não foi direcionada a você\n".to_string()
+            }
+            Some(_) => {}
         }
-    }
+        let waiter = inner.ask_waiters.remove(&msg_id).unwrap();
+        let entry = LedgerEntry {
+            from: req.from.clone(),
+            to: waiter.asker_id.clone(),
+            from_label: label_of(&inner, &req.from),
+            to_label: label_of(&inner, &waiter.asker_id),
+            kind: "reply".to_string(),
+            msg: text.clone(),
+            msg_id: Some(msg_id),
+            ts: now_ms(),
+        };
+        let _ = waiter.tx.send(text);
+        entry
+    };
+    record_msg(state, app, entry);
+    "ok: resposta entregue\n".to_string()
 }
 
 /// Hook Stop do claude (`narrater notify-idle`): sinal autoritativo de fim de
@@ -471,6 +522,17 @@ async fn ask_by_scraping(
         enqueued: Instant::now(),
         msg_id: None,
         delivered_tx: Some(delivered_tx),
+    });
+    let to_label = { label_of(&state.lock().unwrap(), &target_id) };
+    record_msg(state, app, LedgerEntry {
+        from: req.from.clone(),
+        to: target_id.clone(),
+        from_label: from_label.clone(),
+        to_label,
+        kind: "ask".to_string(),
+        msg: msg.clone(),
+        msg_id: None,
+        ts: now_ms(),
     });
 
     // Phase A: wait for actual injection, discarding output that still belongs

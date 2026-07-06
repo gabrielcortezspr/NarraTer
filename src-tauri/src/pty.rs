@@ -38,11 +38,38 @@ pub struct PtyStatusEvent {
     pub status: &'static str,
 }
 
+/// One pending queue entry, as shown to the user (tile popover).
+#[derive(Serialize, Clone)]
+pub struct QueueItem {
+    pub from_label: String,
+    pub msg: String,
+    pub msg_id: Option<String>,
+}
+
 #[derive(Serialize, Clone)]
 pub struct PtyQueueEvent {
     pub id: String,
     pub pending: usize,
+    pub items: Vec<QueueItem>,
 }
+
+/// One inter-agent message on the ledger (fase 4 — observabilidade). Ring
+/// buffer global; o front recebe cada registro via evento `narrater_msg`.
+#[derive(Serialize, Clone)]
+pub struct LedgerEntry {
+    pub from: String,
+    pub to: String,
+    pub from_label: String,
+    pub to_label: String,
+    /// "send" | "ask" | "reply" | "broadcast"
+    pub kind: String,
+    pub msg: String,
+    pub msg_id: Option<String>,
+    /// Epoch em milissegundos.
+    pub ts: u64,
+}
+
+const LEDGER_CAP: usize = 500;
 
 /// Message waiting to be injected into a terminal's stdin.
 pub struct QueuedMsg {
@@ -72,6 +99,8 @@ pub struct ResponseListener {
 pub struct AskWaiter {
     /// Only this terminal may answer — the one the ask was delivered to.
     pub responder_id: String,
+    /// Who asked — destination of the reply on the ledger.
+    pub asker_id: String,
     pub tx: tokio::sync::oneshot::Sender<String>,
 }
 
@@ -125,6 +154,9 @@ pub struct PtyStateInner {
     /// In-flight canvas requests (MCP → frontend), keyed by request id; the
     /// frontend resolves them via the canvas_respond command.
     pub canvas_waiters: HashMap<String, tokio::sync::oneshot::Sender<String>>,
+    /// Ring buffer com as últimas mensagens entre agentes (send/ask/reply/
+    /// broadcast) — histórico das conversas por edge no canvas.
+    pub ledger: VecDeque<LedgerEntry>,
 }
 
 #[derive(Clone)]
@@ -142,6 +174,7 @@ impl Default for PtyState {
             reply_grants: HashMap::new(),
             inbox: HashMap::new(),
             canvas_waiters: HashMap::new(),
+            ledger: VecDeque::new(),
         })))
     }
 }
@@ -413,6 +446,81 @@ pub fn pty_notify(id: String, text: String, app_handle: AppHandle, state: State<
     Ok(())
 }
 
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Registra uma mensagem entre agentes no ledger (ring buffer) e avisa o
+/// front via `narrater_msg` — alimenta o histórico e o pulso das edges.
+pub fn record_msg(state_arc: &Arc<Mutex<PtyStateInner>>, app: &AppHandle, entry: LedgerEntry) {
+    {
+        let mut inner = state_arc.lock().unwrap();
+        inner.ledger.push_back(entry.clone());
+        if inner.ledger.len() > LEDGER_CAP {
+            inner.ledger.pop_front();
+        }
+    }
+    let _ = app.emit("narrater_msg", entry);
+}
+
+fn queue_snapshot(inner: &PtyStateInner, id: &str) -> Vec<QueueItem> {
+    inner
+        .inbox
+        .get(id)
+        .map(|q| {
+            q.iter()
+                .map(|m| QueueItem {
+                    from_label: m.from_label.clone(),
+                    msg: m.msg.clone(),
+                    msg_id: m.msg_id.clone(),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Histórico da conversa entre dois nós (ambas as direções), para o painel
+/// aberto ao clicar numa edge agent-pipe.
+#[tauri::command]
+pub fn narrater_ledger(a: String, b: String, state: State<'_, PtyState>) -> Vec<LedgerEntry> {
+    let inner = state.0.lock().unwrap();
+    inner
+        .ledger
+        .iter()
+        .filter(|e| (e.from == a && e.to == b) || (e.from == b && e.to == a))
+        .cloned()
+        .collect()
+}
+
+/// Cancela uma mensagem enfileirada (index na fila do terminal `id`). Se era
+/// um ask, derrubar o delivered_tx acorda o chamador com erro de entrega.
+#[tauri::command]
+pub fn pty_queue_cancel(
+    id: String,
+    index: usize,
+    app_handle: AppHandle,
+    state: State<'_, PtyState>,
+) -> Result<(), String> {
+    let items = {
+        let mut inner = state.0.lock().unwrap();
+        if let Some(queue) = inner.inbox.get_mut(&id) {
+            if index >= queue.len() {
+                return Err("índice fora da fila".to_string());
+            }
+            queue.remove(index);
+            if queue.is_empty() {
+                inner.inbox.remove(&id);
+            }
+        }
+        queue_snapshot(&inner, &id)
+    };
+    let _ = app_handle.emit("pty_queue", PtyQueueEvent { id, pending: items.len(), items });
+    Ok(())
+}
+
 /// Enqueues a message for idle-gated delivery into `target_id`'s stdin.
 /// Returns the queue position (0 = next to be delivered).
 pub fn enqueue_message(
@@ -421,13 +529,14 @@ pub fn enqueue_message(
     target_id: &str,
     msg: QueuedMsg,
 ) -> usize {
-    let pending = {
+    let (pending, items) = {
         let mut inner = state_arc.lock().unwrap();
         let queue = inner.inbox.entry(target_id.to_string()).or_default();
         queue.push_back(msg);
-        queue.len()
+        let pending = queue.len();
+        (pending, queue_snapshot(&inner, target_id))
     };
-    let _ = app.emit("pty_queue", PtyQueueEvent { id: target_id.to_string(), pending });
+    let _ = app.emit("pty_queue", PtyQueueEvent { id: target_id.to_string(), pending, items });
     pending - 1
 }
 
@@ -464,7 +573,7 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
         }
 
         // Deliver at most one queued message per terminal per tick
-        let deliveries: Vec<(String, QueuedMsg, usize, String)> = {
+        let deliveries: Vec<(String, QueuedMsg, Vec<QueueItem>, String)> = {
             let mut inner = state.lock().unwrap();
             let ids: Vec<String> = inner.inbox.keys().cloned().collect();
             let mut out = Vec::new();
@@ -489,7 +598,6 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
                 }
                 if let Some(queue) = inner.inbox.get_mut(&id) {
                     if let Some(msg) = queue.pop_front() {
-                        let pending = queue.len();
                         if queue.is_empty() {
                             inner.inbox.remove(&id);
                         }
@@ -507,14 +615,15 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
                             inner.reply_grants.insert((id.clone(), from_id), Instant::now());
                             inner.reply_grants.retain(|_, t| t.elapsed() < REPLY_GRANT_TTL);
                         }
-                        out.push((id.clone(), msg, pending, agent_type));
+                        let items = queue_snapshot(&inner, &id);
+                        out.push((id.clone(), msg, items, agent_type));
                     }
                 }
             }
             out
         };
 
-        for (id, mut qmsg, pending, agent_type) in deliveries {
+        for (id, mut qmsg, items, agent_type) in deliveries {
             // \r submits the line (terminals send Enter as carriage return —
             // \n is not enough for raw-mode TUIs). Shells get the bare command
             // (the sender frame would break it) preceded by kill-line (^U) to
@@ -548,7 +657,7 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
                 let _ = tx.send(());
             }
             let _ = app.emit("pty_status", PtyStatusEvent { id: id.clone(), status: RunStatus::Running.as_str() });
-            let _ = app.emit("pty_queue", PtyQueueEvent { id, pending });
+            let _ = app.emit("pty_queue", PtyQueueEvent { id, pending: items.len(), items });
         }
     }
 }
