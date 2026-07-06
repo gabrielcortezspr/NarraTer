@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useCallback, useState } from "react";
 import { Handle, Position, NodeResizer, useStore } from "@xyflow/react";
-import { Bot, Code2, Terminal, Wrench, X, GripVertical, FolderOpen, Clock, Plug } from "lucide-react";
-import { attachTerminal, detachTerminal, ensureTerminal, fitTerminal } from "@/lib/terminalManager";
+import { Bot, Code2, Terminal, Wrench, X, GripVertical, FolderOpen, Clock, Plug, RotateCcw } from "lucide-react";
+import { attachTerminal, detachTerminal, ensureTerminal, fitTerminal, respawnTerminal } from "@/lib/terminalManager";
 import { ptyWrite } from "@/lib/tauri";
 import { buildAgentSystemPrompt } from "@/lib/agentPrompt";
 import { useCanvasStore } from "@/stores/canvas";
@@ -69,6 +69,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   const agentType = data.agentType ?? "shell";
   const accentColor = AGENT_COLORS[agentType];
   const sessionStatus = useTerminalsStore((s) => s.sessions[id]?.status ?? "spawning");
+  const exitCode = useTerminalsStore((s) => s.sessions[id]?.exitCode);
   const statusDot = STATUS_DOT[sessionStatus];
   const queueItems = useTerminalsStore((s) => s.queues[id] ?? NO_QUEUE);
   const queuePending = queueItems.length;
@@ -153,7 +154,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
 
   return (
     <div
-      className="flex flex-col w-full h-full rounded-xl overflow-hidden"
+      className="relative flex flex-col w-full h-full rounded-xl overflow-hidden"
       style={{
         background: "#1a1a1a",
         boxShadow: selected
@@ -170,6 +171,12 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
         handleStyle={{ borderColor: accentColor, background: "#1a1a1a" }}
       />
 
+      {/* Fio de identidade: 1px na cor do agente para escanear o canvas */}
+      <div
+        className="h-px shrink-0"
+        style={{ background: `linear-gradient(90deg, transparent, ${accentColor}, transparent)` }}
+      />
+
       {/* Header */}
       <div
         className="flex items-center gap-2 px-3 py-2 shrink-0 cursor-grab active:cursor-grabbing select-none"
@@ -179,7 +186,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
 
         <span
           title={statusDot.label}
-          className="shrink-0 rounded-full"
+          className={`shrink-0 rounded-full ${sessionStatus === "running" ? "animate-pulse" : ""}`}
           style={{
             width: 7,
             height: 7,
@@ -317,6 +324,22 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
             <span className="w-3 h-3 rounded-full" style={{ background: statusDot.color }} />
             {statusDot.label}
           </span>
+        </div>
+      )}
+
+      {/* Processo encerrado: overlay elegante com reinício no lugar */}
+      {sessionStatus === "exited" && (
+        <div className="absolute inset-x-0 top-9 bottom-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/60 nodrag">
+          <span className="text-xs text-ink-muted">
+            Processo encerrado{typeof exitCode === "number" ? ` · código ${exitCode}` : ""}
+          </span>
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); respawnTerminal(id); }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-canvas-tile border border-canvas-border text-ink hover:border-accent hover:text-accent transition-colors"
+          >
+            <RotateCcw size={12} /> Reiniciar
+          </button>
         </div>
       )}
 

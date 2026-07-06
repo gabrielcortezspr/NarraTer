@@ -74,6 +74,7 @@ function AgentPipeEdge({
       {/* Flow line — animated only while there is activity on the route */}
       <path
         id={id}
+        className="narrater-edge-line"
         d={edgePath}
         stroke={pulse ? "#4ade80" : `url(#${gradientId})`}
         strokeWidth={pulse ? 3 : 2}

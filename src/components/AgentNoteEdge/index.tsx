@@ -32,6 +32,7 @@ function AgentNoteEdge({
       {/* Main line */}
       <path
         id={id}
+        className="narrater-edge-line"
         d={edgePath}
         stroke="#fbbf24"
         strokeWidth={1.5}

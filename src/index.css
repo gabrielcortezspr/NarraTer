@@ -65,6 +65,26 @@ html, body, #root {
   cursor: crosshair !important;
 }
 
+/* Edges respondem ao hover (a linha engrossa e acende) */
+.react-flow__edge {
+  cursor: pointer;
+}
+.react-flow__edge:hover .narrater-edge-line {
+  stroke-width: 3px;
+  opacity: 1;
+}
+
+/* Handles de conexão: 8px é difícil de acertar — crescem no hover.
+   (width/height, não transform: o React Flow usa transform para centralizar) */
+.react-flow__handle {
+  transition: width 0.12s ease, height 0.12s ease, box-shadow 0.12s ease;
+}
+.react-flow__handle:hover {
+  width: 13px !important;
+  height: 13px !important;
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.25);
+}
+
 .react-flow__minimap {
   background: #111111 !important;
   border: 1px solid var(--narrater-border) !important;

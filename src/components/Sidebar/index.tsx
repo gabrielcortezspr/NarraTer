@@ -39,6 +39,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const createInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
@@ -53,7 +54,10 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
   // Dismiss context menu on outside click
   useEffect(() => {
     if (!contextMenu) return;
-    const handler = () => setContextMenu(null);
+    const handler = () => {
+      setContextMenu(null);
+      setConfirmingDelete(null);
+    };
     window.addEventListener("mousedown", handler);
     return () => window.removeEventListener("mousedown", handler);
   }, [contextMenu]);
@@ -90,6 +94,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
 
   const handleDelete = async (name: string) => {
     setContextMenu(null);
+    setConfirmingDelete(null);
     if (name === current) await switchWorkspace("default");
     await deleteWorkspace(name);
   };
@@ -110,17 +115,41 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
       {/* Header */}
       <div className="flex items-center h-10 px-2 shrink-0 border-b border-[#1f1f1f]">
         {!collapsed && (
-          <span className="flex-1 text-[11px] font-semibold tracking-widest text-[#444] uppercase px-1">
-            NarraTer
+          <span className="flex-1 text-[13px] font-semibold tracking-tight px-1 select-none">
+            <span className="text-[#888]">Narra</span>
+            <span className="text-accent">Ter</span>
           </span>
         )}
         <button
           onClick={onToggle}
+          aria-label={collapsed ? "Expandir sidebar" : "Recolher sidebar"}
           className="ml-auto p-1.5 rounded hover:bg-[#1f1f1f] text-[#555] hover:text-[#888] transition-colors"
         >
           {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
         </button>
       </div>
+
+      {/* Colapsada: ícones das seções, clicáveis */}
+      {collapsed && (
+        <div className="flex flex-col items-center gap-1 pt-2">
+          <button
+            onClick={onToggle}
+            title="Histórias"
+            aria-label="Histórias"
+            className="p-2 rounded hover:bg-[#1f1f1f] text-[#555] hover:text-accent transition-colors"
+          >
+            <BookOpen size={14} />
+          </button>
+          <button
+            onClick={() => setRoleManagerOpen(true)}
+            title="Papéis"
+            aria-label="Papéis"
+            className="p-2 rounded hover:bg-[#1f1f1f] text-[#555] hover:text-accent transition-colors"
+          >
+            <Users size={14} />
+          </button>
+        </div>
+      )}
 
       {!collapsed && (
         <div className="flex flex-col flex-1 overflow-hidden">
@@ -263,12 +292,22 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
           >
             <Pencil size={12} /> Renomear
           </button>
-          <button
-            onClick={() => handleDelete(contextMenu.name)}
-            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#f87171] hover:bg-[#2a2a2a] transition-colors"
-          >
-            <Trash2 size={12} /> Excluir
-          </button>
+          {confirmingDelete === contextMenu.name ? (
+            <button
+              onClick={() => handleDelete(contextMenu.name)}
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs font-medium text-white bg-[#7f1d1d] hover:bg-[#991b1b] transition-colors"
+            >
+              <Trash2 size={12} /> Confirmar exclusão?
+            </button>
+          ) : (
+            // Excluir é irreversível — primeiro clique só arma a confirmação
+            <button
+              onClick={() => setConfirmingDelete(contextMenu.name)}
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#f87171] hover:bg-[#2a2a2a] transition-colors"
+            >
+              <Trash2 size={12} /> Excluir
+            </button>
+          )}
         </div>
       )}
     </motion.aside>
@@ -316,12 +355,14 @@ function WorkspaceItem({
     <button
       onClick={onClick}
       onContextMenu={onContextMenu}
-      className={`flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs transition-colors text-left
+      className={`relative flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs transition-colors text-left
         ${active
           ? "bg-[#8b5cf620] text-white"
           : "text-[#666] hover:text-[#aaa] hover:bg-[#1a1a1a]"
         }`}
     >
+      {/* Barra accent do item ativo */}
+      {active && <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-accent" />}
       <span
         className="w-1.5 h-1.5 rounded-full shrink-0"
         style={{ background: active ? "#8b5cf6" : "transparent", border: active ? "none" : "1px solid #333" }}
