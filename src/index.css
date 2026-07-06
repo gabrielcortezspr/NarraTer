@@ -2,13 +2,41 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Tokens de design — única fonte das cores do app. O tailwind.config.js
+   referencia estas variáveis; componentes usam as classes (bg-canvas-tile,
+   text-accent…) em vez de hex hardcoded. */
 :root {
-  --narrater-bg: #0d0d0d;
-  --narrater-tile: #1a1a1a;
-  --narrater-border: #2a2a2a;
-  --narrater-accent: #8b5cf6;
-  --narrater-text: #e5e7eb;
-  --narrater-muted: #6b7280;
+  --canvas-bg: #0d0d0d;
+  --canvas-panel: #141414;
+  --canvas-tile: #1a1a1a;
+  --canvas-header: #222222;
+  --canvas-border: #2a2a2a;
+  --canvas-hover: #333333;
+
+  --accent: #8b5cf6;
+  --accent-dim: #6d28d9;
+
+  --text: #e5e7eb;
+  --text-muted: #6b7280;
+  --text-faint: #555555;
+
+  --status-running: #4ade80;
+  --status-spawning: #fbbf24;
+  --status-idle: #6b7280;
+  --status-exited: #f87171;
+
+  --agent-shell: #6b7280;
+  --agent-claude: #8b5cf6;
+  --agent-codex: #3b82f6;
+  --agent-custom: #14b8a6;
+
+  /* Aliases legados */
+  --narrater-bg: var(--canvas-bg);
+  --narrater-tile: var(--canvas-tile);
+  --narrater-border: var(--canvas-border);
+  --narrater-accent: var(--accent);
+  --narrater-text: var(--text);
+  --narrater-muted: var(--text-muted);
 }
 
 * {

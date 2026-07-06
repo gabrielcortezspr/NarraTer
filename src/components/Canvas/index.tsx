@@ -26,6 +26,7 @@ import AgentNoteEdge from "@/components/AgentNoteEdge";
 import AgentPipeEdge from "@/components/AgentPipeEdge";
 import AgentPicker from "@/components/AgentPicker";
 import EdgeHistoryPanel from "@/components/EdgeHistoryPanel";
+import EmptyState from "@/components/EmptyState";
 import SketchLayer from "@/components/SketchLayer";
 import Toolbar from "@/components/Toolbar";
 import { useCanvasStore } from "@/stores/canvas";
@@ -384,6 +385,9 @@ function CanvasInner() {
 
       {/* Histórico da conversa da edge agent-pipe clicada */}
       <EdgeHistoryPanel />
+
+      {/* Boas-vindas quando o canvas está vazio */}
+      <EmptyState onTerminal={openTerminalPicker} />
 
       <div className="absolute top-0 left-0 h-10 flex items-center px-4 z-10 pointer-events-none">
         <span className="text-[#2a2a2a] text-xs select-none">{currentWorkspace}</span>

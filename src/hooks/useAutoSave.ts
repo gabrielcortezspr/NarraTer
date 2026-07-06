@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useCanvasStore } from "@/stores/canvas";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import { usePersistenceStore } from "@/stores/persistence";
+import { toast } from "@/stores/toasts";
 
 const DEBOUNCE_MS = 1000;
 
@@ -18,6 +19,7 @@ async function persist(): Promise<void> {
     usePersistenceStore.getState().set(timer ? "dirty" : "saved");
   } catch (err) {
     console.error("auto-save falhou:", err);
+    toast.error(`Falha ao salvar a história "${name}": ${err}`);
     usePersistenceStore.getState().set("dirty");
   }
 }

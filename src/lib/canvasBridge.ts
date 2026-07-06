@@ -35,7 +35,7 @@ function defaultPosition(nodes: AppNode[], fromId: string): { x: number; y: numb
   const fromNode = nodes.find((n) => n.id === fromId);
   return fromNode
     ? {
-        x: fromNode.position.x + (fromNode.width ?? (fromNode.style?.width as number) ?? 640) + 60,
+        x: fromNode.position.x + (fromNode.width ?? (fromNode.style?.width as number) ?? 520) + 60,
         y: fromNode.position.y,
       }
     : { x: 200, y: 200 };

@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { ptySpawn, ptyWrite, ptyResize, ptyKill, getSpawnSpec } from "@/lib/tauri";
+import { toast } from "@/stores/toasts";
 import { useTerminalsStore } from "@/stores/terminals";
 import { useCanvasStore } from "@/stores/canvas";
 import type { AgentType } from "@/lib/tauri";
@@ -29,6 +30,7 @@ export function usePty() {
         }
       } catch (err) {
         console.error("PTY spawn failed:", err);
+        toast.error(`Falha ao iniciar ${label ?? agentType}: ${err}`);
         setExited(id, 1);
       }
     },

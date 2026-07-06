@@ -7,6 +7,8 @@ import { useWorkspacesStore } from "@/stores/workspaces";
 import { useRolesStore } from "@/stores/roles";
 import { useTerminalsStore } from "@/stores/terminals";
 import { useLedgerStore } from "@/stores/ledger";
+import { toast } from "@/stores/toasts";
+import Toaster from "@/components/Toaster";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { initCanvasBridge } from "@/lib/canvasBridge";
 import type { LedgerEntry, QueueItem } from "@/lib/tauri";
@@ -36,7 +38,13 @@ export default function App() {
     }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
     listen<{ id: string; code: number }>("pty_exit", (event) => {
-      useTerminalsStore.getState().setExited(event.payload.id, event.payload.code);
+      const { id, code } = event.payload;
+      useTerminalsStore.getState().setExited(id, code);
+      if (code !== 0) {
+        const node = useCanvasStore.getState().nodes.find((n) => n.id === id);
+        const label = (node?.data as { label?: string } | undefined)?.label ?? id;
+        toast.warning(`"${label}" encerrou com código ${code}`);
+      }
     }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
     listen<{ id: string; pending: number; items: QueueItem[] }>("pty_queue", (event) => {
@@ -67,6 +75,7 @@ export default function App() {
       <div className="flex-1 min-w-0 relative">
         <Canvas />
       </div>
+      <Toaster />
     </div>
   );
 }

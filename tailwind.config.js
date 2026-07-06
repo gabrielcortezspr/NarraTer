@@ -5,23 +5,36 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Valores vivem nas CSS variables do index.css (tokens de design)
         canvas: {
-          bg: "#0d0d0d",
-          tile: "#1a1a1a",
-          header: "#222222",
-          border: "#2a2a2a",
-          hover: "#333333",
+          bg: "var(--canvas-bg)",
+          panel: "var(--canvas-panel)",
+          tile: "var(--canvas-tile)",
+          header: "var(--canvas-header)",
+          border: "var(--canvas-border)",
+          hover: "var(--canvas-hover)",
         },
         accent: {
-          DEFAULT: "#8b5cf6",
-          dim: "#6d28d9",
+          DEFAULT: "var(--accent)",
+          dim: "var(--accent-dim)",
           glow: "#8b5cf620",
         },
         agent: {
-          shell: "#6b7280",
-          claude: "#8b5cf6",
-          codex: "#3b82f6",
-          custom: "#14b8a6",
+          shell: "var(--agent-shell)",
+          claude: "var(--agent-claude)",
+          codex: "var(--agent-codex)",
+          custom: "var(--agent-custom)",
+        },
+        status: {
+          running: "var(--status-running)",
+          spawning: "var(--status-spawning)",
+          idle: "var(--status-idle)",
+          exited: "var(--status-exited)",
+        },
+        ink: {
+          DEFAULT: "var(--text)",
+          muted: "var(--text-muted)",
+          faint: "var(--text-faint)",
         },
       },
       fontFamily: {

@@ -13,6 +13,9 @@ import { useTerminalsStore } from "@/stores/terminals";
 import type { SessionStatus } from "@/stores/terminals";
 import { openInEditor, ptyQueueCancel } from "@/lib/tauri";
 import type { QueueItem } from "@/lib/tauri";
+import Badge from "@/components/ui/Badge";
+import IconButton from "@/components/ui/IconButton";
+import { toast } from "@/stores/toasts";
 import { EDITORS } from "@/lib/editors";
 import type { TerminalNodeData } from "@/stores/canvas";
 import type { Node, NodeProps } from "@xyflow/react";
@@ -240,6 +243,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
         await openInEditor(editorCmd, cwdRef.current);
       } catch (err) {
         console.warn("Failed to open editor:", err);
+        toast.error(`Não foi possível abrir o editor (${editorCmd})`);
       }
     },
     []
@@ -282,23 +286,13 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
           }}
         />
 
-        <span
-          className="flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded"
-          style={{ color: accentColor, background: `${accentColor}18` }}
-        >
+        <Badge color={accentColor} rounded="md" className="text-[10px]">
           {AGENT_ICONS[agentType]}
           {AGENT_LABELS[agentType]}
-        </span>
+        </Badge>
 
         {/* Role badge */}
-        {data.roleName && (
-          <span
-            className="flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded-full shrink-0"
-            style={{ color: data.roleColor ?? "#888", background: `${data.roleColor ?? "#888"}18`, border: `1px solid ${data.roleColor ?? "#888"}30` }}
-          >
-            {data.roleName}
-          </span>
-        )}
+        {data.roleName && <Badge color={data.roleColor ?? "#888"}>{data.roleName}</Badge>}
 
         <span className="text-[#555] text-xs truncate flex-1">{data.label}</span>
 
@@ -349,14 +343,10 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
 
         {/* Agent pipe badge */}
         {pipeCount > 0 && (
-          <span
-            title={`Conectado a ${pipeCount} agente${pipeCount > 1 ? "s" : ""} via pipe`}
-            className="flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full shrink-0"
-            style={{ color: "#a78bfa", background: "#8b5cf618", border: "1px solid #8b5cf630" }}
-          >
+          <Badge color="#a78bfa" title={`Conectado a ${pipeCount} agente${pipeCount > 1 ? "s" : ""} via pipe`}>
             <Plug size={8} />
             {pipeCount}
-          </span>
+          </Badge>
         )}
 
         {/* Scheduled prompt indicator */}
@@ -372,14 +362,9 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
 
         {/* Open in editor */}
         <div className="relative nodrag">
-          <button
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); setShowEditorMenu((v) => !v); }}
-            className="text-[#555] hover:text-[#60a5fa] transition-colors p-0.5 rounded hover:bg-[#2a2a2a]"
-            title="Abrir no editor"
-          >
+          <IconButton title="Abrir no editor" intent="info" onClick={() => setShowEditorMenu((v) => !v)}>
             <FolderOpen size={12} />
-          </button>
+          </IconButton>
           {showEditorMenu && (
             <div
               className="absolute top-6 right-0 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl py-1 z-50 min-w-[110px]"
@@ -399,13 +384,9 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
         </div>
 
         {/* Close */}
-        <button
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={handleClose}
-          className="text-[#555] hover:text-[#f87171] transition-colors p-0.5 rounded hover:bg-[#2a2a2a] nodrag"
-        >
+        <IconButton title="Fechar terminal" intent="danger" onClick={handleClose}>
           <X size={12} />
-        </button>
+        </IconButton>
       </div>
 
       {/* Terminal body */}

@@ -129,7 +129,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         y: 80 + (nodeCounter % 4) * 60,
       },
       data: { ...opts, label },
-      style: { width: 640, height: 420 },
+      // Nasce compacto — o NodeResizer deixa crescer quando precisar
+      style: { width: 520, height: 360 },
     };
     set((s) => ({ nodes: [...s.nodes, newNode] }));
     return id;
@@ -336,8 +337,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           node_type: n.type ?? "terminal",
           x: n.position.x,
           y: n.position.y,
-          width: n.width ?? (n.style?.width as number) ?? 640,
-          height: n.height ?? (n.style?.height as number) ?? 420,
+          width: n.width ?? (n.style?.width as number) ?? 520,
+          height: n.height ?? (n.style?.height as number) ?? 360,
           agent_type: tdata?.agentType,
           command: tdata?.command,
           label: n.data.label as string | undefined,
