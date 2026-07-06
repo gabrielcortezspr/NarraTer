@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { applyNodeChanges, applyEdgeChanges } from "@xyflow/react";
 import type { Node, Edge, NodeChange, EdgeChange, XYPosition } from "@xyflow/react";
 import { loadHistoria, saveHistoria, connectionsSync } from "@/lib/tauri";
+import { disposeTerminal } from "@/lib/terminalManager";
 import type { AgentType } from "@/lib/tauri";
 
 export interface TerminalNodeData extends Record<string, unknown> {
@@ -102,6 +103,13 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   hydrated: false,
 
   onNodesChange: (changes) => {
+    // Com o xterm/PTY fora do React, remover o nó (Delete) precisa matar a
+    // sessão explicitamente — desmontar o tile já não mata.
+    for (const c of changes) {
+      if (c.type === "remove" && get().nodes.find((n) => n.id === c.id)?.type === "terminal") {
+        disposeTerminal(c.id);
+      }
+    }
     set({ nodes: applyNodeChanges(changes, get().nodes) });
   },
 
@@ -248,6 +256,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   removeNode: (id) => {
+    if (get().nodes.find((n) => n.id === id)?.type === "terminal") {
+      disposeTerminal(id);
+    }
     const edges = get().edges.filter((e) => e.source !== id && e.target !== id);
     set((s) => ({
       nodes: s.nodes.filter((n) => n.id !== id),
@@ -257,6 +268,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   loadHistoria: async (name) => {
+    // Troca de história encerra os agentes da atual (antes, o unmount matava)
+    get().nodes.forEach((n) => {
+      if (n.type === "terminal") disposeTerminal(n.id);
+    });
     set({ hydrated: false });
     try {
       const data = await loadHistoria(name);

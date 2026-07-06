@@ -353,6 +353,7 @@ function CanvasInner() {
         edgeTypes={edgeTypes}
         minZoom={0.05}
         maxZoom={3}
+        onlyRenderVisibleElements
         deleteKeyCode={drawMode ? null : "Delete"}
         panOnDrag={!drawMode}
         zoomOnScroll={!drawMode}
