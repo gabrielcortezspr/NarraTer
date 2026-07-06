@@ -71,7 +71,8 @@ interface CanvasStore {
   addTerminalNode: (opts: AddTerminalOpts, position?: XYPosition) => string;
   updateNodeData: (id: string, patch: Record<string, unknown>) => void;
   addNoteNode: (position?: XYPosition, initial?: Partial<NoteNodeData>) => string;
-  addTextNode: (position?: XYPosition) => string;
+  addTextNode: (position?: XYPosition, initialText?: string) => string;
+  moveNode: (id: string, position: XYPosition) => void;
   addFileTreeNode: (position?: XYPosition, rootPath?: string) => string;
   addAttachmentNode: (position: XYPosition, path: string) => string;
   addPortalNode: (position?: XYPosition, url?: string) => string;
@@ -152,17 +153,23 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     return id;
   },
 
-  addTextNode: (position) => {
+  addTextNode: (position, initialText) => {
     const id = `text-${Date.now()}-${nodeCounter++}`;
     const newNode: AppNode = {
       id,
       type: "text",
       position: position ?? { x: 200 + nodeCounter * 20, y: 200 + nodeCounter * 20 },
-      data: { text: "" },
+      data: { text: initialText ?? "" },
       style: { width: 240, height: 80 },
     };
     set((s) => ({ nodes: [...s.nodes, newNode] }));
     return id;
+  },
+
+  moveNode: (id, position) => {
+    set((s) => ({
+      nodes: s.nodes.map((n) => (n.id === id ? ({ ...n, position } as AppNode) : n)),
+    }));
   },
 
   addFileTreeNode: (position, rootPath) => {

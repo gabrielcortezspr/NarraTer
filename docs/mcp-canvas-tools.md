@@ -47,19 +47,22 @@ a comunicação agente↔agente** (send/ask). Evolução futura: permissão por 
 | `canvas_list_nodes` | — | JSON `[{id, type, label, x, y}]` |
 | `canvas_create_note` | `content` (req), `label?`, `x?`, `y?` | `ok: nota criada (id: …)`. Sem x/y, nasce à direita do terminal do agente. |
 | `canvas_update_note` | `id` (id **ou** label), `content` (req), `mode?: append\|replace` | `ok: nota atualizada (id: …)`; erro legível se o label for ambíguo. |
+| `canvas_read_note` | `id` (id **ou** label) | Conteúdo da nota (`(nota vazia)` se em branco). |
+| `canvas_create_text` | `text` (req), `x?`, `y?` | `ok: texto criado (id: …)`. Mesmo default de posição das notas. |
+| `canvas_move_node` | `id` (id **ou** label, qualquer tipo de nó), `x`, `y` | `ok: nó movido (id: …) para (x, y)`. |
+| `canvas_connect_nodes` | `source`, `target` (id **ou** label) | `ok: conexão criada (id, tipo, rota)`. Classifica agent-pipe/agent-note/default como o `onConnect` do Canvas; `addEdge` roda `syncConnections`, então rotas agent-pipe valem no backend imediatamente. Idempotente: edge existente retorna `ok: conexão já existia`. |
+
+Nota sobre `connect_nodes`: diferente da edge desenhada pelo usuário, a edge
+criada por agente **não** injeta a mensagem de sistema nos endpoints — o agente
+criador já sabe da rota e pode se apresentar com `send_message` se quiser.
 
 ## Roadmap (rascunho de schemas)
 
-- `canvas_read_note { id }` → conteúdo da nota (deixa o agente retomar contexto).
-- `canvas_create_text { text, x?, y? }` → bloco de texto leve.
-- `canvas_move_node { id, x, y }` → reorganização espacial pelo agente.
-- `canvas_connect_nodes { source, target }` → cria edge; **precisa** passar pela
-  classificação de tipo (agent-pipe/agent-note) e por `syncConnections` para a
-  rota valer no backend.
 - `canvas_create_terminal { agent_type, role?, instructions? }` → spawn de agente
   por agente; exigirá política de aprovação do usuário (prompt/toast) antes de
   executar.
 - `canvas_delete_node { id }` → destrutiva; exigirá confirmação do usuário.
+- `canvas_disconnect_nodes { source, target }` → remover edge (par do connect).
 
 ## Gotchas
 

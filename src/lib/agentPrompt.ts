@@ -33,8 +33,9 @@ export function buildAgentSystemPrompt({ label, roleName, instructions }: AgentP
       "",
       "## Canvas",
       "",
-      "Você também pode manipular o canvas com canvas_list_nodes, canvas_create_note e canvas_update_note.",
-      "Use notas para publicar resultados persistentes visíveis ao usuário (relatórios, resumos, decisões) — elas ficam salvas no canvas mesmo depois que sua sessão terminar.",
+      "Você também pode manipular o canvas com as tools canvas_*: list_nodes, create_note, read_note, update_note, create_text, move_node e connect_nodes.",
+      "Use notas para publicar resultados persistentes visíveis ao usuário (relatórios, resumos, decisões) — elas ficam salvas no canvas mesmo depois que sua sessão terminar; use canvas_read_note para retomar contexto salvo.",
+      "canvas_connect_nodes cria rotas: conectar seu terminal a outro terminal habilita send_message/ask_agent naquela direção.",
     ].join("\n")
   );
 

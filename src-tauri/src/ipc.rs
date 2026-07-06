@@ -527,6 +527,55 @@ TOOLS = [
             "required": ["id", "content"],
         },
     },
+    {
+        "name": "canvas_read_note",
+        "description": "Le o conteudo de uma nota do canvas NarraTer, identificada por id ou label (veja canvas_list_nodes). Use para retomar contexto persistido em notas por voce ou por outros agentes.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "Id ou label da nota"},
+            },
+            "required": ["id"],
+        },
+    },
+    {
+        "name": "canvas_create_text",
+        "description": "Cria um bloco de texto leve no canvas NarraTer (sem titulo; bom para rotulos e anotacoes curtas). Por padrao nasce ao lado do seu terminal. Retorna o id criado.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "Texto do bloco"},
+                "x": {"type": "number", "description": "Posicao X opcional no canvas"},
+                "y": {"type": "number", "description": "Posicao Y opcional no canvas"},
+            },
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "canvas_move_node",
+        "description": "Move um no do canvas NarraTer (qualquer tipo, identificado por id ou label) para a posicao (x, y). Use canvas_list_nodes para ver as posicoes atuais.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "Id ou label do no"},
+                "x": {"type": "number", "description": "Nova posicao X"},
+                "y": {"type": "number", "description": "Nova posicao Y"},
+            },
+            "required": ["id", "x", "y"],
+        },
+    },
+    {
+        "name": "canvas_connect_nodes",
+        "description": "Conecta dois nos do canvas NarraTer com uma edge direcionada source -> target. terminal->terminal cria rota de comunicacao entre agentes (agent-pipe); terminal<->nota espelha o output do terminal na nota (agent-note).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "source": {"type": "string", "description": "Id ou label do no de origem"},
+                "target": {"type": "string", "description": "Id ou label do no de destino"},
+            },
+            "required": ["source", "target"],
+        },
+    },
 ]
 
 MODE = {"send_message": "send", "ask_agent": "ask", "list_peers": "peers", "whoami": "whoami"}
