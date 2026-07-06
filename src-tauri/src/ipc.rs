@@ -9,7 +9,8 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
 use crate::pty::{
-    enqueue_message, PtyStateInner, QueuedMsg, ResponseListener, RunStatus, MAX_QUEUE_WAIT,
+    enqueue_message, AskWaiter, PtyStateInner, QueuedMsg, ResponseListener, RunStatus,
+    MAX_QUEUE_WAIT,
 };
 
 const ASK_DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -25,11 +26,14 @@ struct IpcRequest {
     to: Option<String>,
     #[serde(default)]
     msg: Option<String>,
-    /// "send" | "ask" | "peers" | "whoami" | "canvas"
+    /// "send" | "ask" | "reply" | "peers" | "whoami" | "canvas"
     #[serde(default)]
     mode: Option<String>,
     #[serde(default)]
     timeout_secs: Option<u64>,
+    /// mode "reply": id curto do ask sendo respondido (o `#a3f2` do frame)
+    #[serde(default)]
+    msg_id: Option<String>,
     /// mode "canvas": ação (list_nodes, create_note, update_note…)
     #[serde(default)]
     action: Option<String>,
@@ -96,8 +100,9 @@ async fn handle_connection(
         Some("peers") => handle_peers(&req, &state),
         Some("send") => handle_send(&req, &app, &state),
         Some("ask") => handle_ask(&req, &app, &state).await,
+        Some("reply") => handle_reply(&req, &state),
         Some("canvas") => handle_canvas(&req, &app, &state).await,
-        _ => "Uso: narrater send|ask <alvo> <mensagem> | narrater peers | narrater whoami\n".to_string(),
+        _ => "Uso: narrater send|ask <alvo> <mensagem> | narrater reply <id> <resposta> | narrater peers | narrater whoami\n".to_string(),
     };
 
     let _ = stream.write_all(reply.as_bytes()).await;
@@ -180,6 +185,7 @@ fn handle_send(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInne
         from_label,
         msg,
         enqueued: Instant::now(),
+        msg_id: None,
         delivered_tx: None,
     });
     let to = req.to.clone().unwrap_or_default();
@@ -200,6 +206,133 @@ async fn handle_ask(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStat
         _ => return "Erro: mensagem vazia\n".to_string(),
     };
 
+    // Agentes AI respondem de propósito via `reply` (texto limpo, sem eco nem
+    // ANSI, asks concorrentes não se misturam); shells não têm como chamar
+    // reply organicamente, então mantêm o scraping do stdout como fallback.
+    let target_is_shell = {
+        let inner = state.lock().unwrap();
+        inner
+            .sessions
+            .get(&target_id)
+            .map(|s| s.agent_type == "shell")
+            .unwrap_or(true)
+    };
+    if target_is_shell {
+        ask_by_scraping(req, app, state, target_id, from_label, msg).await
+    } else {
+        ask_by_reply(req, app, state, target_id, from_label, msg).await
+    }
+}
+
+/// Ask com resposta explícita: entrega `[narrater de X #id]: msg` e espera o
+/// alvo resolver o id via `narrater reply` / tool reply_message.
+async fn ask_by_reply(
+    req: &IpcRequest,
+    app: &AppHandle,
+    state: &Arc<Mutex<PtyStateInner>>,
+    target_id: String,
+    from_label: String,
+    msg: String,
+) -> String {
+    let (tx, rx) = oneshot::channel::<String>();
+    let (delivered_tx, delivered_rx) = oneshot::channel::<()>();
+
+    let msg_id = {
+        let mut inner = state.lock().unwrap();
+        let id = new_ask_id(&inner.ask_waiters);
+        inner.ask_waiters.insert(id.clone(), AskWaiter {
+            responder_id: target_id.clone(),
+            tx,
+        });
+        id
+    };
+
+    enqueue_message(state, app, &target_id, QueuedMsg {
+        from_label,
+        msg,
+        enqueued: Instant::now(),
+        msg_id: Some(msg_id.clone()),
+        delivered_tx: Some(delivered_tx),
+    });
+
+    if timeout(MAX_QUEUE_WAIT + Duration::from_secs(5), delivered_rx)
+        .await
+        .map(|r| r.is_err())
+        .unwrap_or(true)
+    {
+        state.lock().unwrap().ask_waiters.remove(&msg_id);
+        return "Erro: timeout aguardando a entrega da mensagem ao agente\n".to_string();
+    }
+
+    let max = req.timeout_secs.map(Duration::from_secs).unwrap_or(ASK_DEFAULT_TIMEOUT);
+    match timeout(max, rx).await {
+        Ok(Ok(text)) => {
+            if text.ends_with('\n') { text } else { format!("{}\n", text) }
+        }
+        Ok(Err(_)) => "Erro: o agente encerrou sem responder\n".to_string(),
+        Err(_) => {
+            state.lock().unwrap().ask_waiters.remove(&msg_id);
+            format!(
+                "Erro: o agente não respondeu (reply) em {}s — ele pode ainda estar trabalhando; tente de novo com --timeout maior\n",
+                max.as_secs()
+            )
+        }
+    }
+}
+
+/// Ids curtos de 4 hex, únicos entre os asks pendentes — legíveis no frame
+/// (`#a3f2`) e fáceis de digitar num `narrater reply`.
+fn new_ask_id(pending: &std::collections::HashMap<String, AskWaiter>) -> String {
+    loop {
+        let id = uuid::Uuid::new_v4().simple().to_string()[..4].to_string();
+        if !pending.contains_key(&id) {
+            return id;
+        }
+    }
+}
+
+/// Responde a um ask pendente: resolve o oneshot registrado pelo id curto.
+/// Sem checagem de edge — o reply é o canal de volta de uma pergunta que já
+/// chegou até você; só o terminal que recebeu o ask pode respondê-lo.
+fn handle_reply(req: &IpcRequest, state: &Arc<Mutex<PtyStateInner>>) -> String {
+    let msg_id = match req.msg_id.as_deref() {
+        Some(i) if !i.is_empty() => i.trim_start_matches('#').to_string(),
+        _ => return "Erro: informe o id da mensagem (o #id do frame recebido)\n".to_string(),
+    };
+    let text = match req.msg.as_deref() {
+        Some(m) if !m.is_empty() => m.to_string(),
+        _ => return "Erro: resposta vazia\n".to_string(),
+    };
+
+    let mut inner = state.lock().unwrap();
+    if req.from.is_empty() || !inner.sessions.contains_key(&req.from) {
+        return "Erro: sessão desconhecida — você está dentro de um terminal NarraTer?\n".to_string();
+    }
+    match inner.ask_waiters.get(&msg_id) {
+        None => format!(
+            "Erro: nenhuma pergunta pendente com id '{}' — ela expirou, já foi respondida, ou o id está errado\n",
+            msg_id
+        ),
+        Some(w) if w.responder_id != req.from => {
+            "Erro: essa pergunta não foi direcionada a você\n".to_string()
+        }
+        Some(_) => {
+            let waiter = inner.ask_waiters.remove(&msg_id).unwrap();
+            let _ = waiter.tx.send(text);
+            "ok: resposta entregue\n".to_string()
+        }
+    }
+}
+
+/// Fallback para alvos shell: captura o stdout até o alvo assentar em Idle.
+async fn ask_by_scraping(
+    req: &IpcRequest,
+    app: &AppHandle,
+    state: &Arc<Mutex<PtyStateInner>>,
+    target_id: String,
+    from_label: String,
+    msg: String,
+) -> String {
     let req_id = uuid::Uuid::new_v4().to_string();
     let (tx, mut rx) = mpsc::channel::<String>(256);
     let (delivered_tx, mut delivered_rx) = oneshot::channel::<()>();
@@ -216,6 +349,7 @@ async fn handle_ask(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStat
         from_label: from_label.clone(),
         msg: msg.clone(),
         enqueued: Instant::now(),
+        msg_id: None,
         delivered_tx: Some(delivered_tx),
     });
 
@@ -272,7 +406,52 @@ async fn handle_ask(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStat
     }
 
     state.lock().unwrap().response_listeners.remove(&req_id);
-    strip_injected_echo(&response, &from_label, &msg)
+    strip_injected_echo(&strip_ansi(&response), &from_label, &msg)
+}
+
+/// Remove sequências de escape ANSI (CSI, OSC e escapes de 2 bytes) e
+/// retornos de carro, deixando só o texto — o output cru de PTY vem cheio de
+/// cores, redraws e movimentação de cursor.
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\x1b' => match chars.next() {
+                // CSI: ESC [ ... byte final em 0x40-0x7E
+                Some('[') => {
+                    for n in chars.by_ref() {
+                        if ('\x40'..='\x7e').contains(&n) {
+                            break;
+                        }
+                    }
+                }
+                // OSC: ESC ] ... terminado por BEL ou ST (ESC \)
+                Some(']') => {
+                    while let Some(n) = chars.next() {
+                        if n == '\x07' {
+                            break;
+                        }
+                        if n == '\x1b' {
+                            if chars.peek() == Some(&'\\') {
+                                chars.next();
+                            }
+                            break;
+                        }
+                    }
+                }
+                // Designação de charset: ESC ( X / ESC ) X
+                Some('(') | Some(')') => {
+                    chars.next();
+                }
+                // Escapes de 2 bytes (ESC =, ESC >, ESC 7, …): já consumido
+                _ => {}
+            },
+            '\r' => {}
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -380,6 +559,7 @@ fn write_narrater_script() {
 Uso:
   narrater send <alvo> <mensagem>              envia e retorna imediatamente
   narrater ask <alvo> <mensagem> [--timeout N] envia e espera a resposta
+  narrater reply <id> <resposta>               responde a um ask recebido (o #id do frame)
   narrater peers                               lista agentes alcancaveis
   narrater whoami                              mostra sua identidade
 """
@@ -434,6 +614,13 @@ def main():
             sys.exit(1)
         payload["to"] = rest[0]
         payload["msg"] = " ".join(rest[1:])
+    elif mode == "reply":
+        rest = args[1:]
+        if len(rest) < 2:
+            print("Uso: narrater reply <id> <resposta>", file=sys.stderr)
+            sys.exit(1)
+        payload["msg_id"] = rest[0]
+        payload["msg"] = " ".join(rest[1:])
     elif mode not in ("peers", "whoami"):
         print(__doc__.strip(), file=sys.stderr)
         sys.exit(1)
@@ -474,7 +661,7 @@ TOOLS = [
     },
     {
         "name": "ask_agent",
-        "description": "Envia uma pergunta a outro agente do canvas NarraTer e espera a resposta dele (bloqueia ate o agente terminar). Use quando precisar do resultado para continuar.",
+        "description": "Envia uma pergunta a outro agente do canvas NarraTer e espera a resposta dele (bloqueia ate o agente responder via reply_message). Use quando precisar do resultado para continuar.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -483,6 +670,18 @@ TOOLS = [
                 "timeout_secs": {"type": "integer", "description": "Tempo maximo de espera em segundos (default 120)"},
             },
             "required": ["to", "msg"],
+        },
+    },
+    {
+        "name": "reply_message",
+        "description": "Responde a uma pergunta recebida de outro agente NarraTer (mensagens no formato '[narrater de X #id]: ...'). A resposta chega direto a quem perguntou, sem precisar de conexao de volta. Sempre prefira esta tool a send_message quando a mensagem recebida tiver #id.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "O id curto da mensagem recebida (o '#a3f2' do frame, com ou sem '#')"},
+                "msg": {"type": "string", "description": "Sua resposta"},
+            },
+            "required": ["id", "msg"],
         },
     },
     {
@@ -578,7 +777,7 @@ TOOLS = [
     },
 ]
 
-MODE = {"send_message": "send", "ask_agent": "ask", "list_peers": "peers", "whoami": "whoami"}
+MODE = {"send_message": "send", "ask_agent": "ask", "reply_message": "reply", "list_peers": "peers", "whoami": "whoami"}
 
 
 def narrater_request(payload):
@@ -649,6 +848,9 @@ def main():
                     payload["msg"] = args.get("msg", "")
                     if args.get("timeout_secs"):
                         payload["timeout_secs"] = int(args["timeout_secs"])
+                elif mode == "reply":
+                    payload["msg_id"] = args.get("id", "")
+                    payload["msg"] = args.get("msg", "")
             text = narrater_request(payload).strip() or "(sem resposta)"
             reply(msg_id, {"content": [{"type": "text", "text": text}], "isError": text.startswith("Erro")})
         elif msg_id is not None:
@@ -661,4 +863,49 @@ if __name__ == "__main__":
 "#;
 
     write_executable_script("narrater-mcp", script);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strip_ansi_remove_csi_e_cores() {
+        assert_eq!(strip_ansi("\x1b[31mvermelho\x1b[0m normal"), "vermelho normal");
+        assert_eq!(strip_ansi("\x1b[2J\x1b[1;1Hlimpo"), "limpo");
+    }
+
+    #[test]
+    fn strip_ansi_remove_osc_e_carriage_return() {
+        assert_eq!(strip_ansi("\x1b]0;titulo\x07texto"), "texto");
+        assert_eq!(strip_ansi("\x1b]8;;http://x\x1b\\link"), "link");
+        assert_eq!(strip_ansi("linha\r\n"), "linha\n");
+    }
+
+    #[test]
+    fn strip_ansi_remove_escapes_simples_e_preserva_utf8() {
+        assert_eq!(strip_ansi("\x1b=\x1b>ok"), "ok");
+        assert_eq!(strip_ansi("\x1b(Bacentuação ção"), "acentuação ção");
+    }
+
+    #[test]
+    fn echo_cortado_pelo_marcador() {
+        let resp = "lixo anterior\n[narrater de planner]: qual o status?\na resposta real";
+        assert_eq!(strip_injected_echo(resp, "planner", "qual o status?"), "a resposta real");
+    }
+
+    #[test]
+    fn echo_cortado_pela_mensagem_quando_sem_marcador() {
+        // Shells ecoam o comando cru, sem frame
+        let resp = "ls -la\ntotal 42\narquivo.txt";
+        assert_eq!(strip_injected_echo(resp, "dev", "ls -la"), "total 42\narquivo.txt");
+    }
+
+    #[test]
+    fn echo_sem_match_retorna_tudo() {
+        // Line-wrap quebra o marcador (fragilidade conhecida — ver PLANO_MCP.md;
+        // o caminho reply da Fase 1 não depende mais deste heurístico)
+        let resp = "[narrater de plan\nner]: pergunta\nresposta";
+        assert_eq!(strip_injected_echo(resp, "planner", "pergunta longa que quebrou"), resp);
+    }
 }

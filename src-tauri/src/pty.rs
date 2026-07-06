@@ -43,15 +43,27 @@ pub struct QueuedMsg {
     pub from_label: String,
     pub msg: String,
     pub enqueued: Instant,
+    /// Short ask id. When present, delivery frames the message as
+    /// `[narrater de X #id]: ...` so the target can answer via `reply`.
+    pub msg_id: Option<String>,
     /// Fired when the message is actually written to the target PTY, so an
     /// `ask` starts capturing output only from that point.
     pub delivered_tx: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 /// One in-flight `ask` capture, keyed by request id in the state map.
+/// Fallback path for shell targets — AI agents answer via `reply`.
 pub struct ResponseListener {
     pub target_id: String,
     pub tx: mpsc::Sender<String>,
+}
+
+/// One in-flight explicit-reply `ask`, keyed by short msg id. Resolved by the
+/// target agent calling `narrater reply <id>` / the reply_message MCP tool.
+pub struct AskWaiter {
+    /// Only this terminal may answer — the one the ask was delivered to.
+    pub responder_id: String,
+    pub tx: tokio::sync::oneshot::Sender<String>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -86,6 +98,8 @@ pub struct PtyStateInner {
     pub label_to_id: HashMap<String, String>,
     /// In-flight ask captures, keyed by request id (concurrent asks coexist).
     pub response_listeners: HashMap<String, ResponseListener>,
+    /// In-flight explicit-reply asks, keyed by short msg id.
+    pub ask_waiters: HashMap<String, AskWaiter>,
     /// Directed agent-pipe routes (source node id → target node id), mirrored
     /// from the canvas edges. Communication is only allowed along these.
     pub connections: HashSet<(String, String)>,
@@ -106,6 +120,7 @@ impl Default for PtyState {
             labels: HashMap::new(),
             label_to_id: HashMap::new(),
             response_listeners: HashMap::new(),
+            ask_waiters: HashMap::new(),
             connections: HashSet::new(),
             inbox: HashMap::new(),
             canvas_waiters: HashMap::new(),
@@ -239,6 +254,9 @@ pub fn pty_spawn(
                     let child = {
                         let mut inner = state_arc.lock().unwrap();
                         inner.response_listeners.retain(|_, l| l.target_id != id_clone);
+                        // Dropping the sender wakes pending asks with a clean
+                        // "agent exited without replying" error.
+                        inner.ask_waiters.retain(|_, w| w.responder_id != id_clone);
                         inner.inbox.remove(&id_clone);
                         if let Some(label) = inner.labels.remove(&id_clone) {
                             inner.label_to_id.remove(&label);
@@ -357,6 +375,7 @@ pub fn pty_notify(id: String, text: String, app_handle: AppHandle, state: State<
         from_label: "sistema".to_string(),
         msg: text,
         enqueued: Instant::now(),
+        msg_id: None,
         delivered_tx: None,
     });
     Ok(())
@@ -459,7 +478,8 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
                 // turning the \r into a literal newline in the composer. Send
                 // the text first and the \r alone after the paste-detection
                 // window so it registers as a real Enter.
-                let framed = format!("[narrater de {}]: {}", qmsg.from_label, qmsg.msg);
+                let id_part = qmsg.msg_id.as_deref().map(|i| format!(" #{}", i)).unwrap_or_default();
+                let framed = format!("[narrater de {}{}]: {}", qmsg.from_label, id_part, qmsg.msg);
                 write_to_pty(&state, &id, &framed);
                 let state_clone = Arc::clone(&state);
                 let id_clone = id.clone();
