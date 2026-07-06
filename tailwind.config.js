@@ -25,6 +25,7 @@ export default {
         },
       },
       fontFamily: {
+        sans: ["Inter Variable", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
         mono: ["JetBrains Mono", "Cascadia Code", "Fira Code", "monospace"],
       },
       boxShadow: {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { memo, useState, useEffect } from "react";
 import { Handle, Position, NodeResizer } from "@xyflow/react";
 import { X, Paperclip, FileText, ExternalLink } from "lucide-react";
 import { useCanvasStore } from "@/stores/canvas";
@@ -23,7 +23,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1_048_576).toFixed(1)} MB`;
 }
 
-export default function AttachmentTile({ id, data, selected }: NodeProps<AttachmentNode>) {
+function AttachmentTile({ id, data, selected }: NodeProps<AttachmentNode>) {
   const removeNode = useCanvasStore((s) => s.removeNode);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [size, setSize] = useState<number | null>(null);
@@ -130,3 +130,5 @@ export default function AttachmentTile({ id, data, selected }: NodeProps<Attachm
     </div>
   );
 }
+
+export default memo(AttachmentTile);

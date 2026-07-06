@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { memo, useState, useCallback } from "react";
 import { Handle, Position, NodeResizer } from "@xyflow/react";
 import { X } from "lucide-react";
 import { useCanvasStore } from "@/stores/canvas";
@@ -8,7 +8,7 @@ import type { Node, NodeProps } from "@xyflow/react";
 type TextNode = Node<TextNodeData, "text">;
 
 // Bloco de texto leve — anotação direta no canvas, sem o peso visual da nota.
-export default function TextTile({ id, data, selected }: NodeProps<TextNode>) {
+function TextTile({ id, data, selected }: NodeProps<TextNode>) {
   const [text, setText] = useState(data.text ?? "");
   const [hovered, setHovered] = useState(false);
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
@@ -71,3 +71,5 @@ export default function TextTile({ id, data, selected }: NodeProps<TextNode>) {
     </div>
   );
 }
+
+export default memo(TextTile);

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { memo, useState, useCallback, useEffect, useRef } from "react";
 import { Handle, Position, NodeResizer } from "@xyflow/react";
 import { X, StickyNote, Radio } from "lucide-react";
 import { useCanvasStore } from "@/stores/canvas";
@@ -7,7 +7,7 @@ import type { Node, NodeProps } from "@xyflow/react";
 
 type NoteNode = Node<NoteNodeData, "note">;
 
-export default function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
+function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
   const [content, setContent] = useState(data.content ?? "");
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const removeNode = useCanvasStore((s) => s.removeNode);
@@ -100,3 +100,5 @@ export default function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
     </div>
   );
 }
+
+export default memo(NoteTile);

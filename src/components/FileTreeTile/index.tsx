@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { memo, useState, useCallback, useEffect } from "react";
 import { Handle, Position, NodeResizer } from "@xyflow/react";
 import {
   X, Folder, FolderOpen, File as FileIcon, RefreshCw,
@@ -14,7 +14,7 @@ type FileTreeNode = Node<FileTreeNodeData, "filetree">;
 
 const ACCENT = "#60a5fa";
 
-export default function FileTreeTile({ id, data, selected }: NodeProps<FileTreeNode>) {
+function FileTreeTile({ id, data, selected }: NodeProps<FileTreeNode>) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const removeNode = useCanvasStore((s) => s.removeNode);
 
@@ -207,3 +207,5 @@ export default function FileTreeTile({ id, data, selected }: NodeProps<FileTreeN
     </div>
   );
 }
+
+export default memo(FileTreeTile);

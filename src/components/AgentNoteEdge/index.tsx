@@ -1,6 +1,7 @@
+import { memo } from "react";
 import { getBezierPath, type EdgeProps } from "@xyflow/react";
 
-export default function AgentNoteEdge({
+function AgentNoteEdge({
   id,
   sourceX,
   sourceY,
@@ -52,3 +53,5 @@ export default function AgentNoteEdge({
     </g>
   );
 }
+
+export default memo(AgentNoteEdge);

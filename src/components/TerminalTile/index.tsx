@@ -1,8 +1,9 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { memo, useEffect, useRef, useCallback, useState } from "react";
 import { Handle, Position, NodeResizer } from "@xyflow/react";
 import { listen } from "@tauri-apps/api/event";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Bot, Code2, Terminal, Wrench, X, GripVertical, FolderOpen, Clock, Plug } from "lucide-react";
 import { usePty } from "@/hooks/usePty";
@@ -71,7 +72,7 @@ const STATUS_DOT: Record<SessionStatus, { color: string; label: string }> = {
   exited: { color: "#f87171", label: "Encerrado" },
 };
 
-export default function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
+function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   const termDivRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<XTerm | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -110,6 +111,16 @@ export default function TerminalTile({ id, data, selected }: NodeProps<TerminalN
     term.loadAddon(fitAddon);
     term.loadAddon(webLinksAddon);
     term.open(termDivRef.current);
+
+    // Renderer WebGL (~5-10x de throughput com output pesado); se o contexto
+    // cair ou o WebGL não existir, o xterm segue no renderer DOM padrão.
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
+    } catch (e) {
+      console.warn("[NarraTer] WebGL indisponível, usando renderer DOM:", e);
+    }
 
     setTimeout(() => {
       fitAddon.fit();
@@ -394,3 +405,7 @@ export default function TerminalTile({ id, data, selected }: NodeProps<TerminalN
     </div>
   );
 }
+
+// React Flow re-renderiza nós custom a cada mudança de qualquer nó; com memo,
+// arrastar um tile não re-renderiza os demais.
+export default memo(TerminalTile);

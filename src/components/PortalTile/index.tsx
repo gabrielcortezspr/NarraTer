@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from "react";
+import { memo, useState, useCallback, useRef, useEffect } from "react";
 import { Handle, Position, NodeResizer } from "@xyflow/react";
 import { X, Globe, RotateCw, ExternalLink, ArrowRight } from "lucide-react";
 import { useCanvasStore } from "@/stores/canvas";
@@ -20,7 +20,7 @@ function normalizeUrl(input: string): string {
 // Mini navegador via iframe: escala e move junto com o canvas, mas sites com
 // X-Frame-Options/frame-ancestors não carregam — daí o aviso fixo e o botão
 // de abrir no navegador externo. Upgrade futuro: child webview do Tauri.
-export default function PortalTile({ id, data, selected, dragging }: NodeProps<PortalNode>) {
+function PortalTile({ id, data, selected, dragging }: NodeProps<PortalNode>) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const removeNode = useCanvasStore((s) => s.removeNode);
 
@@ -142,3 +142,5 @@ export default function PortalTile({ id, data, selected, dragging }: NodeProps<P
     </div>
   );
 }
+
+export default memo(PortalTile);

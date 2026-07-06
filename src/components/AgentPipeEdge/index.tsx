@@ -1,7 +1,8 @@
+import { memo } from "react";
 import { getBezierPath, type EdgeProps } from "@xyflow/react";
 import { useTerminalsStore } from "@/stores/terminals";
 
-export default function AgentPipeEdge({
+function AgentPipeEdge({
   id,
   source,
   target,
@@ -93,3 +94,5 @@ export default function AgentPipeEdge({
     </g>
   );
 }
+
+export default memo(AgentPipeEdge);
