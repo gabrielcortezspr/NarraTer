@@ -1,19 +1,8 @@
 import { useCallback } from "react";
-import { listen } from "@tauri-apps/api/event";
 import { ptySpawn, ptyWrite, ptyResize, ptyKill, getSpawnSpec } from "@/lib/tauri";
 import { useTerminalsStore } from "@/stores/terminals";
 import { useCanvasStore } from "@/stores/canvas";
 import type { AgentType } from "@/lib/tauri";
-
-export interface PtyOutputEvent {
-  id: string;
-  data: string;
-}
-
-export interface PtyExitEvent {
-  id: string;
-  code: number;
-}
 
 export function usePty() {
   const { addSession, setRunning, setExited, removeSession } = useTerminalsStore();
@@ -63,26 +52,4 @@ export function usePty() {
   );
 
   return { spawn, write, resize, kill };
-}
-
-export function usePtyOutput(id: string, onData: (data: string) => void) {
-  return useCallback(async () => {
-    const unlisten = await listen<PtyOutputEvent>("pty_output", (event) => {
-      if (event.payload.id === id) {
-        onData(event.payload.data);
-      }
-    });
-    return unlisten;
-  }, [id, onData]);
-}
-
-export function usePtyExit(id: string, onExit: (code: number) => void) {
-  return useCallback(async () => {
-    const unlisten = await listen<PtyExitEvent>("pty_exit", (event) => {
-      if (event.payload.id === id) {
-        onExit(event.payload.code);
-      }
-    });
-    return unlisten;
-  }, [id, onExit]);
 }

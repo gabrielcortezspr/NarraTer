@@ -14,7 +14,7 @@ import {
   type XYPosition,
 } from "@xyflow/react";
 import { useShallow } from "zustand/react/shallow";
-import { listen } from "@tauri-apps/api/event";
+import { onPtyOutput } from "@/lib/ptyBus";
 import "@xyflow/react/dist/style.css";
 import TerminalTile from "@/components/TerminalTile";
 import NoteTile from "@/components/NoteTile";
@@ -150,16 +150,23 @@ function CanvasInner() {
     [screenToFlowPosition, addNoteNode, addTextNode, addFileTreeNode, addPortalNode, setTool]
   );
 
-  // Agent → Note pipe: listen to all PTY output and forward to connected notes
+  // Agent → Note pipe: espelha output de terminais nas notas conectadas.
+  // Chunks são bufferizados por nota e aplicados em batch (~100ms) — um agente
+  // verboso emite dezenas de chunks/segundo, e cada appendNoteContent é um
+  // setState global (item 1.4 do PLANO_FRONTEND).
   useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | undefined;
+    const buffers = new Map<string, string>();
+    let flushTimer: number | undefined;
 
-    listen<{ id: string; data: string }>("pty_output", (event) => {
-      const { id: termId, data: rawData } = event.payload;
-      const { edges: currentEdges, appendNoteContent } = useCanvasStore.getState();
+    const flush = () => {
+      flushTimer = undefined;
+      const { appendNoteContent } = useCanvasStore.getState();
+      buffers.forEach((text, noteId) => appendNoteContent(noteId, text));
+      buffers.clear();
+    };
 
-      // Find agent-note edges where this terminal is source or target
+    const unlisten = onPtyOutput("*", ({ id: termId, data: rawData }) => {
+      const currentEdges = useCanvasStore.getState().edges;
       const agentNoteEdges = currentEdges.filter(
         (e) => e.type === "agent-note" && (e.source === termId || e.target === termId)
       );
@@ -170,16 +177,15 @@ function CanvasInner() {
 
       agentNoteEdges.forEach((edge) => {
         const noteId = edge.source === termId ? edge.target : edge.source;
-        appendNoteContent(noteId, clean);
+        const pending = buffers.get(noteId);
+        buffers.set(noteId, pending ? `${pending}\n${clean}` : clean);
       });
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
+      flushTimer ??= window.setTimeout(flush, 100);
     });
 
     return () => {
-      cancelled = true;
-      unlisten?.();
+      unlisten();
+      if (flushTimer !== undefined) window.clearTimeout(flushTimer);
     };
   }, []);
 

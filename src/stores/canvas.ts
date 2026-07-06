@@ -84,6 +84,9 @@ interface CanvasStore {
 
 let nodeCounter = 0;
 
+const MAX_NOTE_CONTENT = 200_000;
+const liveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
 // Mirror agent-pipe edges into the backend routing table — narrater send/ask
 // is only allowed along these directed routes.
 function syncConnections(edges: AppEdge[]) {
@@ -218,12 +221,29 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         if (n.id !== noteId || n.type !== "note") return n;
         const current = (n.data as NoteNodeData).content ?? "";
         const separator = current.length > 0 ? "\n" : "";
+        let content = current + separator + text;
+        // Cap: agentes verbosos fariam a nota (e o <textarea> dela) crescer sem
+        // limite — mantém o fim, que é o output mais recente.
+        if (content.length > MAX_NOTE_CONTENT) {
+          content = "…" + content.slice(content.length - MAX_NOTE_CONTENT);
+        }
         return {
           ...n,
-          data: { ...n.data, content: current + separator + text, isAgentLive: true },
+          data: { ...n.data, content, isAgentLive: true },
         } as AppNode;
       }),
     }));
+
+    // "Ao vivo" desliga após 2s sem output novo (antes ficava para sempre)
+    const timer = liveTimers.get(noteId);
+    if (timer) clearTimeout(timer);
+    liveTimers.set(
+      noteId,
+      setTimeout(() => {
+        liveTimers.delete(noteId);
+        get().updateNodeData(noteId, { isAgentLive: false });
+      }, 2000)
+    );
   },
 
   removeNode: (id) => {

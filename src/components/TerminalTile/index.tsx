@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useCallback, useState } from "react";
 import { Handle, Position, NodeResizer } from "@xyflow/react";
-import { listen } from "@tauri-apps/api/event";
+import { onPtyOutput, onPtyExit } from "@/lib/ptyBus";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -192,40 +192,17 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
     };
   }, []); // intentionally run once
 
-  // PTY output listener
+  // PTY output listener (via bus — um listener Tauri global, despacho por id)
   useEffect(() => {
-    let cancelled = false;
-    let unlistenOutput: (() => void) | undefined;
-    let unlistenExit: (() => void) | undefined;
-    let outputBuffer = "";
-
-    listen<{ id: string; data: string }>("pty_output", (event) => {
-      if (event.payload.id !== id) return;
-      if (xtermRef.current) {
-        xtermRef.current.write(event.payload.data);
-      }
-      // Track cwd from shell prompt (heuristic: capture last line with $)
-      outputBuffer += event.payload.data;
-      const lines = outputBuffer.split("\n");
-      outputBuffer = lines[lines.length - 1];
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlistenOutput = fn;
+    const unlistenOutput = onPtyOutput(id, ({ data }) => {
+      xtermRef.current?.write(data);
     });
-
-    listen<{ id: string; code: number }>("pty_exit", (event) => {
-      if (event.payload.id === id && xtermRef.current) {
-        xtermRef.current.writeln("\r\n\x1b[2m[Process exited]\x1b[0m");
-      }
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlistenExit = fn;
+    const unlistenExit = onPtyExit(id, () => {
+      xtermRef.current?.writeln("\r\n\x1b[2m[Process exited]\x1b[0m");
     });
-
     return () => {
-      cancelled = true;
-      unlistenOutput?.();
-      unlistenExit?.();
+      unlistenOutput();
+      unlistenExit();
     };
   }, [id]);
 
