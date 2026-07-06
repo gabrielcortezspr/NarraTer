@@ -132,6 +132,9 @@ pub struct PtySession {
     /// least once — from then on, idle comes from the hook (authoritative),
     /// not from the output-silence timer.
     pub hook_idle: bool,
+    /// Segredo por terminal (env NARRATER_TOKEN), validado pelo IPC junto ao
+    /// `from` — fecha o spoof de identidade por qualquer processo local.
+    pub token: String,
 }
 
 pub struct PtyStateInner {
@@ -253,18 +256,15 @@ pub fn pty_spawn(
     let effective_label = {
         let mut inner = state.0.lock().unwrap();
         let base = label.unwrap_or_else(|| id.clone());
-        let mut candidate = base.clone();
-        let mut n = 2;
-        while inner.label_to_id.get(&candidate).is_some_and(|owner| owner != &id) {
-            candidate = format!("{}-{}", base, n);
-            n += 1;
-        }
+        let candidate = dedup_label(&inner.label_to_id, &id, &base);
         inner.labels.insert(id.clone(), candidate.clone());
         inner.label_to_id.insert(candidate.clone(), id.clone());
         candidate
     };
     cmd.env("NARRATER_ID", &id);
     cmd.env("NARRATER_LABEL", &effective_label);
+    let token = uuid::Uuid::new_v4().simple().to_string();
+    cmd.env("NARRATER_TOKEN", &token);
 
     let agent_type = agent_type.unwrap_or_else(|| "shell".to_string());
     // Claude ganha o hook Stop → `narrater notify-idle` (idle autoritativo em
@@ -302,6 +302,7 @@ pub fn pty_spawn(
             status: RunStatus::Running,
             agent_type,
             hook_idle: false,
+            token,
         });
     }
 
@@ -668,6 +669,17 @@ fn frame_message(qmsg: &QueuedMsg) -> String {
     format!("[narrater de {}{}]: {}", qmsg.from_label, id_part, qmsg.msg)
 }
 
+/// Desduplica um label com sufixo -2, -3… (a menos que o dono já seja `id`).
+fn dedup_label(label_to_id: &HashMap<String, String>, id: &str, base: &str) -> String {
+    let mut candidate = base.to_string();
+    let mut n = 2;
+    while label_to_id.get(&candidate).is_some_and(|owner| owner != id) {
+        candidate = format!("{}-{}", base, n);
+        n += 1;
+    }
+    candidate
+}
+
 pub fn write_to_pty(state_arc: &Arc<Mutex<PtyStateInner>>, id: &str, data: &str) -> bool {
     let mut inner = state_arc.lock().unwrap();
     if let Some(session) = inner.sessions.get_mut(id) {
@@ -676,5 +688,43 @@ pub fn write_to_pty(state_arc: &Arc<Mutex<PtyStateInner>>, id: &str, data: &str)
         true
     } else {
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn qmsg(from_label: &str, msg: &str, msg_id: Option<&str>) -> QueuedMsg {
+        QueuedMsg {
+            from_label: from_label.to_string(),
+            from_id: None,
+            msg: msg.to_string(),
+            enqueued: Instant::now(),
+            msg_id: msg_id.map(String::from),
+            delivered_tx: None,
+        }
+    }
+
+    #[test]
+    fn frame_sem_id_e_com_id() {
+        assert_eq!(frame_message(&qmsg("planner", "oi", None)), "[narrater de planner]: oi");
+        assert_eq!(
+            frame_message(&qmsg("planner", "status?", Some("a3f2"))),
+            "[narrater de planner #a3f2]: status?"
+        );
+    }
+
+    #[test]
+    fn dedup_label_sufixa_duplicatas() {
+        let mut map = HashMap::new();
+        assert_eq!(dedup_label(&map, "t1", "claude"), "claude");
+        map.insert("claude".to_string(), "t1".to_string());
+        // Dono do label é o próprio id → mantém
+        assert_eq!(dedup_label(&map, "t1", "claude"), "claude");
+        // Outro terminal com o mesmo label → sufixo
+        assert_eq!(dedup_label(&map, "t2", "claude"), "claude-2");
+        map.insert("claude-2".to_string(), "t2".to_string());
+        assert_eq!(dedup_label(&map, "t3", "claude"), "claude-3");
     }
 }

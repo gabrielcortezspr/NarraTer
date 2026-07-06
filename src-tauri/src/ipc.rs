@@ -34,6 +34,9 @@ struct IpcRequest {
     /// mode "reply": id curto do ask sendo respondido (o `#a3f2` do frame)
     #[serde(default)]
     msg_id: Option<String>,
+    /// Segredo do terminal (env NARRATER_TOKEN) provando a identidade `from`
+    #[serde(default)]
+    token: Option<String>,
     /// mode "canvas": ação (list_nodes, create_note, update_note…)
     #[serde(default)]
     action: Option<String>,
@@ -96,6 +99,26 @@ async fn handle_connection(
         }
     };
 
+    // Anti-spoof: quem se identifica (`from`) prova com o token do próprio
+    // terminal (env NARRATER_TOKEN). Sessão inexistente segue adiante e cai
+    // nos erros específicos de cada handler.
+    if !req.from.is_empty() {
+        let token_ok = {
+            let inner = state.lock().unwrap();
+            inner
+                .sessions
+                .get(&req.from)
+                .map(|s| req.token.as_deref() == Some(s.token.as_str()))
+                .unwrap_or(true)
+        };
+        if !token_ok {
+            let _ = stream
+                .write_all("Erro: NARRATER_TOKEN inválido — a identidade informada não confere\n".as_bytes())
+                .await;
+            return;
+        }
+    }
+
     let reply = match req.mode.as_deref() {
         Some("whoami") => handle_whoami(&req, &state),
         Some("peers") => handle_peers(&req, &state),
@@ -135,14 +158,7 @@ fn resolve_route(
         .or_else(|| inner.sessions.contains_key(&to).then(|| to.clone()))
         .ok_or_else(|| format!("Erro: nenhum agente chamado '{}'\n", to))?;
 
-    // Rota válida: edge do canvas OU grant temporário de resposta (receber
-    // mensagem de alguém autoriza responder por REPLY_GRANT_TTL).
-    let route = (req.from.clone(), target_id.clone());
-    let granted = inner
-        .reply_grants
-        .get(&route)
-        .is_some_and(|t| t.elapsed() < REPLY_GRANT_TTL);
-    if !inner.connections.contains(&route) && !granted {
+    if !route_allowed(&inner.connections, &inner.reply_grants, &req.from, &target_id) {
         let from_label = label_of(&inner, &req.from);
         return Err(format!(
             "Erro: sem conexão de '{}' para '{}' — conecte os terminais no canvas\n",
@@ -152,6 +168,19 @@ fn resolve_route(
 
     let from_label = label_of(&inner, &req.from);
     Ok((target_id, from_label))
+}
+
+/// Rota permitida: edge do canvas OU grant temporário de resposta (receber
+/// mensagem de alguém autoriza responder por REPLY_GRANT_TTL).
+fn route_allowed(
+    connections: &std::collections::HashSet<(String, String)>,
+    reply_grants: &std::collections::HashMap<(String, String), Instant>,
+    from: &str,
+    to: &str,
+) -> bool {
+    let route = (from.to_string(), to.to_string());
+    connections.contains(&route)
+        || reply_grants.get(&route).is_some_and(|t| t.elapsed() < REPLY_GRANT_TTL)
 }
 
 fn handle_whoami(req: &IpcRequest, state: &Arc<Mutex<PtyStateInner>>) -> String {
@@ -808,7 +837,11 @@ def main():
         sys.exit(0 if args else 1)
 
     mode = args[0]
-    payload = {"from": os.environ.get("NARRATER_ID", ""), "mode": mode}
+    payload = {
+        "from": os.environ.get("NARRATER_ID", ""),
+        "token": os.environ.get("NARRATER_TOKEN", ""),
+        "mode": mode,
+    }
 
     if mode in ("send", "ask"):
         rest = args[1:]
@@ -1063,9 +1096,13 @@ def notify_progress(token, progress, message):
 def handle_tool_call(msg_id, params):
     name = params.get("name", "")
     args = params.get("arguments", {}) or {}
+    ident = {
+        "from": os.environ.get("NARRATER_ID", ""),
+        "token": os.environ.get("NARRATER_TOKEN", ""),
+    }
     if name.startswith("canvas_"):
         payload = {
-            "from": os.environ.get("NARRATER_ID", ""),
+            **ident,
             "mode": "canvas",
             "action": name[len("canvas_"):],
             "params": args,
@@ -1075,7 +1112,7 @@ def handle_tool_call(msg_id, params):
         if not mode:
             reply(msg_id, {"content": [{"type": "text", "text": f"Erro: ferramenta desconhecida '{name}'"}], "isError": True})
             return
-        payload = {"from": os.environ.get("NARRATER_ID", ""), "mode": mode}
+        payload = {**ident, "mode": mode}
         if mode in ("send", "ask"):
             payload["to"] = args.get("to", "")
             payload["msg"] = args.get("msg", "")
@@ -1175,6 +1212,30 @@ mod tests {
         // Shells ecoam o comando cru, sem frame
         let resp = "ls -la\ntotal 42\narquivo.txt";
         assert_eq!(strip_injected_echo(resp, "dev", "ls -la"), "total 42\narquivo.txt");
+    }
+
+    #[test]
+    fn rota_por_edge_grant_valido_e_grant_expirado() {
+        use std::collections::{HashMap, HashSet};
+        let mut connections = HashSet::new();
+        let mut grants: HashMap<(String, String), Instant> = HashMap::new();
+
+        assert!(!route_allowed(&connections, &grants, "a", "b"));
+
+        connections.insert(("a".to_string(), "b".to_string()));
+        assert!(route_allowed(&connections, &grants, "a", "b"));
+        // Edge é direcionada: b→a continua proibido
+        assert!(!route_allowed(&connections, &grants, "b", "a"));
+
+        // Grant de resposta recém-concedido libera b→a
+        grants.insert(("b".to_string(), "a".to_string()), Instant::now());
+        assert!(route_allowed(&connections, &grants, "b", "a"));
+
+        // Grant vencido volta a proibir
+        if let Some(old) = Instant::now().checked_sub(REPLY_GRANT_TTL + Duration::from_secs(1)) {
+            grants.insert(("b".to_string(), "a".to_string()), old);
+            assert!(!route_allowed(&connections, &grants, "b", "a"));
+        }
     }
 
     #[test]

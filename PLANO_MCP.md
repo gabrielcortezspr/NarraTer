@@ -93,13 +93,18 @@ responde de propósito":
   (`pty_queue_cancel`; cancelar um ask acorda o chamador com erro de entrega).
   O evento `pty_queue` agora carrega os itens, não só o contador.
 
-## Fase 5 — Segurança e testes
+## Fase 5 — Segurança e testes ✅ (implementada)
 
-- **Token por terminal**: `NARRATER_TOKEN` aleatório injetado no spawn e
-  validado no IPC junto ao `from`, fechando o spoof de identidade via socket.
-- **Testes Rust** para `resolve_route`, `strip_injected_echo` (casos com
-  wrap), dedup de labels e a máquina de fila/idle — hoje nada disso tem teste
-  e são exatamente as partes com mais regressão potencial.
+- **Token por terminal**: `NARRATER_TOKEN` aleatório injetado no spawn,
+  enviado pelo CLI e pelo narrater-mcp em toda requisição e validado no IPC
+  antes do dispatch — um processo local que alegue um `NARRATER_ID` alheio
+  sem o token recebe `Erro: NARRATER_TOKEN inválido`.
+- **Testes Rust** (9): strip_ansi (CSI/OSC/escapes), strip_injected_echo
+  (incluindo o caso de line-wrap), `route_allowed` (edge direcionada, grant
+  válido e grant expirado), dedup de labels e o framing com/sem #id. A lógica
+  de rota e o dedup foram extraídos para funções puras para serem testáveis.
+- Pendente de fases futuras: testes da máquina de fila/idle (exige mock de
+  PtySession) e permissões por nó no canvas (ACL v2).
 
 ## Ordem sugerida
 
