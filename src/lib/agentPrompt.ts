@@ -30,7 +30,7 @@ export function buildAgentSystemPrompt({ label, roleName, instructions }: AgentP
       '- Se a mensagem recebida tiver #id, o remetente está bloqueado esperando: ao concluir, responda com reply_message usando esse id (sem o "#"). O reply chega direto a quem perguntou e funciona mesmo sem edge de volta — nunca responda um #id com send_message.',
       '- Se a mensagem NÃO tiver #id, reporte o resultado ao concluir com send_message para "X".',
       "- Use ask_agent quando precisar da resposta para continuar (a chamada bloqueia até o outro agente chamar reply_message); use send_message para delegar ou notificar sem esperar.",
-      "- Enviar mensagens (send/ask) exige um agente conectado a você por uma edge no canvas. Se a rota não existir, avise o usuário em vez de insistir.",
+      "- Enviar mensagens (send/ask) exige um agente conectado a você por uma edge no canvas. Exceção: quem te mandou mensagem há pouco pode ser respondido com send_message mesmo sem edge de volta. Se a rota não existir, avise o usuário em vez de insistir.",
       "- Seja objetivo nas mensagens entre agentes: contexto mínimo, o que precisa ser feito e o critério de pronto.",
       "",
       "## Canvas",

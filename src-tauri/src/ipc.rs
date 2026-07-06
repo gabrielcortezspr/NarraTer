@@ -9,8 +9,8 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
 use crate::pty::{
-    enqueue_message, AskWaiter, PtyStateInner, QueuedMsg, ResponseListener, RunStatus,
-    MAX_QUEUE_WAIT,
+    enqueue_message, AskWaiter, PtyStateInner, PtyStatusEvent, QueuedMsg, ResponseListener,
+    RunStatus, MAX_QUEUE_WAIT, REPLY_GRANT_TTL,
 };
 
 const ASK_DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -45,6 +45,7 @@ struct IpcRequest {
 pub async fn start_ipc_server(app: AppHandle, state: Arc<Mutex<PtyStateInner>>) {
     write_narrater_script();
     write_narrater_mcp_script();
+    write_claude_hooks_settings();
 
     let socket_path = format!("/tmp/narrater-{}.sock", std::process::id());
     let _ = std::fs::remove_file(&socket_path);
@@ -101,6 +102,7 @@ async fn handle_connection(
         Some("send") => handle_send(&req, &app, &state),
         Some("ask") => handle_ask(&req, &app, &state).await,
         Some("reply") => handle_reply(&req, &state),
+        Some("notify-idle") => handle_notify_idle(&req, &app, &state),
         Some("canvas") => handle_canvas(&req, &app, &state).await,
         _ => "Uso: narrater send|ask <alvo> <mensagem> | narrater reply <id> <resposta> | narrater peers | narrater whoami\n".to_string(),
     };
@@ -131,7 +133,14 @@ fn resolve_route(
         .or_else(|| inner.sessions.contains_key(&to).then(|| to.clone()))
         .ok_or_else(|| format!("Erro: nenhum agente chamado '{}'\n", to))?;
 
-    if !inner.connections.contains(&(req.from.clone(), target_id.clone())) {
+    // Rota válida: edge do canvas OU grant temporário de resposta (receber
+    // mensagem de alguém autoriza responder por REPLY_GRANT_TTL).
+    let route = (req.from.clone(), target_id.clone());
+    let granted = inner
+        .reply_grants
+        .get(&route)
+        .is_some_and(|t| t.elapsed() < REPLY_GRANT_TTL);
+    if !inner.connections.contains(&route) && !granted {
         let from_label = label_of(&inner, &req.from);
         return Err(format!(
             "Erro: sem conexão de '{}' para '{}' — conecte os terminais no canvas\n",
@@ -183,6 +192,7 @@ fn handle_send(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInne
 
     let position = enqueue_message(state, app, &target_id, QueuedMsg {
         from_label,
+        from_id: Some(req.from.clone()),
         msg,
         enqueued: Instant::now(),
         msg_id: None,
@@ -249,6 +259,7 @@ async fn ask_by_reply(
 
     enqueue_message(state, app, &target_id, QueuedMsg {
         from_label,
+        from_id: Some(req.from.clone()),
         msg,
         enqueued: Instant::now(),
         msg_id: Some(msg_id.clone()),
@@ -324,6 +335,29 @@ fn handle_reply(req: &IpcRequest, state: &Arc<Mutex<PtyStateInner>>) -> String {
     }
 }
 
+/// Hook Stop do claude (`narrater notify-idle`): sinal autoritativo de fim de
+/// turno. Marca a sessão Idle (a fila drena no próximo tick) e registra que
+/// esta sessão tem hook — o timer de silêncio deixa de valer para ela.
+fn handle_notify_idle(
+    req: &IpcRequest,
+    app: &AppHandle,
+    state: &Arc<Mutex<PtyStateInner>>,
+) -> String {
+    {
+        let mut inner = state.lock().unwrap();
+        let Some(session) = inner.sessions.get_mut(&req.from) else {
+            return "Erro: sessão desconhecida — você está dentro de um terminal NarraTer?\n".to_string();
+        };
+        session.hook_idle = true;
+        session.status = RunStatus::Idle;
+    }
+    let _ = app.emit("pty_status", PtyStatusEvent {
+        id: req.from.clone(),
+        status: RunStatus::Idle.as_str(),
+    });
+    "ok\n".to_string()
+}
+
 /// Fallback para alvos shell: captura o stdout até o alvo assentar em Idle.
 async fn ask_by_scraping(
     req: &IpcRequest,
@@ -347,6 +381,7 @@ async fn ask_by_scraping(
 
     enqueue_message(state, app, &target_id, QueuedMsg {
         from_label: from_label.clone(),
+        from_id: Some(req.from.clone()),
         msg: msg.clone(),
         enqueued: Instant::now(),
         msg_id: None,
@@ -551,6 +586,33 @@ fn write_executable_script(name: &str, content: &str) {
     }
 }
 
+/// Settings extras passadas ao claude via `--settings` no spawn (pty.rs):
+/// hook Stop → `narrater notify-idle`, o sinal autoritativo de idle.
+pub fn claude_hooks_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    Some(std::path::PathBuf::from(home).join(".local/share/narrater/claude-hooks.json"))
+}
+
+fn write_claude_hooks_settings() {
+    let Some(path) = claude_hooks_path() else { return };
+    if let Some(dir) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            eprintln!("[NarraTer IPC] Could not create {}: {}", dir.display(), e);
+            return;
+        }
+    }
+    let settings = serde_json::json!({
+        "hooks": {
+            "Stop": [
+                { "hooks": [ { "type": "command", "command": "narrater notify-idle" } ] }
+            ]
+        }
+    });
+    if let Err(e) = std::fs::write(&path, settings.to_string()) {
+        eprintln!("[NarraTer IPC] Failed to write claude hooks settings: {}", e);
+    }
+}
+
 fn write_narrater_script() {
 
     let script = r#"#!/usr/bin/env python3
@@ -621,7 +683,7 @@ def main():
             sys.exit(1)
         payload["msg_id"] = rest[0]
         payload["msg"] = " ".join(rest[1:])
-    elif mode not in ("peers", "whoami"):
+    elif mode not in ("peers", "whoami", "notify-idle"):
         print(__doc__.strip(), file=sys.stderr)
         sys.exit(1)
 

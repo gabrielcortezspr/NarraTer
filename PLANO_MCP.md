@@ -45,19 +45,23 @@ responde de propósito":
 - Como cada reply carrega o id da requisição, asks concorrentes deixam de se
   misturar naturalmente.
 
-## Fase 2 — Entrega e idle mais robustos
+## Fase 2 — Entrega e idle mais robustos ✅ (implementada)
 
-- **Idle real via hooks do Claude Code**: gerar um settings com hook `Stop`
-  que chama `narrater notify-idle`, dando ao monitor um sinal autoritativo em
-  vez do timer de silêncio (que fica como fallback para shells/TUIs sem hook).
-  Permite subir ou eliminar o `MAX_QUEUE_WAIT` para agentes com hook.
-- **Bracketed paste na injeção** (`ESC[200~ … ESC[201~` + `\r`) em vez do
-  sleep de 300ms — determinístico, sem corrida com a janela de detecção de
-  paste do TUI.
-- **Rota de resposta implícita**: receber mensagem de A autoriza responder a A
-  por N minutos (ou tratar edges agent-pipe como bidirecionais por padrão, com
-  opção de unidirecional). Elimina o conflito com o "SEMPRE reporte de volta"
-  do prompt.
+- **Idle real via hooks do Claude Code**: settings gerado em
+  `~/.local/share/narrater/claude-hooks.json` com hook `Stop` →
+  `narrater notify-idle`, passado ao claude via `--settings` no spawn. A
+  primeira notificação marca a sessão como `hook_idle`: o timer de silêncio
+  deixa de valer para ela (só o hook a torna Idle) e o force-inject sobe de
+  30s (`MAX_QUEUE_WAIT`) para 120s (`HOOKED_QUEUE_WAIT`), que vira só um
+  backstop para hook quebrado. Shells/TUIs sem hook mantêm o timer.
+- **Bracketed paste na injeção** para claude/codex: o frame vai como paste
+  explícito (`ESC[200~ … ESC[201~`) com `\r` em seguida — determinístico, sem
+  o sleep de 300ms. Agentes custom (TUI desconhecido) mantêm o burst em duas
+  fases como fallback.
+- **Rota de resposta implícita**: a entrega de uma mensagem de A para B grava
+  um grant B→A válido por 10 min (`REPLY_GRANT_TTL`); `resolve_route` aceita
+  edge OU grant. Elimina o conflito com o "SEMPRE reporte de volta" do prompt
+  para o send_message (o reply do ask já não passava por rota).
 
 ## Fase 3 — Protocolo e MCP mais ricos
 

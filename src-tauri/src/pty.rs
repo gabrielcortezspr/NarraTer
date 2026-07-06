@@ -13,6 +13,12 @@ const STATUS_TICK: Duration = Duration::from_millis(500);
 /// A queued message is injected even into a busy terminal after this long,
 /// so TUI agents that never go idle (constant redraws) don't starve the queue.
 pub const MAX_QUEUE_WAIT: Duration = Duration::from_secs(30);
+/// Force-inject window for sessions with a working idle hook: the Stop hook
+/// is authoritative, so the queue only needs a long safety backstop.
+pub const HOOKED_QUEUE_WAIT: Duration = Duration::from_secs(120);
+/// Receiving a message from A lets the target answer A back (send/ask) for
+/// this long, even without a canvas edge in that direction.
+pub const REPLY_GRANT_TTL: Duration = Duration::from_secs(600);
 
 #[derive(Serialize, Clone)]
 pub struct PtyOutput {
@@ -41,6 +47,9 @@ pub struct PtyQueueEvent {
 /// Message waiting to be injected into a terminal's stdin.
 pub struct QueuedMsg {
     pub from_label: String,
+    /// Sender node id, when the sender is another agent (None for "sistema").
+    /// Delivery grants the receiver a temporary reply route back to it.
+    pub from_id: Option<String>,
     pub msg: String,
     pub enqueued: Instant,
     /// Short ask id. When present, delivery frames the message as
@@ -90,6 +99,10 @@ pub struct PtySession {
     /// Agent type running in this terminal ("shell", "claude", ...). Decides
     /// how inbound messages are framed on delivery.
     pub agent_type: String,
+    /// True once this session's Stop hook called `narrater notify-idle` at
+    /// least once — from then on, idle comes from the hook (authoritative),
+    /// not from the output-silence timer.
+    pub hook_idle: bool,
 }
 
 pub struct PtyStateInner {
@@ -103,6 +116,10 @@ pub struct PtyStateInner {
     /// Directed agent-pipe routes (source node id → target node id), mirrored
     /// from the canvas edges. Communication is only allowed along these.
     pub connections: HashSet<(String, String)>,
+    /// Temporary reply routes (receiver id → sender id, granted on message
+    /// delivery, expire after REPLY_GRANT_TTL). Let an agent answer whoever
+    /// messaged it even when the canvas edge is one-way.
+    pub reply_grants: HashMap<(String, String), Instant>,
     /// Per-terminal inbound message queue, drained on idle by the monitor.
     pub inbox: HashMap<String, VecDeque<QueuedMsg>>,
     /// In-flight canvas requests (MCP → frontend), keyed by request id; the
@@ -122,6 +139,7 @@ impl Default for PtyState {
             response_listeners: HashMap::new(),
             ask_waiters: HashMap::new(),
             connections: HashSet::new(),
+            reply_grants: HashMap::new(),
             inbox: HashMap::new(),
             canvas_waiters: HashMap::new(),
         })))
@@ -215,6 +233,18 @@ pub fn pty_spawn(
     cmd.env("NARRATER_ID", &id);
     cmd.env("NARRATER_LABEL", &effective_label);
 
+    let agent_type = agent_type.unwrap_or_else(|| "shell".to_string());
+    // Claude ganha o hook Stop → `narrater notify-idle` (idle autoritativo em
+    // vez do timer de silêncio). --settings soma com as settings do usuário.
+    if agent_type == "claude" {
+        if let Some(hooks) = crate::ipc::claude_hooks_path() {
+            if hooks.exists() {
+                cmd.arg("--settings");
+                cmd.arg(hooks);
+            }
+        }
+    }
+
     let spawn_result = pair.slave.spawn_command(cmd);
     let child = match spawn_result {
         Ok(c) => c,
@@ -237,7 +267,8 @@ pub fn pty_spawn(
             child,
             last_output: Instant::now(),
             status: RunStatus::Running,
-            agent_type: agent_type.unwrap_or_else(|| "shell".to_string()),
+            agent_type,
+            hook_idle: false,
         });
     }
 
@@ -373,6 +404,7 @@ pub fn connections_sync(connections: Vec<(String, String)>, state: State<'_, Pty
 pub fn pty_notify(id: String, text: String, app_handle: AppHandle, state: State<'_, PtyState>) -> Result<(), String> {
     enqueue_message(&state.0, &app_handle, &id, QueuedMsg {
         from_label: "sistema".to_string(),
+        from_id: None,
         msg: text,
         enqueued: Instant::now(),
         msg_id: None,
@@ -413,7 +445,14 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
             inner
                 .sessions
                 .iter_mut()
-                .filter(|(_, s)| s.status == RunStatus::Running && s.last_output.elapsed() >= IDLE_THRESHOLD)
+                // Sessions with a working Stop hook go idle only via
+                // `narrater notify-idle` — the silence timer would flag
+                // "idle" nas pausas de output no meio de um turno longo.
+                .filter(|(_, s)| {
+                    !s.hook_idle
+                        && s.status == RunStatus::Running
+                        && s.last_output.elapsed() >= IDLE_THRESHOLD
+                })
                 .map(|(id, s)| {
                     s.status = RunStatus::Idle;
                     id.clone()
@@ -425,7 +464,7 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
         }
 
         // Deliver at most one queued message per terminal per tick
-        let deliveries: Vec<(String, QueuedMsg, usize, bool)> = {
+        let deliveries: Vec<(String, QueuedMsg, usize, String)> = {
             let mut inner = state.lock().unwrap();
             let ids: Vec<String> = inner.inbox.keys().cloned().collect();
             let mut out = Vec::new();
@@ -434,13 +473,16 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
                     inner.inbox.remove(&id);
                     continue;
                 };
+                // With an authoritative idle hook the force-inject backstop
+                // can be much longer — it only covers a broken hook.
+                let force_wait = if session.hook_idle { HOOKED_QUEUE_WAIT } else { MAX_QUEUE_WAIT };
                 let ready = match session.status {
                     RunStatus::Idle => true,
                     RunStatus::Running => inner
                         .inbox
                         .get(&id)
                         .and_then(|q| q.front())
-                        .is_some_and(|m| m.enqueued.elapsed() >= MAX_QUEUE_WAIT),
+                        .is_some_and(|m| m.enqueued.elapsed() >= force_wait),
                 };
                 if !ready {
                     continue;
@@ -453,40 +495,54 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
                         }
                         // Mark Running right away so the whole queue isn't
                         // flushed before the injected command produces output
-                        let mut is_shell = true;
+                        let mut agent_type = "shell".to_string();
                         if let Some(s) = inner.sessions.get_mut(&id) {
                             s.status = RunStatus::Running;
                             s.last_output = Instant::now();
-                            is_shell = s.agent_type == "shell";
+                            agent_type = s.agent_type.clone();
                         }
-                        out.push((id.clone(), msg, pending, is_shell));
+                        // Receber mensagem de A autoriza responder a A por
+                        // REPLY_GRANT_TTL, mesmo sem edge de volta no canvas.
+                        if let Some(from_id) = msg.from_id.clone() {
+                            inner.reply_grants.insert((id.clone(), from_id), Instant::now());
+                            inner.reply_grants.retain(|_, t| t.elapsed() < REPLY_GRANT_TTL);
+                        }
+                        out.push((id.clone(), msg, pending, agent_type));
                     }
                 }
             }
             out
         };
 
-        for (id, mut qmsg, pending, is_shell) in deliveries {
+        for (id, mut qmsg, pending, agent_type) in deliveries {
             // \r submits the line (terminals send Enter as carriage return —
             // \n is not enough for raw-mode TUIs). Shells get the bare command
             // (the sender frame would break it) preceded by kill-line (^U) to
             // clear any half-typed input; AI agents get the sender frame.
-            if is_shell {
-                write_to_pty(&state, &id, &format!("\x15{}\r", qmsg.msg));
-            } else {
-                // TUIs like claude code treat a fast text+\r burst as a paste,
-                // turning the \r into a literal newline in the composer. Send
-                // the text first and the \r alone after the paste-detection
-                // window so it registers as a real Enter.
-                let id_part = qmsg.msg_id.as_deref().map(|i| format!(" #{}", i)).unwrap_or_default();
-                let framed = format!("[narrater de {}{}]: {}", qmsg.from_label, id_part, qmsg.msg);
-                write_to_pty(&state, &id, &framed);
-                let state_clone = Arc::clone(&state);
-                let id_clone = id.clone();
-                tokio::spawn(async move {
-                    tokio::time::sleep(Duration::from_millis(300)).await;
-                    write_to_pty(&state_clone, &id_clone, "\r");
-                });
+            match agent_type.as_str() {
+                "shell" => {
+                    write_to_pty(&state, &id, &format!("\x15{}\r", qmsg.msg));
+                }
+                // Claude/codex têm bracketed paste: o frame vai como um paste
+                // explícito (ESC[200~ … ESC[201~) e o \r logo depois já é um
+                // Enter de verdade — determinístico, sem o sleep de 300ms nem
+                // corrida com a janela de detecção de paste do TUI.
+                "claude" | "codex" => {
+                    let framed = frame_message(&qmsg);
+                    write_to_pty(&state, &id, &format!("\x1b[200~{}\x1b[201~\r", framed));
+                }
+                // TUI desconhecido (custom): mantém o burst em duas fases —
+                // texto primeiro, \r sozinho após a janela de paste.
+                _ => {
+                    let framed = frame_message(&qmsg);
+                    write_to_pty(&state, &id, &framed);
+                    let state_clone = Arc::clone(&state);
+                    let id_clone = id.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_millis(300)).await;
+                        write_to_pty(&state_clone, &id_clone, "\r");
+                    });
+                }
             }
             if let Some(tx) = qmsg.delivered_tx.take() {
                 let _ = tx.send(());
@@ -495,6 +551,12 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
             let _ = app.emit("pty_queue", PtyQueueEvent { id, pending });
         }
     }
+}
+
+/// `[narrater de X]: msg` ou, com msg_id (ask), `[narrater de X #id]: msg`.
+fn frame_message(qmsg: &QueuedMsg) -> String {
+    let id_part = qmsg.msg_id.as_deref().map(|i| format!(" #{}", i)).unwrap_or_default();
+    format!("[narrater de {}{}]: {}", qmsg.from_label, id_part, qmsg.msg)
 }
 
 pub fn write_to_pty(state_arc: &Arc<Mutex<PtyStateInner>>, id: &str, data: &str) -> bool {
