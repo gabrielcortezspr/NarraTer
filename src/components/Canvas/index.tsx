@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect, useRef } from "react";
+import { lazy, Suspense, useCallback, useState, useEffect, useRef } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -24,9 +24,11 @@ import AttachmentTile from "@/components/AttachmentTile";
 import PortalTile from "@/components/PortalTile";
 import AgentNoteEdge from "@/components/AgentNoteEdge";
 import AgentPipeEdge from "@/components/AgentPipeEdge";
-import AgentPicker from "@/components/AgentPicker";
+import CommandPalette from "@/components/CommandPalette";
 import EdgeHistoryPanel from "@/components/EdgeHistoryPanel";
 import EmptyState from "@/components/EmptyState";
+
+const AgentPicker = lazy(() => import("@/components/AgentPicker"));
 import SketchLayer from "@/components/SketchLayer";
 import Toolbar from "@/components/Toolbar";
 import { useCanvasStore } from "@/stores/canvas";
@@ -67,8 +69,6 @@ const TOOL_SHORTCUTS: Record<string, Tool> = {
   d: "draw",
 };
 
-let edgeIdCounter = 0;
-
 export default function Canvas() {
   return (
     <ReactFlowProvider>
@@ -105,6 +105,12 @@ function CanvasInner() {
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // Movimentos são desfazíveis: guarda o estado no início do drag
+  const onNodeDragStart = useCallback(() => {
+    useCanvasStore.getState().snapshot();
+  }, []);
 
   // Frame the canvas once per historia load — a permanent fitView prop would
   // re-frame on every structural node change instead.
@@ -217,7 +223,7 @@ function CanvasInner() {
       else if (isAgentPipe) edgeType = "agent-pipe";
 
       const newEdge: AppEdge = {
-        id: `edge-${Date.now()}-${edgeIdCounter++}`,
+        id: `edge-${crypto.randomUUID().slice(0, 8)}`,
         source: connection.source,
         target: connection.target,
         sourceHandle: connection.sourceHandle ?? undefined,
@@ -313,8 +319,13 @@ function CanvasInner() {
         return;
 
       if (e.ctrlKey || e.metaKey) {
-        if (e.key === "s") { e.preventDefault(); saveNow().catch(console.error); }
-        if (e.key === "z" && useToolStore.getState().active === "draw") { e.preventDefault(); undoSketch(); }
+        const key = e.key.toLowerCase();
+        if (key === "s") { e.preventDefault(); saveNow().catch(console.error); }
+        else if (key === "k") { e.preventDefault(); setPaletteOpen((v) => !v); }
+        else if (key === "z" && useToolStore.getState().active === "draw") { e.preventDefault(); undoSketch(); }
+        else if (key === "z" && e.shiftKey) { e.preventDefault(); useCanvasStore.getState().redo(); }
+        else if (key === "z") { e.preventDefault(); useCanvasStore.getState().undo(); }
+        else if (key === "y") { e.preventDefault(); useCanvasStore.getState().redo(); }
         return;
       }
 
@@ -349,6 +360,7 @@ function CanvasInner() {
         onConnect={onConnect}
         onPaneClick={onPaneClick}
         onEdgeClick={onEdgeClick}
+        onNodeDragStart={onNodeDragStart}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         minZoom={0.05}
@@ -410,10 +422,17 @@ function CanvasInner() {
         </div>
       )}
 
-      <AgentPicker
-        open={pickerOpen}
-        onConfirm={handleAgentPicked}
-        onClose={() => setPickerOpen(false)}
+      {/* Modais em lazy: só entram no bundle/DOM quando abertos */}
+      {pickerOpen && (
+        <Suspense fallback={null}>
+          <AgentPicker open={pickerOpen} onConfirm={handleAgentPicked} onClose={() => setPickerOpen(false)} />
+        </Suspense>
+      )}
+
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onNewTerminal={() => setPickerOpen(true)}
       />
     </div>
   );

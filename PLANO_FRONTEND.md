@@ -2,6 +2,32 @@
 
 Diagnóstico feito sobre o código atual (React 18 + Vite + Tailwind + React Flow/xyflow + xterm.js + zustand + framer-motion, rodando em Tauri 2). O plano está dividido em 4 fases, ordenadas por impacto: primeiro correções de fundação, depois performance, depois design/beleza, depois polimento.
 
+## Status de execução ✅
+
+Executado (feat/ui-base + ciclos 1–2):
+
+- **Fase 0 completa**: 0.1 React pinado, 0.2 fontes embutidas (Inter/JetBrains
+  Mono), 0.3 store unificado.
+- **Fase 1**: 1.1 WebGL, 1.2 culling (`onlyRenderVisibleElements` + xterm/PTY
+  em manager fora do React), 1.3 LOD por zoom (<0.35 vira card), 1.4 batching
+  pipe→nota (100ms, cap 200KB, isAgentLive com timeout), 1.5 eventos por id
+  (ptyBus), 1.6 memo em todos os tiles/edges, 1.8 parcial (lazy modais,
+  randomUUID nos ids).
+- **Fase 2**: 2.1 tokens em CSS variables + primitivas (Badge/IconButton/Kbd),
+  2.2 toolbar (ui-base), 2.3 empty state, 2.5 tiles (fio do agente, dot
+  pulsante, overlay encerrado+Reiniciar, nota com título editável/copiar/
+  auto-scroll, hover em edges e handles), 2.6 sidebar (wordmark, barra accent,
+  confirmação de exclusão, ícones colapsados), 2.7 toasts. Terminal nasce
+  520×360 (era 640×420). 2.4 parcial (spawn no centro veio da ui-base).
+- **Fase 3**: 3.1 autosave (ui-base), 3.2 undo/redo estrutural (Ctrl+Z/
+  Ctrl+Shift+Z/Ctrl+Y — cria/move/remove nós e edges; terminais desfeitos
+  respawnam), 3.3 paleta Ctrl+K (buscar nó + ações), 3.4 parcial
+  (focus-visible global, aria-labels nos botões novos).
+
+Pendências conhecidas: 1.7 (pré-computar paths do SketchLayer), migração dos
+hex hardcoded restantes para os tokens, Tooltip/Modal como primitivas,
+context menu de botão direito (2.4), undo de resize, a11y dos menus dropdown.
+
 ---
 
 ## Fase 0 — Fundação (correções que destravam o resto)

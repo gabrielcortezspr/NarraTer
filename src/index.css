@@ -45,6 +45,13 @@
   padding: 0;
 }
 
+/* Navegação por teclado visível em todos os controles (a11y) */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
 html, body, #root {
   width: 100%;
   height: 100%;

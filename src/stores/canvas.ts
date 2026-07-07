@@ -66,6 +66,10 @@ interface CanvasStore {
   // True once a historia finished loading — gates auto-save and fitView so
   // neither runs against a canvas that is mid-hydration.
   hydrated: boolean;
+  /** Guarda o estado atual no histórico (chame ANTES de uma mutação estrutural). */
+  snapshot: () => void;
+  undo: () => void;
+  redo: () => void;
   onNodesChange: (changes: NodeChange<AppNode>[]) => void;
   onEdgesChange: (changes: EdgeChange<AppEdge>[]) => void;
   addEdge: (edge: AppEdge) => void;
@@ -88,6 +92,24 @@ let nodeCounter = 0;
 const MAX_NOTE_CONTENT = 200_000;
 const liveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+// Undo/redo por snapshot da estrutura (nós+edges). Vive fora do estado
+// reativo — mudar o histórico não deve re-renderizar o canvas.
+interface Snapshot {
+  nodes: AppNode[];
+  edges: AppEdge[];
+}
+const undoStack: Snapshot[] = [];
+const redoStack: Snapshot[] = [];
+const HISTORY_CAP = 50;
+
+// Restaurar um snapshot pode remover terminais (desfazer criação) — as
+// sessões deles precisam morrer; terminais que voltam (desfazer exclusão)
+// respawnam quando o tile montar (ensureTerminal).
+function terminalsToDispose(current: AppNode[], next: AppNode[]): string[] {
+  const nextIds = new Set(next.filter((n) => n.type === "terminal").map((n) => n.id));
+  return current.filter((n) => n.type === "terminal" && !nextIds.has(n.id)).map((n) => n.id);
+}
+
 // Mirror agent-pipe edges into the backend routing table — narrater send/ask
 // is only allowed along these directed routes.
 function syncConnections(edges: AppEdge[]) {
@@ -102,7 +124,32 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   edges: [],
   hydrated: false,
 
+  snapshot: () => {
+    undoStack.push({ nodes: get().nodes, edges: get().edges });
+    if (undoStack.length > HISTORY_CAP) undoStack.shift();
+    redoStack.length = 0;
+  },
+
+  undo: () => {
+    const prev = undoStack.pop();
+    if (!prev) return;
+    redoStack.push({ nodes: get().nodes, edges: get().edges });
+    terminalsToDispose(get().nodes, prev.nodes).forEach(disposeTerminal);
+    set({ nodes: prev.nodes, edges: prev.edges });
+    syncConnections(prev.edges);
+  },
+
+  redo: () => {
+    const next = redoStack.pop();
+    if (!next) return;
+    undoStack.push({ nodes: get().nodes, edges: get().edges });
+    terminalsToDispose(get().nodes, next.nodes).forEach(disposeTerminal);
+    set({ nodes: next.nodes, edges: next.edges });
+    syncConnections(next.edges);
+  },
+
   onNodesChange: (changes) => {
+    if (changes.some((c) => c.type === "remove")) get().snapshot();
     // Com o xterm/PTY fora do React, remover o nó (Delete) precisa matar a
     // sessão explicitamente — desmontar o tile já não mata.
     for (const c of changes) {
@@ -114,19 +161,23 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   onEdgesChange: (changes) => {
+    if (changes.some((c) => c.type === "remove")) get().snapshot();
     const edges = applyEdgeChanges(changes, get().edges);
     set({ edges });
     if (changes.some((c) => c.type === "remove")) syncConnections(edges);
   },
 
   addEdge: (edge) => {
+    get().snapshot();
     const edges = [...get().edges, edge];
     set({ edges });
     syncConnections(edges);
   },
 
   addTerminalNode: (opts, position) => {
-    const id = `terminal-${Date.now()}-${nodeCounter++}`;
+    get().snapshot();
+    const id = `terminal-${crypto.randomUUID().slice(0, 8)}`;
+    nodeCounter++;
     const { agentType, command, roleName } = opts;
     const label = roleName ?? (agentType === "custom" ? (command ?? "Terminal") : agentType);
     const newNode: AppNode = {
@@ -153,7 +204,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   addNoteNode: (position, initial) => {
-    const id = `note-${Date.now()}-${nodeCounter++}`;
+    get().snapshot();
+    const id = `note-${crypto.randomUUID().slice(0, 8)}`;
+    nodeCounter++;
     const newNode: AppNode = {
       id,
       type: "note",
@@ -166,7 +219,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   addTextNode: (position, initialText) => {
-    const id = `text-${Date.now()}-${nodeCounter++}`;
+    get().snapshot();
+    const id = `text-${crypto.randomUUID().slice(0, 8)}`;
+    nodeCounter++;
     const newNode: AppNode = {
       id,
       type: "text",
@@ -185,7 +240,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   addFileTreeNode: (position, rootPath) => {
-    const id = `filetree-${Date.now()}-${nodeCounter++}`;
+    get().snapshot();
+    const id = `filetree-${crypto.randomUUID().slice(0, 8)}`;
+    nodeCounter++;
     const newNode: AppNode = {
       id,
       type: "filetree",
@@ -198,7 +255,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   addAttachmentNode: (position, path) => {
-    const id = `attachment-${Date.now()}-${nodeCounter++}`;
+    get().snapshot();
+    const id = `attachment-${crypto.randomUUID().slice(0, 8)}`;
+    nodeCounter++;
     const fileName = path.split("/").pop() ?? path;
     const newNode: AppNode = {
       id,
@@ -212,7 +271,9 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   addPortalNode: (position, url) => {
-    const id = `portal-${Date.now()}-${nodeCounter++}`;
+    get().snapshot();
+    const id = `portal-${crypto.randomUUID().slice(0, 8)}`;
+    nodeCounter++;
     const newNode: AppNode = {
       id,
       type: "portal",
@@ -256,6 +317,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   removeNode: (id) => {
+    get().snapshot();
     if (get().nodes.find((n) => n.id === id)?.type === "terminal") {
       disposeTerminal(id);
     }
@@ -268,6 +330,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 
   loadHistoria: async (name) => {
+    undoStack.length = 0;
+    redoStack.length = 0;
     // Troca de história encerra os agentes da atual (antes, o unmount matava)
     get().nodes.forEach((n) => {
       if (n.type === "terminal") disposeTerminal(n.id);

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { lazy, Suspense, useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen, Plus, Pencil, Trash2, Check, X,
@@ -9,7 +9,7 @@ import { useCanvasStore } from "@/stores/canvas";
 import { saveNow } from "@/hooks/useAutoSave";
 import { useSketchStore } from "@/stores/sketch";
 import { useRolesStore } from "@/stores/roles";
-import RoleManager from "@/components/RoleManager";
+const RoleManager = lazy(() => import("@/components/RoleManager"));
 
 interface ContextMenu {
   x: number;
@@ -277,7 +277,11 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
         </div>
       )}
 
-      <RoleManager open={roleManagerOpen} onClose={() => setRoleManagerOpen(false)} />
+      {roleManagerOpen && (
+        <Suspense fallback={null}>
+          <RoleManager open={roleManagerOpen} onClose={() => setRoleManagerOpen(false)} />
+        </Suspense>
+      )}
 
       {/* Context menu */}
       {contextMenu && (

@@ -41,8 +41,6 @@ function defaultPosition(nodes: AppNode[], fromId: string): { x: number; y: numb
     : { x: 200, y: 200 };
 }
 
-let edgeIdCounter = 0;
-
 function handleRequest(req: CanvasRequest): string {
   const store = useCanvasStore.getState();
   const params = req.params ?? {};
@@ -128,7 +126,7 @@ function handleRequest(req: CanvasRequest): string {
       const edgeType = isAgentNote ? "agent-note" : isAgentPipe ? "agent-pipe" : "default";
 
       const edge: AppEdge = {
-        id: `edge-${Date.now()}-mcp-${edgeIdCounter++}`,
+        id: `edge-mcp-${crypto.randomUUID().slice(0, 8)}`,
         source: source.id,
         target: target.id,
         type: edgeType,
