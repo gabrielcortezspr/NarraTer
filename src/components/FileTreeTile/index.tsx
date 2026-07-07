@@ -19,8 +19,8 @@ function FileTreeTile({ id, data, selected }: NodeProps<FileTreeNode>) {
   const removeNode = useCanvasStore((s) => s.removeNode);
 
   const [rootInput, setRootInput] = useState(data.rootPath);
-  // Cache local (não persistido) do conteúdo de cada diretório carregado;
-  // a expansão em si vive em data.expandedPaths e sobrevive ao save.
+  // Local (non-persisted) cache of each loaded directory's contents;
+  // the expansion itself lives in data.expandedPaths and survives saves.
   const [entriesByDir, setEntriesByDir] = useState<Map<string, FsEntry[]>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
@@ -36,7 +36,7 @@ function FileTreeTile({ id, data, selected }: NodeProps<FileTreeNode>) {
     }
   }, []);
 
-  // Carga inicial: raiz + diretórios que estavam expandidos no save
+  // Initial load: root + directories that were expanded at save time
   useEffect(() => {
     loadDir(data.rootPath);
     data.expandedPaths.forEach((p) => loadDir(p));
@@ -98,7 +98,7 @@ function FileTreeTile({ id, data, selected }: NodeProps<FileTreeNode>) {
                     setEditorMenuFor(editorMenuFor === e.path ? null : e.path);
                   }}
                   className="opacity-0 group-hover:opacity-100 text-[#556] hover:text-white transition-opacity shrink-0 p-0.5"
-                  title="Abrir no editor"
+                  title="Open in editor"
                 >
                   <ExternalLink size={10} />
                 </button>
@@ -163,13 +163,13 @@ function FileTreeTile({ id, data, selected }: NodeProps<FileTreeNode>) {
           spellCheck={false}
           className="flex-1 min-w-0 bg-transparent text-[11px] outline-none nodrag"
           style={{ color: ACCENT }}
-          title="Enter recarrega a raiz"
+          title="Enter reloads the root"
         />
         <button
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => setShowHidden((v) => !v)}
           className="text-[#556] hover:text-white transition-colors p-0.5 nodrag"
-          title={showHidden ? "Ocultar dotfiles" : "Mostrar dotfiles"}
+          title={showHidden ? "Hide dotfiles" : "Show dotfiles"}
         >
           {showHidden ? <Eye size={11} /> : <EyeOff size={11} />}
         </button>
@@ -177,7 +177,7 @@ function FileTreeTile({ id, data, selected }: NodeProps<FileTreeNode>) {
           onMouseDown={(e) => e.stopPropagation()}
           onClick={refresh}
           className="text-[#556] hover:text-white transition-colors p-0.5 nodrag"
-          title="Recarregar"
+          title="Reload"
         >
           <RefreshCw size={11} />
         </button>
@@ -190,7 +190,7 @@ function FileTreeTile({ id, data, selected }: NodeProps<FileTreeNode>) {
         </button>
       </div>
 
-      {/* Árvore */}
+      {/* Tree */}
       <div
         className="flex-1 overflow-y-auto py-1 px-1 nodrag nowheel"
         onMouseDown={(e) => e.stopPropagation()}

@@ -13,7 +13,7 @@ export interface PtySpawnOptions {
   env?: Record<string, string>;
 }
 
-export interface HistoriaNode {
+export interface SceneNode {
   id: string;
   node_type: string;
   x: number;
@@ -30,6 +30,7 @@ export interface HistoriaNode {
   role_id?: string;
   role_name?: string;
   role_color?: string;
+  skip_permissions?: boolean;
   // filetree.rootPath / attachment.path
   path?: string;
   // portal
@@ -38,7 +39,7 @@ export interface HistoriaNode {
   expanded_paths?: string[];
 }
 
-export interface HistoriaEdge {
+export interface SceneEdge {
   id: string;
   source: string;
   target: string;
@@ -47,19 +48,19 @@ export interface HistoriaEdge {
   target_handle?: string;
 }
 
-export interface HistoriaData {
-  nodes: HistoriaNode[];
-  edges: HistoriaEdge[];
+export interface SceneData {
+  nodes: SceneNode[];
+  edges: SceneEdge[];
 }
 
-/** Mensagem pendente na fila de um terminal (evento pty_queue). */
+/** Message waiting in a terminal's queue (pty_queue event). */
 export interface QueueItem {
   from_label: string;
   msg: string;
   msg_id?: string | null;
 }
 
-/** Registro do ledger de mensagens entre agentes (evento narrater_msg). */
+/** Inter-agent message ledger record (narrater_msg event). */
 export interface LedgerEntry {
   from: string;
   to: string;
@@ -90,12 +91,12 @@ export const ptyUpdateLabel = (id: string, label: string) =>
 export const ptyQueueCancel = (id: string, index: number) =>
   invoke<void>("pty_queue_cancel", { id, index });
 
-/** Conversa entre dois nós (ambas as direções), mais antiga primeiro. */
+/** Conversation between two nodes (both directions), oldest first. */
 export const narraterLedger = (a: string, b: string) =>
   invoke<LedgerEntry[]>("narrater_ledger", { a, b });
 
 // Queues a system notification for an AI terminal (idle-gated, auto-submitted
-// as "[narrater de sistema]: ..."). Never call for shell targets.
+// as "[narrater system]: ..."). Never call for shell targets.
 export const ptyNotify = (id: string, text: string) =>
   invoke<void>("pty_notify", { id, text });
 
@@ -103,20 +104,20 @@ export const ptyNotify = (id: string, text: string) =>
 export const connectionsSync = (connections: Array<[string, string]>) =>
   invoke<void>("connections_sync", { connections });
 
-export const loadHistoria = (name: string) =>
-  invoke<HistoriaData>("load_historia", { name });
+export const loadScene = (name: string) =>
+  invoke<SceneData>("load_scene", { name });
 
-export const saveHistoria = (name: string, data: HistoriaData) =>
-  invoke<void>("save_historia", { name, data });
+export const saveScene = (name: string, data: SceneData) =>
+  invoke<void>("save_scene", { name, data });
 
-export const listHistorias = () =>
-  invoke<string[]>("list_historias");
+export const listScenes = () =>
+  invoke<string[]>("list_scenes");
 
-export const deleteHistoria = (name: string) =>
-  invoke<void>("delete_historia", { name });
+export const deleteScene = (name: string) =>
+  invoke<void>("delete_scene", { name });
 
-export const renameHistoria = (oldName: string, newName: string) =>
-  invoke<void>("rename_historia", { old_name: oldName, new_name: newName });
+export const renameScene = (oldName: string, newName: string) =>
+  invoke<void>("rename_scene", { old_name: oldName, new_name: newName });
 
 export const openInEditor = (editor: string, path: string) =>
   invoke<void>("open_in_editor", { editor, path });
@@ -139,12 +140,12 @@ export const fsListDir = (path: string) =>
 export const fsReadFileBase64 = (path: string) =>
   invoke<FileBlob>("fs_read_file_base64", { path });
 
-// File picker nativo (via plugin dialog do lado Rust); null se cancelado
+// Native file picker (via the Rust-side dialog plugin); null if cancelled
 export const pickFile = () => invoke<string | null>("pick_file");
 
 export const openUrl = (url: string) => invoke<void>("open_url", { url });
 
-// Resolve uma requisição de canvas vinda de um agente (evento canvas_request)
+// Resolves a canvas request coming from an agent (canvas_request event)
 export const canvasRespond = (reqId: string, result: string) =>
   invoke<void>("canvas_respond", { reqId, result });
 
@@ -165,7 +166,12 @@ export interface SpawnSpec {
 
 const NARRATER_MCP_CONFIG = '{"mcpServers":{"narrater":{"command":"narrater-mcp"}}}';
 
-export function getSpawnSpec(agentType: AgentType, customCommand?: string, systemPrompt?: string): SpawnSpec {
+export function getSpawnSpec(
+  agentType: AgentType,
+  customCommand?: string,
+  systemPrompt?: string,
+  skipPermissions?: boolean,
+): SpawnSpec {
   const shell = "/bin/bash";
   switch (agentType) {
     case "shell":
@@ -177,15 +183,23 @@ export function getSpawnSpec(agentType: AgentType, customCommand?: string, syste
         "--mcp-config", NARRATER_MCP_CONFIG,
         "--allowedTools", "mcp__narrater", "Bash(narrater)", "Bash(narrater:*)",
       ];
+      if (skipPermissions) {
+        args.push("--dangerously-skip-permissions");
+      }
       if (systemPrompt?.trim()) {
         args.push("--append-system-prompt", systemPrompt);
       }
       return { command: "claude", args };
     }
-    case "codex":
-      // Paridade com o claude: narrater como MCP server via override de
-      // config (-c aceita chaves TOML pontilhadas; narrater-mcp está no PATH)
-      return { command: "codex", args: ["-c", "mcp_servers.narrater.command=narrater-mcp"] };
+    case "codex": {
+      // Parity with claude: narrater as MCP server via config override
+      // (-c takes dotted TOML keys; narrater-mcp is on the PATH)
+      const args = ["-c", "mcp_servers.narrater.command=narrater-mcp"];
+      if (skipPermissions) {
+        args.push("--dangerously-bypass-approvals-and-sandbox");
+      }
+      return { command: "codex", args };
+    }
     case "custom":
       return { command: customCommand ?? shell };
   }

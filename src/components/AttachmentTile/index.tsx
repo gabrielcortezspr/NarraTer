@@ -85,7 +85,7 @@ function AttachmentTile({ id, data, selected }: NodeProps<AttachmentNode>) {
         </button>
       </div>
 
-      {/* Conteúdo */}
+      {/* Content */}
       <div
         className="flex-1 min-h-0 flex items-center justify-center overflow-hidden nodrag nowheel relative"
         onMouseDown={(e) => e.stopPropagation()}
@@ -102,7 +102,7 @@ function AttachmentTile({ id, data, selected }: NodeProps<AttachmentNode>) {
                 onClick={() => setEditorMenu((v) => !v)}
                 className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-[#2e1a29] text-[#aab] hover:text-white hover:border-[#f472b660] transition-colors"
               >
-                <ExternalLink size={10} /> Abrir no editor
+                <ExternalLink size={10} /> Open in editor
               </button>
               {editorMenu && (
                 <div className="absolute left-1/2 -translate-x-1/2 top-7 z-20 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl py-1 min-w-[100px]">

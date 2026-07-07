@@ -8,8 +8,8 @@ import { saveNow } from "@/hooks/useAutoSave";
 import { toast } from "@/stores/toasts";
 import Kbd from "@/components/ui/Kbd";
 
-// Paleta de comandos (Ctrl+K): achar um agente/nó pelo nome sem pan-and-squint,
-// e disparar ações rápidas. Enter enquadra e seleciona o nó escolhido.
+// Command palette (Ctrl+K): find an agent/node by name without pan-and-squint,
+// and trigger quick actions. Enter frames and selects the chosen node.
 
 interface PaletteItem {
   key: string;
@@ -81,16 +81,16 @@ export default function CommandPalette({ open, onClose, onNewTerminal }: Props) 
     });
 
     const actions: PaletteItem[] = [
-      { key: "act-terminal", icon: <TerminalSquare size={13} />, label: "Novo terminal", sub: "ação", run: () => { onClose(); onNewTerminal(); } },
-      { key: "act-note", icon: <StickyNote size={13} />, label: "Nova nota", sub: "ação", run: () => { onClose(); setTool("note"); } },
+      { key: "act-terminal", icon: <TerminalSquare size={13} />, label: "New terminal", sub: "action", run: () => { onClose(); onNewTerminal(); } },
+      { key: "act-note", icon: <StickyNote size={13} />, label: "New note", sub: "action", run: () => { onClose(); setTool("note"); } },
       {
         key: "act-save",
         icon: <Save size={13} />,
-        label: "Salvar agora",
-        sub: "ação",
+        label: "Save now",
+        sub: "action",
         run: () => {
           onClose();
-          saveNow().then(() => toast.success("História salva")).catch((e) => toast.error(`Falha ao salvar: ${e}`));
+          saveNow().then(() => toast.success("Scene saved")).catch((e) => toast.error(`Failed to save: ${e}`));
         },
       },
     ];
@@ -128,8 +128,8 @@ export default function CommandPalette({ open, onClose, onNewTerminal }: Props) 
               else if (e.key === "ArrowUp") { e.preventDefault(); setIndex((i) => Math.max(i - 1, 0)); }
               else if (e.key === "Enter") { e.preventDefault(); items[index]?.run(); }
             }}
-            placeholder="Buscar agente, nó ou ação…"
-            aria-label="Buscar agente, nó ou ação"
+            placeholder="Search agents, nodes or actions…"
+            aria-label="Search agents, nodes or actions"
             className="flex-1 bg-transparent text-xs text-ink outline-none placeholder-[#555]"
           />
           <Kbd>Esc</Kbd>
@@ -137,7 +137,7 @@ export default function CommandPalette({ open, onClose, onNewTerminal }: Props) 
 
         <div className="max-h-[300px] overflow-y-auto py-1">
           {items.length === 0 && (
-            <div className="px-3 py-4 text-center text-[10px] text-ink-faint">Nada encontrado.</div>
+            <div className="px-3 py-4 text-center text-[10px] text-ink-faint">Nothing found.</div>
           )}
           {items.map((item, i) => (
             <button

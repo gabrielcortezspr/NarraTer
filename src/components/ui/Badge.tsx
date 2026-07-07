@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 
-// Pill colorida usada nos headers dos tiles (agente, papel, pipe, agenda…).
-// Deriva bg/borda translúcidos da cor — substitui as 4 implementações quase
-// idênticas que existiam no TerminalTile.
+// Colored pill used in tile headers (agent, role, pipe, schedule…).
+// Derives translucent bg/border from the color — replaces the 4 nearly
+// identical implementations that used to live in TerminalTile.
 interface BadgeProps {
   color: string;
   children: ReactNode;

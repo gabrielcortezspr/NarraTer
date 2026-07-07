@@ -7,7 +7,7 @@ import type { Node, NodeProps } from "@xyflow/react";
 
 type TextNode = Node<TextNodeData, "text">;
 
-// Bloco de texto leve — anotação direta no canvas, sem o peso visual da nota.
+// Lightweight text block — direct annotation on the canvas, without the note's visual weight.
 function TextTile({ id, data, selected }: NodeProps<TextNode>) {
   const [text, setText] = useState(data.text ?? "");
   const [hovered, setHovered] = useState(false);
@@ -59,7 +59,7 @@ function TextTile({ id, data, selected }: NodeProps<TextNode>) {
       <textarea
         value={text}
         onChange={(e) => handleChange(e.target.value)}
-        placeholder="Texto…"
+        placeholder="Text…"
         className="w-full h-full resize-none bg-transparent text-[#e5e7eb] p-2 outline-none
           placeholder-[#3a3a3a] nodrag nowheel"
         style={{ fontSize: 17, lineHeight: 1.5, fontFamily: "inherit" }}

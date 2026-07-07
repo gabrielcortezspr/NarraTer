@@ -7,7 +7,7 @@ interface PersistenceStore {
   set: (state: SaveState) => void;
 }
 
-// Estado do auto-save exposto para a UI (indicador na toolbar).
+// Auto-save state exposed to the UI (toolbar indicator).
 export const usePersistenceStore = create<PersistenceStore>((set) => ({
   state: "saved",
   set: (state) => set({ state }),

@@ -13,20 +13,19 @@ async function persist(): Promise<void> {
   const name = useWorkspacesStore.getState().current;
   usePersistenceStore.getState().set("saving");
   try {
-    await useCanvasStore.getState().saveHistoria(name);
-    // Uma mudança pode ter chegado durante o save — nesse caso um novo timer
-    // já está armado e o estado continua sujo.
+    await useCanvasStore.getState().saveScene(name);
+    // A change may have landed during the save — in that case a new timer
+    // is already armed and the state stays dirty.
     usePersistenceStore.getState().set(timer ? "dirty" : "saved");
   } catch (err) {
-    console.error("auto-save falhou:", err);
-    toast.error(`Falha ao salvar a história "${name}": ${err}`);
+    console.error("auto-save failed:", err);
+    toast.error(`Failed to save scene "${name}": ${err}`);
     usePersistenceStore.getState().set("dirty");
   }
 }
 
-// Descarrega o save pendente, se houver. Obrigatório antes de trocar de
-// workspace — um timer disparando após o load gravaria o canvas novo no
-// arquivo antigo.
+// Flushes the pending save, if any. Required before switching scenes — a
+// timer firing after the load would write the new canvas into the old file.
 export function flushSave(): Promise<void> {
   if (timer) {
     clearTimeout(timer);
@@ -35,14 +34,15 @@ export function flushSave(): Promise<void> {
   return Promise.resolve();
 }
 
-// Save incondicional imediato (Ctrl+S).
+// Immediate unconditional save (Ctrl+S).
 export function saveNow(): Promise<void> {
   if (timer) clearTimeout(timer);
   return persist();
 }
 
-// Observa o canvas store e persiste mudanças com debounce. O gate `hydrated`
-// (dos dois lados da transição) impede que o próprio load dispare um save.
+// Watches the canvas store and persists changes with a debounce. The
+// `hydrated` gate (on both sides of the transition) keeps the load itself
+// from triggering a save.
 export function useAutoSave() {
   useEffect(
     () =>

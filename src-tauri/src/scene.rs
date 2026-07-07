@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct HistoriaNode {
+pub struct SceneNode {
     pub id: String,
     pub node_type: String,
     pub x: f64,
@@ -21,6 +21,8 @@ pub struct HistoriaNode {
     pub role_id: Option<String>,
     pub role_name: Option<String>,
     pub role_color: Option<String>,
+    #[serde(default)]
+    pub skip_permissions: Option<bool>,
     // filetree.rootPath / attachment.path
     #[serde(default)]
     pub path: Option<String>,
@@ -33,7 +35,7 @@ pub struct HistoriaNode {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct HistoriaEdge {
+pub struct SceneEdge {
     pub id: String,
     pub source: String,
     pub target: String,
@@ -45,31 +47,39 @@ pub struct HistoriaEdge {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
-pub struct HistoriaData {
-    pub nodes: Vec<HistoriaNode>,
-    pub edges: Vec<HistoriaEdge>,
+pub struct SceneData {
+    pub nodes: Vec<SceneNode>,
+    pub edges: Vec<SceneEdge>,
 }
 
-fn historias_dir() -> PathBuf {
-    config_dir()
+fn scenes_dir() -> PathBuf {
+    let base = config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("narrater")
-        .join("historias")
+        .join("narrater");
+    let dir = base.join("scenes");
+    // Scenes used to be called "histórias" — migrate the old dir once.
+    if !dir.exists() {
+        let legacy = base.join("historias");
+        if legacy.exists() {
+            let _ = fs::rename(&legacy, &dir);
+        }
+    }
+    dir
 }
 
 #[tauri::command]
-pub fn load_historia(name: String) -> Result<HistoriaData, String> {
-    let path = historias_dir().join(format!("{}.json", name));
+pub fn load_scene(name: String) -> Result<SceneData, String> {
+    let path = scenes_dir().join(format!("{}.json", name));
     if !path.exists() {
-        return Ok(HistoriaData::default());
+        return Ok(SceneData::default());
     }
     let raw = fs::read_to_string(&path).map_err(|e| e.to_string())?;
     serde_json::from_str(&raw).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn save_historia(name: String, data: HistoriaData) -> Result<(), String> {
-    let dir = historias_dir();
+pub fn save_scene(name: String, data: SceneData) -> Result<(), String> {
+    let dir = scenes_dir();
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(format!("{}.json", name));
     let json = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
@@ -77,8 +87,8 @@ pub fn save_historia(name: String, data: HistoriaData) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn list_historias() -> Result<Vec<String>, String> {
-    let dir = historias_dir();
+pub fn list_scenes() -> Result<Vec<String>, String> {
+    let dir = scenes_dir();
     if !dir.exists() {
         return Ok(vec![]);
     }
@@ -94,8 +104,8 @@ pub fn list_historias() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub fn delete_historia(name: String) -> Result<(), String> {
-    let path = historias_dir().join(format!("{}.json", name));
+pub fn delete_scene(name: String) -> Result<(), String> {
+    let path = scenes_dir().join(format!("{}.json", name));
     if path.exists() {
         fs::remove_file(&path).map_err(|e| e.to_string())?;
     }
@@ -103,8 +113,8 @@ pub fn delete_historia(name: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn rename_historia(old_name: String, new_name: String) -> Result<(), String> {
-    let dir = historias_dir();
+pub fn rename_scene(old_name: String, new_name: String) -> Result<(), String> {
+    let dir = scenes_dir();
     let old_path = dir.join(format!("{}.json", old_name));
     let new_path = dir.join(format!("{}.json", new_name));
     if old_path.exists() {

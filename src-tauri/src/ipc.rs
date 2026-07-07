@@ -31,16 +31,16 @@ struct IpcRequest {
     mode: Option<String>,
     #[serde(default)]
     timeout_secs: Option<u64>,
-    /// mode "reply": id curto do ask sendo respondido (o `#a3f2` do frame)
+    /// mode "reply": short id of the ask being answered (the frame's `#a3f2`)
     #[serde(default)]
     msg_id: Option<String>,
-    /// Segredo do terminal (env NARRATER_TOKEN) provando a identidade `from`
+    /// Terminal secret (env NARRATER_TOKEN) proving the `from` identity
     #[serde(default)]
     token: Option<String>,
-    /// mode "canvas": ação (list_nodes, create_note, update_note…)
+    /// mode "canvas": action (list_nodes, create_note, update_note…)
     #[serde(default)]
     action: Option<String>,
-    /// mode "canvas": argumentos da ação, repassados ao frontend como vieram
+    /// mode "canvas": action arguments, forwarded to the frontend as-is
     #[serde(default)]
     params: Option<serde_json::Value>,
 }
@@ -94,14 +94,14 @@ async fn handle_connection(
     let req: IpcRequest = match serde_json::from_slice(&buf) {
         Ok(r) => r,
         Err(_) => {
-            let _ = stream.write_all("Erro: formato de requisição inválido\n".as_bytes()).await;
+            let _ = stream.write_all("Error: invalid request format\n".as_bytes()).await;
             return;
         }
     };
 
-    // Anti-spoof: quem se identifica (`from`) prova com o token do próprio
-    // terminal (env NARRATER_TOKEN). Sessão inexistente segue adiante e cai
-    // nos erros específicos de cada handler.
+    // Anti-spoof: whoever identifies themselves (`from`) proves it with their
+    // own terminal's token (env NARRATER_TOKEN). A missing session proceeds
+    // and hits each handler's specific errors.
     if !req.from.is_empty() {
         let token_ok = {
             let inner = state.lock().unwrap();
@@ -113,7 +113,7 @@ async fn handle_connection(
         };
         if !token_ok {
             let _ = stream
-                .write_all("Erro: NARRATER_TOKEN inválido — a identidade informada não confere\n".as_bytes())
+                .write_all("Error: invalid NARRATER_TOKEN — the given identity doesn't match\n".as_bytes())
                 .await;
             return;
         }
@@ -129,7 +129,7 @@ async fn handle_connection(
         Some("inbox") => handle_inbox(&req, &app, &state),
         Some("notify-idle") => handle_notify_idle(&req, &app, &state),
         Some("canvas") => handle_canvas(&req, &app, &state).await,
-        _ => "Uso: narrater send|ask <alvo> <mensagem> | narrater reply <id> <resposta> | narrater broadcast <mensagem> | narrater inbox | narrater peers | narrater whoami\n".to_string(),
+        _ => "Usage: narrater send|ask <target> <message> | narrater reply <id> <answer> | narrater broadcast <message> | narrater inbox | narrater peers | narrater whoami\n".to_string(),
     };
 
     let _ = stream.write_all(reply.as_bytes()).await;
@@ -145,9 +145,9 @@ fn resolve_route(
     req: &IpcRequest,
     state: &Arc<Mutex<PtyStateInner>>,
 ) -> Result<(String, String), String> {
-    let to = req.to.clone().ok_or("Erro: alvo não informado\n")?;
+    let to = req.to.clone().ok_or("Error: no target given\n")?;
     if req.from.is_empty() {
-        return Err("Erro: NARRATER_ID não definido. Você está dentro de um terminal NarraTer?\n".into());
+        return Err("Error: NARRATER_ID not set. Are you inside a NarraTer terminal?\n".into());
     }
 
     let inner = state.lock().unwrap();
@@ -156,12 +156,12 @@ fn resolve_route(
         .get(&to)
         .cloned()
         .or_else(|| inner.sessions.contains_key(&to).then(|| to.clone()))
-        .ok_or_else(|| format!("Erro: nenhum agente chamado '{}'\n", to))?;
+        .ok_or_else(|| format!("Error: no agent named '{}'\n", to))?;
 
     if !route_allowed(&inner.connections, &inner.reply_grants, &req.from, &target_id) {
         let from_label = label_of(&inner, &req.from);
         return Err(format!(
-            "Erro: sem conexão de '{}' para '{}' — conecte os terminais no canvas\n",
+            "Error: no connection from '{}' to '{}' — connect the terminals on the canvas\n",
             from_label, to
         ));
     }
@@ -170,8 +170,8 @@ fn resolve_route(
     Ok((target_id, from_label))
 }
 
-/// Rota permitida: edge do canvas OU grant temporário de resposta (receber
-/// mensagem de alguém autoriza responder por REPLY_GRANT_TTL).
+/// Allowed route: a canvas edge OR a temporary reply grant (receiving a
+/// message from someone authorizes replying for REPLY_GRANT_TTL).
 fn route_allowed(
     connections: &std::collections::HashSet<(String, String)>,
     reply_grants: &std::collections::HashMap<(String, String), Instant>,
@@ -205,7 +205,7 @@ fn handle_peers(req: &IpcRequest, state: &Arc<Mutex<PtyStateInner>>) -> String {
         .collect();
     lines.sort();
     if lines.is_empty() {
-        "(nenhum agente conectado — crie uma edge no canvas)\n".to_string()
+        "(no connected agents — create an edge on the canvas)\n".to_string()
     } else {
         lines.join("\n") + "\n"
     }
@@ -218,7 +218,7 @@ fn handle_send(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInne
     };
     let msg = match req.msg.as_deref() {
         Some(m) if !m.is_empty() => m.to_string(),
-        _ => return "Erro: mensagem vazia\n".to_string(),
+        _ => return "Error: empty message\n".to_string(),
     };
 
     let to_label = { label_of(&state.lock().unwrap(), &target_id) };
@@ -242,9 +242,9 @@ fn handle_send(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInne
     });
     let to = req.to.clone().unwrap_or_default();
     if position == 0 {
-        format!("ok: mensagem para '{}' será entregue quando o agente estiver ocioso\n", to)
+        format!("ok: message to '{}' will be delivered when the agent is idle\n", to)
     } else {
-        format!("ok: mensagem para '{}' enfileirada ({} na frente)\n", to, position)
+        format!("ok: message to '{}' queued ({} ahead)\n", to, position)
     }
 }
 
@@ -255,12 +255,12 @@ async fn handle_ask(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStat
     };
     let msg = match req.msg.as_deref() {
         Some(m) if !m.is_empty() => m.to_string(),
-        _ => return "Erro: mensagem vazia\n".to_string(),
+        _ => return "Error: empty message\n".to_string(),
     };
 
-    // Agentes AI respondem de propósito via `reply` (texto limpo, sem eco nem
-    // ANSI, asks concorrentes não se misturam); shells não têm como chamar
-    // reply organicamente, então mantêm o scraping do stdout como fallback.
+    // AI agents answer deliberately via `reply` (clean text, no echo or ANSI,
+    // concurrent asks don't mix); shells have no organic way to call reply,
+    // so they keep the stdout scraping as a fallback.
     let target_is_shell = {
         let inner = state.lock().unwrap();
         inner
@@ -276,15 +276,15 @@ async fn handle_ask(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStat
     }
 }
 
-/// Envia a mesma mensagem para todos os peers (edges de saída) de uma vez —
-/// padrão orquestrador → workers. Fire-and-forget como o send.
+/// Sends the same message to all peers (outgoing edges) at once — the
+/// orchestrator → workers pattern. Fire-and-forget like send.
 fn handle_broadcast(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInner>>) -> String {
     if req.from.is_empty() {
-        return "Erro: NARRATER_ID não definido. Você está dentro de um terminal NarraTer?\n".into();
+        return "Error: NARRATER_ID not set. Are you inside a NarraTer terminal?\n".into();
     }
     let msg = match req.msg.as_deref() {
         Some(m) if !m.is_empty() => m.to_string(),
-        _ => return "Erro: mensagem vazia\n".to_string(),
+        _ => return "Error: empty message\n".to_string(),
     };
 
     let (from_label, targets): (String, Vec<(String, String)>) = {
@@ -299,7 +299,7 @@ fn handle_broadcast(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStat
         (label_of(&inner, &req.from), targets)
     };
     if targets.is_empty() {
-        return "Erro: nenhum agente conectado — crie edges no canvas\n".to_string();
+        return "Error: no connected agents — create edges on the canvas\n".to_string();
     }
 
     for (target_id, target_label) in &targets {
@@ -324,23 +324,23 @@ fn handle_broadcast(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStat
     }
     let mut labels: Vec<String> = targets.into_iter().map(|(_, l)| l).collect();
     labels.sort();
-    format!("ok: mensagem enviada para {} agente(s): {}\n", labels.len(), labels.join(", "))
+    format!("ok: message sent to {} agent(s): {}\n", labels.len(), labels.join(", "))
 }
 
-/// Puxa (e drena) as mensagens pendentes do chamador em vez de esperar a
-/// injeção idle-gated — cobre o agente que fica ocupado por muito tempo.
+/// Pulls (and drains) the caller's pending messages instead of waiting for
+/// idle-gated injection — covers the agent that stays busy for a long time.
 fn handle_inbox(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInner>>) -> String {
     let msgs: Vec<QueuedMsg> = {
         let mut inner = state.lock().unwrap();
         if req.from.is_empty() || !inner.sessions.contains_key(&req.from) {
-            return "Erro: sessão desconhecida — você está dentro de um terminal NarraTer?\n".to_string();
+            return "Error: unknown session — are you inside a NarraTer terminal?\n".to_string();
         }
         let msgs: Vec<QueuedMsg> = inner
             .inbox
             .remove(&req.from)
             .map(|q| q.into_iter().collect())
             .unwrap_or_default();
-        // Puxar a mensagem também concede a rota de resposta, como na entrega
+        // Pulling the message also grants the reply route, like on delivery
         for m in &msgs {
             if let Some(from_id) = m.from_id.clone() {
                 inner.reply_grants.insert((req.from.clone(), from_id), Instant::now());
@@ -350,7 +350,7 @@ fn handle_inbox(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInn
     };
 
     if msgs.is_empty() {
-        return "(nenhuma mensagem pendente)\n".to_string();
+        return "(no pending messages)\n".to_string();
     }
     let _ = app.emit("pty_queue", crate::pty::PtyQueueEvent {
         id: req.from.clone(),
@@ -361,20 +361,20 @@ fn handle_inbox(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInn
     let lines: Vec<String> = msgs
         .into_iter()
         .map(|mut m| {
-            // Um ask pendente foi "entregue" por pull: libera o chamador para
-            // esperar o reply
+            // A pending ask was "delivered" via pull: release the caller to
+            // wait for the reply
             if let Some(tx) = m.delivered_tx.take() {
                 let _ = tx.send(());
             }
             let id_part = m.msg_id.as_deref().map(|i| format!(" #{}", i)).unwrap_or_default();
-            format!("de {}{}: {}", m.from_label, id_part, m.msg)
+            format!("from {}{}: {}", m.from_label, id_part, m.msg)
         })
         .collect();
     lines.join("\n") + "\n"
 }
 
-/// Ask com resposta explícita: entrega `[narrater de X #id]: msg` e espera o
-/// alvo resolver o id via `narrater reply` / tool reply_message.
+/// Ask with an explicit answer: delivers `[narrater from X #id]: msg` and
+/// waits for the target to resolve the id via `narrater reply` / reply_message.
 async fn ask_by_reply(
     req: &IpcRequest,
     app: &AppHandle,
@@ -468,7 +468,7 @@ fn handle_reply(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInn
     let entry = {
         let mut inner = state.lock().unwrap();
         if req.from.is_empty() || !inner.sessions.contains_key(&req.from) {
-            return "Erro: sessão desconhecida — você está dentro de um terminal NarraTer?\n".to_string();
+            return "Error: unknown session — are you inside a NarraTer terminal?\n".to_string();
         }
         match inner.ask_waiters.get(&msg_id) {
             None => {
@@ -511,7 +511,7 @@ fn handle_notify_idle(
     {
         let mut inner = state.lock().unwrap();
         let Some(session) = inner.sessions.get_mut(&req.from) else {
-            return "Erro: sessão desconhecida — você está dentro de um terminal NarraTer?\n".to_string();
+            return "Error: unknown session — are you inside a NarraTer terminal?\n".to_string();
         };
         session.hook_idle = true;
         session.status = RunStatus::Idle;
@@ -697,7 +697,7 @@ async fn handle_canvas(
     let from_label = {
         let mut inner = state.lock().unwrap();
         if !inner.sessions.contains_key(&req.from) {
-            return "Erro: sessão desconhecida — você está dentro de um terminal NarraTer?\n".to_string();
+            return "Error: unknown session — are you inside a NarraTer terminal?\n".to_string();
         }
         inner.canvas_waiters.insert(req_id.clone(), tx);
         label_of(&inner, &req.from)

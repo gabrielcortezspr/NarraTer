@@ -1,10 +1,10 @@
 import { listen } from "@tauri-apps/api/event";
 
-// Um único listener Tauri por evento PTY, despachando para handlers por id.
-// Antes, cada TerminalTile registrava um listen() global e filtrava pelo
-// próprio id — com N terminais, cada chunk de output acordava N listeners
-// (item 1.5 do PLANO_FRONTEND). O id "*" recebe eventos de todos os
-// terminais (usado pelo pipe agente→nota no Canvas).
+// A single Tauri listener per PTY event, dispatching to handlers by id.
+// Previously each TerminalTile registered a global listen() and filtered by
+// its own id — with N terminals, each output chunk woke N listeners
+// (item 1.5 of the frontend plan). The "*" id receives events from all
+// terminals (used by the agent→note pipe in the Canvas).
 export interface PtyOutputEvent {
   id: string;
   data: string;
@@ -21,8 +21,8 @@ class PtyEventBus<T extends { id: string }> {
   private handlers = new Map<string, Set<(payload: T) => void>>();
 
   constructor(event: string) {
-    // Fire-and-forget: eventos emitidos antes do listener ficar pronto se
-    // perdem, como já acontecia com os listen() individuais dos tiles.
+    // Fire-and-forget: events emitted before the listener is ready are lost,
+    // as already happened with the tiles' individual listen() calls.
     listen<T>(event, (e) => {
       this.handlers.get(e.payload.id)?.forEach((h) => h(e.payload));
       this.handlers.get(WILDCARD)?.forEach((h) => h(e.payload));
@@ -46,13 +46,13 @@ class PtyEventBus<T extends { id: string }> {
 let outputBus: PtyEventBus<PtyOutputEvent> | undefined;
 let exitBus: PtyEventBus<PtyExitEvent> | undefined;
 
-/** Escuta o output de um terminal (ou de todos, com id "*"). Retorna unsubscribe síncrono. */
+/** Listens to a terminal's output (or all of them, with id "*"). Returns a synchronous unsubscribe. */
 export function onPtyOutput(id: string, handler: (payload: PtyOutputEvent) => void): () => void {
   outputBus ??= new PtyEventBus<PtyOutputEvent>("pty_output");
   return outputBus.on(id, handler);
 }
 
-/** Escuta o exit de um terminal (ou de todos, com id "*"). Retorna unsubscribe síncrono. */
+/** Listens to a terminal's exit (or all of them, with id "*"). Returns a synchronous unsubscribe. */
 export function onPtyExit(id: string, handler: (payload: PtyExitEvent) => void): () => void {
   exitBus ??= new PtyEventBus<PtyExitEvent>("pty_exit");
   return exitBus.on(id, handler);

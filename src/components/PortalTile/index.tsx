@@ -17,9 +17,9 @@ function normalizeUrl(input: string): string {
   return `https://${trimmed}`;
 }
 
-// Mini navegador via iframe: escala e move junto com o canvas, mas sites com
-// X-Frame-Options/frame-ancestors não carregam — daí o aviso fixo e o botão
-// de abrir no navegador externo. Upgrade futuro: child webview do Tauri.
+// Mini browser via iframe: scales and moves with the canvas, but sites with
+// X-Frame-Options/frame-ancestors won't load — hence the fixed notice and the
+// open-in-external-browser button. Future upgrade: Tauri child webview.
 function PortalTile({ id, data, selected, dragging }: NodeProps<PortalNode>) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const removeNode = useCanvasStore((s) => s.removeNode);
@@ -28,7 +28,7 @@ function PortalTile({ id, data, selected, dragging }: NodeProps<PortalNode>) {
   const [reloadKey, setReloadKey] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Recém-criado sem URL: foco direto na barra de navegação
+  // Freshly created without a URL: focus straight into the address bar
   useEffect(() => {
     if (!data.url) inputRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -60,7 +60,7 @@ function PortalTile({ id, data, selected, dragging }: NodeProps<PortalNode>) {
         handleStyle={{ borderColor: ACCENT, background: "#0c1a1d" }}
       />
 
-      {/* Barra de navegação (também é o drag handle) */}
+      {/* Address bar (also the drag handle) */}
       <div
         className="flex items-center gap-2 px-3 py-2 shrink-0 cursor-grab select-none"
         style={{ background: "#0f2226", borderBottom: "1px solid #163238" }}
@@ -72,7 +72,7 @@ function PortalTile({ id, data, selected, dragging }: NodeProps<PortalNode>) {
           onChange={(e) => setUrlInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && navigate()}
           onMouseDown={(e) => e.stopPropagation()}
-          placeholder="exemplo.com"
+          placeholder="example.com"
           spellCheck={false}
           className="flex-1 min-w-0 bg-[#0c1a1d] border border-[#163238] rounded px-2 py-0.5
             text-[11px] text-[#9adbe5] placeholder-[#2a4a52] outline-none focus:border-[#22d3ee60] nodrag"
@@ -81,7 +81,7 @@ function PortalTile({ id, data, selected, dragging }: NodeProps<PortalNode>) {
           onMouseDown={(e) => e.stopPropagation()}
           onClick={navigate}
           className="text-[#557] hover:text-white transition-colors p-0.5 nodrag"
-          title="Ir"
+          title="Go"
         >
           <ArrowRight size={11} />
         </button>
@@ -89,7 +89,7 @@ function PortalTile({ id, data, selected, dragging }: NodeProps<PortalNode>) {
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => setReloadKey((k) => k + 1)}
           className="text-[#557] hover:text-white transition-colors p-0.5 nodrag"
-          title="Recarregar"
+          title="Reload"
         >
           <RotateCw size={11} />
         </button>
@@ -97,7 +97,7 @@ function PortalTile({ id, data, selected, dragging }: NodeProps<PortalNode>) {
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => data.url && openUrl(data.url).catch(console.error)}
           className="text-[#557] hover:text-white transition-colors p-0.5 nodrag"
-          title="Abrir no navegador externo"
+          title="Open in external browser"
         >
           <ExternalLink size={11} />
         </button>
@@ -110,7 +110,7 @@ function PortalTile({ id, data, selected, dragging }: NodeProps<PortalNode>) {
         </button>
       </div>
 
-      {/* Página */}
+      {/* Page */}
       <div className="flex-1 min-h-0 relative nodrag nowheel" onMouseDown={(e) => e.stopPropagation()}>
         {data.url ? (
           <iframe
@@ -118,23 +118,23 @@ function PortalTile({ id, data, selected, dragging }: NodeProps<PortalNode>) {
             src={data.url}
             title={data.url}
             className="w-full h-full border-0 bg-white"
-            // Durante o drag o iframe engoliria os eventos do mouse
+            // During a drag the iframe would swallow the mouse events
             style={{ pointerEvents: dragging ? "none" : "auto" }}
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <span className="text-[11px] text-[#2a4a52]">Digite uma URL acima</span>
+            <span className="text-[11px] text-[#2a4a52]">Type a URL above</span>
           </div>
         )}
       </div>
 
-      {/* Expectativa: detecção de bloqueio é impossível cross-origin */}
+      {/* Expectation-setting: detecting the block is impossible cross-origin */}
       <div
         className="shrink-0 px-3 py-1 text-[9px] text-[#2a4a52] select-none"
         style={{ background: "#0f2226", borderTop: "1px solid #163238" }}
       >
-        Alguns sites bloqueiam embed — use ↗ para abrir no navegador
+        Some sites block embedding — use ↗ to open in the browser
       </div>
 
       <Handle type="target" position={Position.Left} style={{ background: ACCENT, border: "none", width: 8, height: 8 }} />

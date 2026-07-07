@@ -39,7 +39,7 @@ import { saveNow } from "@/hooks/useAutoSave";
 import { useSketchStore } from "@/stores/sketch";
 import { stripAnsi, cleanLines } from "@/lib/ansi";
 import { ptyWrite, ptyNotify, pickFile } from "@/lib/tauri";
-import type { AgentType } from "@/lib/tauri";
+import type { AgentPickerResult } from "@/components/AgentPicker";
 import type { AppEdge, TerminalNodeData } from "@/stores/canvas";
 import type { Tool } from "@/stores/tool";
 
@@ -57,7 +57,7 @@ const edgeTypes = {
   "agent-pipe": AgentPipeEdge,
 } satisfies EdgeTypes;
 
-// Atalhos de ferramenta sem modificador, estilo Figma.
+// Modifier-free tool shortcuts, Figma style.
 const TOOL_SHORTCUTS: Record<string, Tool> = {
   v: "select",
   t: "terminal",
@@ -107,12 +107,12 @@ function CanvasInner() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
-  // Movimentos são desfazíveis: guarda o estado no início do drag
+  // Moves are undoable: snapshot the state when the drag starts
   const onNodeDragStart = useCallback(() => {
     useCanvasStore.getState().snapshot();
   }, []);
 
-  // Frame the canvas once per historia load — a permanent fitView prop would
+  // Frame the canvas once per scene load — a permanent fitView prop would
   // re-frame on every structural node change instead.
   const fitDoneFor = useRef<string | null>(null);
   useEffect(() => {
@@ -153,23 +153,23 @@ function CanvasInner() {
           addPortalNode(position);
           break;
       }
-      // Shift mantém a ferramenta para criação em série
+      // Shift keeps the tool active for serial creation
       if (!e.shiftKey) setTool("select");
     },
     [screenToFlowPosition, addNoteNode, addTextNode, addFileTreeNode, addPortalNode, setTool]
   );
 
-  // Clique numa edge agent-pipe abre o histórico daquela conversa
+  // Clicking an agent-pipe edge opens that conversation's history
   const onEdgeClick = useCallback((_: React.MouseEvent, edge: AppEdge) => {
     if (edge.type === "agent-pipe") {
       useLedgerStore.getState().setOpenEdge({ source: edge.source, target: edge.target });
     }
   }, []);
 
-  // Agent → Note pipe: espelha output de terminais nas notas conectadas.
-  // Chunks são bufferizados por nota e aplicados em batch (~100ms) — um agente
-  // verboso emite dezenas de chunks/segundo, e cada appendNoteContent é um
-  // setState global (item 1.4 do PLANO_FRONTEND).
+  // Agent → Note pipe: mirrors terminal output into connected notes.
+  // Chunks are buffered per note and applied in batches (~100ms) — a verbose
+  // agent emits dozens of chunks per second, and each appendNoteContent is a
+  // global setState (item 1.4 of the frontend plan).
   useEffect(() => {
     const buffers = new Map<string, string>();
     let flushTimer: number | undefined;
@@ -250,25 +250,25 @@ function CanvasInner() {
         if (isAi(srcType)) {
           ptyNotify(
             connection.source,
-            `Novo agente conectado: você → "${tgtLabel}". Você pode enviar mensagens a ele com send_message/ask_agent (to: "${tgtLabel}").`
+            `New agent connected: you → "${tgtLabel}". You can message it with send_message/ask_agent (to: "${tgtLabel}").`
           ).catch(console.error);
         } else {
           ptyWrite(
             connection.source,
-            `\r\n\x1b[35m[NarraTer]\x1b[0m Conectado \x1b[1m→ "${tgtLabel}"\x1b[0m\r\n` +
-              `Use: \x1b[36mnarrater send "${tgtLabel}" "mensagem"\x1b[0m ou \x1b[36mnarrater ask "${tgtLabel}" "pergunta"\x1b[0m\r\n\r\n`
+            `\r\n\x1b[35m[NarraTer]\x1b[0m Connected \x1b[1m→ "${tgtLabel}"\x1b[0m\r\n` +
+              `Use: \x1b[36mnarrater send "${tgtLabel}" "message"\x1b[0m or \x1b[36mnarrater ask "${tgtLabel}" "question"\x1b[0m\r\n\r\n`
           ).catch(console.error);
         }
 
         if (isAi(tgtType)) {
           ptyNotify(
             connection.target,
-            `Novo agente conectado: "${srcLabel}" → você. Mensagens dele chegarão como [narrater de ${srcLabel}].`
+            `New agent connected: "${srcLabel}" → you. Its messages will arrive as [narrater from ${srcLabel}].`
           ).catch(console.error);
         } else {
           ptyWrite(
             connection.target,
-            `\r\n\x1b[35m[NarraTer]\x1b[0m Agente \x1b[1m"${srcLabel}" →\x1b[0m conectado a você.\r\n\r\n`
+            `\r\n\x1b[35m[NarraTer]\x1b[0m Agent \x1b[1m"${srcLabel}" →\x1b[0m connected to you.\r\n\r\n`
           ).catch(console.error);
         }
       }
@@ -277,20 +277,8 @@ function CanvasInner() {
   );
 
   const handleAgentPicked = useCallback(
-    (
-      agentType: AgentType,
-      command?: string,
-      instructions?: string,
-      scheduleCommand?: string,
-      scheduleIntervalSecs?: number,
-      roleId?: string,
-      roleName?: string,
-      roleColor?: string,
-    ) => {
-      addTerminalNode(
-        { agentType, command, instructions, scheduleCommand, scheduleIntervalSecs, roleId, roleName, roleColor },
-        viewportCenter()
-      );
+    (result: AgentPickerResult) => {
+      addTerminalNode(result, viewportCenter());
       setPickerOpen(false);
     },
     [addTerminalNode, viewportCenter]
@@ -298,7 +286,7 @@ function CanvasInner() {
 
   const openTerminalPicker = useCallback(() => setPickerOpen(true), []);
 
-  // Anexo: file picker nativo → nó no centro do viewport
+  // Attachment: native file picker → node at the viewport center
   const handleAttachment = useCallback(() => {
     pickFile()
       .then((path) => {
@@ -396,10 +384,10 @@ function CanvasInner() {
 
       <Toolbar onTerminal={openTerminalPicker} onAttachment={handleAttachment} />
 
-      {/* Histórico da conversa da edge agent-pipe clicada */}
+      {/* Conversation history for the clicked agent-pipe edge */}
       <EdgeHistoryPanel />
 
-      {/* Boas-vindas quando o canvas está vazio */}
+      {/* Welcome screen when the canvas is empty */}
       <EmptyState onTerminal={openTerminalPicker} />
 
       <div className="absolute top-0 left-0 h-10 flex items-center px-4 z-10 pointer-events-none">
@@ -409,7 +397,7 @@ function CanvasInner() {
       {drawMode && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
           <div className="bg-[#1a1a1a] border border-[#8b5cf640] text-[#8b5cf6] text-xs px-3 py-1.5 rounded-full">
-            Modo desenho ativo — Esc para sair
+            Draw mode active — Esc to exit
           </div>
         </div>
       )}
@@ -417,12 +405,12 @@ function CanvasInner() {
       {placementMode && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
           <div className="bg-[#1a1a1a] border border-[#8b5cf640] text-[#8b5cf6] text-xs px-3 py-1.5 rounded-full">
-            Clique no canvas para posicionar — Shift mantém a ferramenta, Esc cancela
+            Click the canvas to place — Shift keeps the tool, Esc cancels
           </div>
         </div>
       )}
 
-      {/* Modais em lazy: só entram no bundle/DOM quando abertos */}
+      {/* Lazy modals: only enter the bundle/DOM when opened */}
       {pickerOpen && (
         <Suspense fallback={null}>
           <AgentPicker open={pickerOpen} onConfirm={handleAgentPicked} onClose={() => setPickerOpen(false)} />

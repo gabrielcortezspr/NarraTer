@@ -1,9 +1,9 @@
 mod canvas_bridge;
 mod fsops;
-mod historia;
 mod ipc;
 mod pty;
 mod roles;
+mod scene;
 
 use pty::PtyState;
 
@@ -35,12 +35,12 @@ pub fn run() {
             pty::pty_notify,
             pty::pty_queue_cancel,
             pty::narrater_ledger,
-            historia::load_historia,
-            historia::save_historia,
-            historia::list_historias,
-            historia::delete_historia,
-            historia::rename_historia,
-            historia::open_in_editor,
+            scene::load_scene,
+            scene::save_scene,
+            scene::list_scenes,
+            scene::delete_scene,
+            scene::rename_scene,
+            scene::open_in_editor,
             fsops::fs_list_dir,
             fsops::fs_read_file_base64,
             fsops::pick_file,

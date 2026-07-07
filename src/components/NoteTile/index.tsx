@@ -15,7 +15,7 @@ function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isLive = data.isAgentLive as boolean | undefined;
   const [editingTitle, setEditingTitle] = useState(false);
-  const [titleValue, setTitleValue] = useState(data.label ?? "Nota");
+  const [titleValue, setTitleValue] = useState(data.label ?? "Note");
   const [copied, setCopied] = useState(false);
 
   // Sync when external agent writes to this note
@@ -26,7 +26,7 @@ function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
     }
   }, [data.content]);
 
-  // Agente escrevendo → scroll acompanha o fim, como um tail -f
+  // Agent writing → scroll follows the tail, like tail -f
   useEffect(() => {
     if (isLive && textareaRef.current) {
       textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
@@ -35,7 +35,7 @@ function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
 
   const commitTitle = useCallback(() => {
     setEditingTitle(false);
-    const label = titleValue.trim() || "Nota";
+    const label = titleValue.trim() || "Note";
     setTitleValue(label);
     updateNodeData(id, { label });
   }, [id, titleValue, updateNodeData]);
@@ -99,34 +99,34 @@ function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
             onBlur={commitTitle}
             onKeyDown={(e) => {
               if (e.key === "Enter") commitTitle();
-              if (e.key === "Escape") { setTitleValue(data.label ?? "Nota"); setEditingTitle(false); }
+              if (e.key === "Escape") { setTitleValue(data.label ?? "Note"); setEditingTitle(false); }
             }}
             onMouseDown={(e) => e.stopPropagation()}
             className="flex-1 min-w-0 bg-transparent text-[#fbbf24] text-xs outline-none border-b border-[#fbbf2450] nodrag"
-            aria-label="Título da nota"
+            aria-label="Note title"
           />
         ) : (
           <span
             className="text-[#fbbf24] text-xs flex-1 truncate"
-            title="Duplo clique para renomear"
+            title="Double-click to rename"
             onDoubleClick={(e) => { e.stopPropagation(); setEditingTitle(true); }}
           >
-            {data.label ?? "Nota"}
+            {data.label ?? "Note"}
           </span>
         )}
 
         {/* Live indicator — pulsing when agent is writing */}
         {isLive && (
           <span className="flex items-center gap-1 text-[9px] text-[#fbbf24] animate-pulse">
-            <Radio size={9} /> ao vivo
+            <Radio size={9} /> live
           </span>
         )}
 
         <button
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); handleCopy(); }}
-          title="Copiar conteúdo"
-          aria-label="Copiar conteúdo"
+          title="Copy content"
+          aria-label="Copy content"
           className="text-[#666] hover:text-[#fbbf24] transition-colors p-0.5 rounded nodrag"
         >
           {copied ? <Check size={12} className="text-[#4ade80]" /> : <Copy size={12} />}
@@ -135,8 +135,8 @@ function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
         <button
           onMouseDown={(e) => e.stopPropagation()}
           onClick={handleClose}
-          title="Fechar nota"
-          aria-label="Fechar nota"
+          title="Close note"
+          aria-label="Close note"
           className="text-[#666] hover:text-[#f87171] transition-colors p-0.5 rounded nodrag"
         >
           <X size={12} />
@@ -148,7 +148,7 @@ function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
         ref={textareaRef}
         value={content}
         onChange={(e) => handleChange(e.target.value)}
-        placeholder="Escreva aqui..."
+        placeholder="Write here..."
         className="flex-1 resize-none bg-transparent text-[#d4c899] text-sm p-3 outline-none
           placeholder-[#4a4020] nodrag nowheel"
         style={{ fontFamily: "inherit", lineHeight: 1.6 }}

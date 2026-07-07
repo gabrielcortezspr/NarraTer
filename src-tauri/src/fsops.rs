@@ -2,8 +2,8 @@ use base64::Engine;
 use serde::Serialize;
 use std::path::PathBuf;
 
-// Diretórios gigantes (node_modules…) são truncados; a árvore é lazy por
-// diretório, então isso limita só o nível corrente.
+// Huge directories (node_modules…) get truncated; the tree is lazy per
+// directory, so this only limits the current level.
 const MAX_ENTRIES: usize = 2000;
 const MAX_FILE_BYTES: u64 = 10 * 1024 * 1024;
 
@@ -80,7 +80,7 @@ pub fn fs_read_file_base64(path: String) -> Result<FileBlob, String> {
     let meta = std::fs::metadata(&file).map_err(|e| format!("{}: {}", file.display(), e))?;
     if meta.len() > MAX_FILE_BYTES {
         return Err(format!(
-            "Arquivo muito grande ({:.1} MB, máximo 10 MB)",
+            "File too large ({:.1} MB, 10 MB max)",
             meta.len() as f64 / 1_048_576.0
         ));
     }
@@ -104,11 +104,11 @@ pub async fn pick_file(app: tauri::AppHandle) -> Result<Option<String>, String> 
 #[tauri::command]
 pub fn open_url(url: String) -> Result<(), String> {
     if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err("URL inválida — apenas http(s)".to_string());
+        return Err("Invalid URL — http(s) only".to_string());
     }
     std::process::Command::new("xdg-open")
         .arg(&url)
         .spawn()
         .map(|_| ())
-        .map_err(|e| format!("xdg-open falhou: {}", e))
+        .map_err(|e| format!("xdg-open failed: {}", e))
 }

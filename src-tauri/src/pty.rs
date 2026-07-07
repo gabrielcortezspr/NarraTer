@@ -157,8 +157,8 @@ pub struct PtyStateInner {
     /// In-flight canvas requests (MCP → frontend), keyed by request id; the
     /// frontend resolves them via the canvas_respond command.
     pub canvas_waiters: HashMap<String, tokio::sync::oneshot::Sender<String>>,
-    /// Ring buffer com as últimas mensagens entre agentes (send/ask/reply/
-    /// broadcast) — histórico das conversas por edge no canvas.
+    /// Ring buffer with the latest inter-agent messages (send/ask/reply/
+    /// broadcast) — per-edge conversation history on the canvas.
     pub ledger: VecDeque<LedgerEntry>,
 }
 
@@ -179,6 +179,52 @@ impl Default for PtyState {
             canvas_waiters: HashMap::new(),
             ledger: VecDeque::new(),
         })))
+    }
+}
+
+/// Pre-accepts Claude Code's folder-trust dialog for the spawn cwd (and, when
+/// spawning with --dangerously-skip-permissions, its one-time bypass warning)
+/// in ~/.claude.json, so agent terminals boot straight into the prompt.
+fn pre_trust_claude_cwd(bypass_permissions: bool) {
+    let Ok(home) = std::env::var("HOME") else { return };
+    let config_path = std::path::Path::new(&home).join(".claude.json");
+    let Ok(cwd) = std::env::current_dir() else { return };
+    let cwd = cwd.to_string_lossy().to_string();
+
+    // A corrupt/unreadable existing config is left untouched — never clobber.
+    let mut root: serde_json::Value = match std::fs::read_to_string(&config_path) {
+        Ok(raw) => match serde_json::from_str(&raw) {
+            Ok(v) => v,
+            Err(_) => return,
+        },
+        Err(_) => serde_json::json!({}),
+    };
+
+    let Some(obj) = root.as_object_mut() else { return };
+    let mut changed = false;
+
+    let projects = obj.entry("projects").or_insert_with(|| serde_json::json!({}));
+    if let Some(projects) = projects.as_object_mut() {
+        let project = projects.entry(cwd).or_insert_with(|| serde_json::json!({}));
+        if let Some(project) = project.as_object_mut() {
+            if project.get("hasTrustDialogAccepted").and_then(|v| v.as_bool()) != Some(true) {
+                project.insert("hasTrustDialogAccepted".into(), serde_json::json!(true));
+                changed = true;
+            }
+        }
+    }
+
+    if bypass_permissions
+        && obj.get("bypassPermissionsModeAccepted").and_then(|v| v.as_bool()) != Some(true)
+    {
+        obj.insert("bypassPermissionsModeAccepted".into(), serde_json::json!(true));
+        changed = true;
+    }
+
+    if changed {
+        if let Ok(json) = serde_json::to_string(&root) {
+            let _ = std::fs::write(&config_path, json);
+        }
     }
 }
 
@@ -213,6 +259,10 @@ pub fn pty_spawn(
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| e.to_string())?;
 
+    let bypass_permissions = args
+        .as_ref()
+        .is_some_and(|a| a.iter().any(|s| s == "--dangerously-skip-permissions"));
+
     // With explicit args, `command` is the program; otherwise fall back to
     // whitespace-splitting the command string (custom agents, no quoting)
     let mut cmd = match args {
@@ -225,7 +275,7 @@ pub fn pty_spawn(
         }
         None => {
             let mut parts = command.split_whitespace();
-            let program = parts.next().ok_or("comando vazio")?;
+            let program = parts.next().ok_or("empty command")?;
             let mut cmd = CommandBuilder::new(program);
             for arg in parts {
                 cmd.arg(arg);
@@ -267,9 +317,12 @@ pub fn pty_spawn(
     cmd.env("NARRATER_TOKEN", &token);
 
     let agent_type = agent_type.unwrap_or_else(|| "shell".to_string());
-    // Claude ganha o hook Stop → `narrater notify-idle` (idle autoritativo em
-    // vez do timer de silêncio). --settings soma com as settings do usuário.
+    // Claude gets the Stop hook → `narrater notify-idle` (authoritative idle
+    // instead of the silence timer). --settings adds to the user's settings.
     if agent_type == "claude" {
+        // No interactive dialogs on boot: the user creating the terminal in
+        // NarraTer is the trust decision.
+        pre_trust_claude_cwd(bypass_permissions);
         if let Some(hooks) = crate::ipc::claude_hooks_path() {
             if hooks.exists() {
                 cmd.arg("--settings");
@@ -414,7 +467,7 @@ pub fn pty_kill(id: String, state: State<'_, PtyState>) -> Result<(), String> {
 pub fn pty_update_label(id: String, label: String, state: State<'_, PtyState>) -> Result<(), String> {
     let mut inner = state.0.lock().unwrap();
     if inner.label_to_id.get(&label).is_some_and(|owner| owner != &id) {
-        return Err(format!("Label '{}' já está em uso por outro terminal", label));
+        return Err(format!("Label '{}' is already used by another terminal", label));
     }
     if let Some(old_label) = inner.labels.get(&id).cloned() {
         inner.label_to_id.remove(&old_label);
@@ -432,12 +485,12 @@ pub fn connections_sync(connections: Vec<(String, String)>, state: State<'_, Pty
 }
 
 /// Queues a system notification for an AI terminal — delivered idle-gated and
-/// auto-submitted as `[narrater de sistema]: <text>`. Never use on shell
+/// auto-submitted as `[narrater from system]: <text>`. Never use on shell
 /// targets: shell delivery executes the text as a command.
 #[tauri::command]
 pub fn pty_notify(id: String, text: String, app_handle: AppHandle, state: State<'_, PtyState>) -> Result<(), String> {
     enqueue_message(&state.0, &app_handle, &id, QueuedMsg {
-        from_label: "sistema".to_string(),
+        from_label: "system".to_string(),
         from_id: None,
         msg: text,
         enqueued: Instant::now(),
@@ -454,8 +507,8 @@ pub fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Registra uma mensagem entre agentes no ledger (ring buffer) e avisa o
-/// front via `narrater_msg` — alimenta o histórico e o pulso das edges.
+/// Records an inter-agent message on the ledger (ring buffer) and notifies
+/// the front via `narrater_msg` — feeds the history and the edge pulses.
 pub fn record_msg(state_arc: &Arc<Mutex<PtyStateInner>>, app: &AppHandle, entry: LedgerEntry) {
     {
         let mut inner = state_arc.lock().unwrap();
@@ -483,8 +536,8 @@ fn queue_snapshot(inner: &PtyStateInner, id: &str) -> Vec<QueueItem> {
         .unwrap_or_default()
 }
 
-/// Histórico da conversa entre dois nós (ambas as direções), para o painel
-/// aberto ao clicar numa edge agent-pipe.
+/// Conversation history between two nodes (both directions), for the panel
+/// opened by clicking an agent-pipe edge.
 #[tauri::command]
 pub fn narrater_ledger(a: String, b: String, state: State<'_, PtyState>) -> Vec<LedgerEntry> {
     let inner = state.0.lock().unwrap();
@@ -496,8 +549,8 @@ pub fn narrater_ledger(a: String, b: String, state: State<'_, PtyState>) -> Vec<
         .collect()
 }
 
-/// Cancela uma mensagem enfileirada (index na fila do terminal `id`). Se era
-/// um ask, derrubar o delivered_tx acorda o chamador com erro de entrega.
+/// Cancels a queued message (index into terminal `id`'s queue). If it was an
+/// ask, dropping the delivered_tx wakes the caller with a delivery error.
 #[tauri::command]
 pub fn pty_queue_cancel(
     id: String,
@@ -509,7 +562,7 @@ pub fn pty_queue_cancel(
         let mut inner = state.0.lock().unwrap();
         if let Some(queue) = inner.inbox.get_mut(&id) {
             if index >= queue.len() {
-                return Err("índice fora da fila".to_string());
+                return Err("index outside the queue".to_string());
             }
             queue.remove(index);
             if queue.is_empty() {
@@ -610,8 +663,8 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
                             s.last_output = Instant::now();
                             agent_type = s.agent_type.clone();
                         }
-                        // Receber mensagem de A autoriza responder a A por
-                        // REPLY_GRANT_TTL, mesmo sem edge de volta no canvas.
+                        // Receiving a message from A authorizes replying to A
+                        // for REPLY_GRANT_TTL, even without a return edge.
                         if let Some(from_id) = msg.from_id.clone() {
                             inner.reply_grants.insert((id.clone(), from_id), Instant::now());
                             inner.reply_grants.retain(|_, t| t.elapsed() < REPLY_GRANT_TTL);
@@ -633,16 +686,16 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
                 "shell" => {
                     write_to_pty(&state, &id, &format!("\x15{}\r", qmsg.msg));
                 }
-                // Claude/codex têm bracketed paste: o frame vai como um paste
-                // explícito (ESC[200~ … ESC[201~) e o \r logo depois já é um
-                // Enter de verdade — determinístico, sem o sleep de 300ms nem
-                // corrida com a janela de detecção de paste do TUI.
+                // Claude/codex support bracketed paste: the frame goes as an
+                // explicit paste (ESC[200~ … ESC[201~) and the \r right after
+                // is a real Enter — deterministic, without the 300ms sleep or
+                // racing the TUI's paste-detection window.
                 "claude" | "codex" => {
                     let framed = frame_message(&qmsg);
                     write_to_pty(&state, &id, &format!("\x1b[200~{}\x1b[201~\r", framed));
                 }
-                // TUI desconhecido (custom): mantém o burst em duas fases —
-                // texto primeiro, \r sozinho após a janela de paste.
+                // Unknown TUI (custom): keeps the two-phase burst — text
+                // first, bare \r after the paste window.
                 _ => {
                     let framed = frame_message(&qmsg);
                     write_to_pty(&state, &id, &framed);
@@ -663,13 +716,13 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
     }
 }
 
-/// `[narrater de X]: msg` ou, com msg_id (ask), `[narrater de X #id]: msg`.
+/// `[narrater from X]: msg` or, with a msg_id (ask), `[narrater from X #id]: msg`.
 fn frame_message(qmsg: &QueuedMsg) -> String {
     let id_part = qmsg.msg_id.as_deref().map(|i| format!(" #{}", i)).unwrap_or_default();
-    format!("[narrater de {}{}]: {}", qmsg.from_label, id_part, qmsg.msg)
+    format!("[narrater from {}{}]: {}", qmsg.from_label, id_part, qmsg.msg)
 }
 
-/// Desduplica um label com sufixo -2, -3… (a menos que o dono já seja `id`).
+/// Deduplicates a label with a -2, -3… suffix (unless the owner is already `id`).
 fn dedup_label(label_to_id: &HashMap<String, String>, id: &str, base: &str) -> String {
     let mut candidate = base.to_string();
     let mut n = 2;
@@ -707,22 +760,22 @@ mod tests {
     }
 
     #[test]
-    fn frame_sem_id_e_com_id() {
-        assert_eq!(frame_message(&qmsg("planner", "oi", None)), "[narrater de planner]: oi");
+    fn frame_without_and_with_id() {
+        assert_eq!(frame_message(&qmsg("planner", "hi", None)), "[narrater from planner]: hi");
         assert_eq!(
             frame_message(&qmsg("planner", "status?", Some("a3f2"))),
-            "[narrater de planner #a3f2]: status?"
+            "[narrater from planner #a3f2]: status?"
         );
     }
 
     #[test]
-    fn dedup_label_sufixa_duplicatas() {
+    fn dedup_label_suffixes_duplicates() {
         let mut map = HashMap::new();
         assert_eq!(dedup_label(&map, "t1", "claude"), "claude");
         map.insert("claude".to_string(), "t1".to_string());
-        // Dono do label é o próprio id → mantém
+        // The label's owner is this very id → keep it
         assert_eq!(dedup_label(&map, "t1", "claude"), "claude");
-        // Outro terminal com o mesmo label → sufixo
+        // Another terminal with the same label → suffix
         assert_eq!(dedup_label(&map, "t2", "claude"), "claude-2");
         map.insert("claude-2".to_string(), "t2".to_string());
         assert_eq!(dedup_label(&map, "t3", "claude"), "claude-3");

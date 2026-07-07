@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
-// Feedback visível para erros que antes morriam no console.error (spawn de
-// PTY, save, editor) e avisos (agente caiu). Toasts somem sozinhos.
+// Visible feedback for errors that used to die in console.error (PTY spawn,
+// save, editor) and warnings (agent crashed). Toasts dismiss themselves.
 
 export type ToastKind = "error" | "warning" | "success";
 
@@ -33,7 +33,7 @@ export const useToastsStore = create<ToastsStore>((set) => ({
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }));
 
-/** Atalho para uso fora de componentes (stores, hooks, listeners). */
+/** Shortcut for use outside components (stores, hooks, listeners). */
 export const toast = {
   error: (text: string) => useToastsStore.getState().push("error", text),
   warning: (text: string) => useToastsStore.getState().push("warning", text),

@@ -61,8 +61,8 @@ export default function RoleManager({ open, onClose }: Props) {
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-[#2a2a2a] shrink-0">
               <div>
-                <h2 className="text-white font-semibold text-base">Papéis dos Agentes</h2>
-                <p className="text-[#6b7280] text-xs mt-0.5">Crie papéis reutilizáveis com instruções personalizadas</p>
+                <h2 className="text-white font-semibold text-base">Agent Roles</h2>
+                <p className="text-[#6b7280] text-xs mt-0.5">Create reusable roles with custom instructions</p>
               </div>
               <button onClick={onClose} className="text-[#555] hover:text-white transition-colors p-1 rounded hover:bg-[#2a2a2a]">
                 <X size={16} />
@@ -115,7 +115,7 @@ export default function RoleManager({ open, onClose }: Props) {
                 onClick={() => setCreating(true)}
                 className="flex items-center gap-2 text-sm text-[#8b5cf6] hover:text-[#a78bfa] transition-colors"
               >
-                <Plus size={14} /> Novo papel
+                <Plus size={14} /> New role
               </button>
             </div>
           </motion.div>
@@ -178,7 +178,7 @@ function RoleEditCard({ draft, onChange, onSave, onCancel, isNew }: EditProps) {
         <input
           value={draft.name ?? ""}
           onChange={(e) => onChange({ name: e.target.value })}
-          placeholder="Nome do papel"
+          placeholder="Role name"
           className="flex-1 bg-[#1a1a1a] border border-[#333] text-white text-sm rounded-lg px-3 py-1.5
             focus:outline-none focus:border-[#8b5cf6]"
           autoFocus={isNew}
@@ -199,21 +199,21 @@ function RoleEditCard({ draft, onChange, onSave, onCancel, isNew }: EditProps) {
       <textarea
         value={draft.instructions ?? ""}
         onChange={(e) => onChange({ instructions: e.target.value })}
-        placeholder="Instruções para o agente..."
+        placeholder="Instructions for the agent..."
         rows={3}
         className="w-full bg-[#1a1a1a] border border-[#333] text-white text-xs rounded-lg px-3 py-2
           focus:outline-none focus:border-[#8b5cf6] placeholder-[#444] resize-none"
       />
       <div className="flex gap-2 justify-end">
         <button onClick={onCancel} className="px-3 py-1.5 text-xs text-[#555] hover:text-white transition-colors rounded hover:bg-[#2a2a2a]">
-          Cancelar
+          Cancel
         </button>
         <button
           onClick={onSave}
           disabled={!draft.name?.trim()}
           className="px-3 py-1.5 text-xs bg-[#8b5cf6] hover:bg-[#7c3aed] text-white rounded transition-colors disabled:opacity-40"
         >
-          {isNew ? "Criar" : "Salvar"}
+          {isNew ? "Create" : "Save"}
         </button>
       </div>
     </div>

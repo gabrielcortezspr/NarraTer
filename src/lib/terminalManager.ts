@@ -8,26 +8,28 @@ import type { AgentType } from "@/lib/tauri";
 import { useTerminalsStore } from "@/stores/terminals";
 import { toast } from "@/stores/toasts";
 
-// Ciclo de vida de xterm+PTY fora do React (item 1.2 do PLANO_FRONTEND).
-// Desmontar um TerminalTile (culling fora da viewport, troca de LOD) apenas
-// desanexa o DOM do terminal — o processo e o scrollback continuam vivos.
-// A sessão só morre em disposeTerminal (nó removido / troca de história).
+// xterm+PTY lifecycle outside React (item 1.2 of the frontend plan).
+// Unmounting a TerminalTile (viewport culling, LOD switch) only detaches the
+// terminal's DOM — the process and scrollback stay alive. The session only
+// dies in disposeTerminal (node removed / scene switch).
 
 export interface SpawnOpts {
   agentType: AgentType;
   command?: string;
   label?: string;
   systemPrompt?: string;
-  /** Escrito no composer após o spawn (agentes não-claude). */
+  /** Written into the composer after spawn (non-claude agents). */
   instructions?: string;
-  /** Labels dos peers (rotas agent-pipe), para a mensagem de skill no boot. */
+  /** Spawn the agent with its permission prompts bypassed (claude/codex). */
+  skipPermissions?: boolean;
+  /** Peer labels (agent-pipe routes), for the skill message at boot. */
   pipes?: { outgoing: string[]; incoming: string[] };
 }
 
 interface ManagedTerminal {
   term: XTerm;
   fit: FitAddon;
-  /** Vive fora do React; os tiles anexam/desanexam este elemento. */
+  /** Lives outside React; tiles attach/detach this element. */
   container: HTMLDivElement;
   unlisteners: Array<() => void>;
   opts: SpawnOpts;
@@ -62,27 +64,27 @@ const terminals = new Map<string, ManagedTerminal>();
 
 async function spawnInto(id: string, mt: ManagedTerminal): Promise<void> {
   const { addSession, setRunning, setExited } = useTerminalsStore.getState();
-  const { agentType, command, label, systemPrompt, instructions, pipes } = mt.opts;
+  const { agentType, command, label, systemPrompt, instructions, skipPermissions, pipes } = mt.opts;
   addSession(id);
-  const { command: cmd, args } = getSpawnSpec(agentType, command, systemPrompt);
+  const { command: cmd, args } = getSpawnSpec(agentType, command, systemPrompt, skipPermissions);
   try {
     const effectiveLabel = await ptySpawn({
       id, command: cmd, args, cols: mt.term.cols, rows: mt.term.rows, label, agentType,
     });
     setRunning(id);
     if (effectiveLabel && effectiveLabel !== label) {
-      // Import tardio evita ciclo canvas ⇄ manager na avaliação dos módulos
+      // Late import avoids a canvas ⇄ manager cycle during module evaluation
       const { useCanvasStore } = await import("@/stores/canvas");
       useCanvasStore.getState().updateNodeData(id, { label: effectiveLabel });
     }
   } catch (err) {
     console.error("PTY spawn failed:", err);
-    toast.error(`Falha ao iniciar ${label ?? agentType}: ${err}`);
+    toast.error(`Failed to start ${label ?? agentType}: ${err}`);
     setExited(id, 1);
     return;
   }
 
-  if (agentType === "claude") return; // protocolo vai no system prompt
+  if (agentType === "claude") return; // protocol goes in the system prompt
 
   if (instructions?.trim()) {
     ptyWrite(id, instructions.trim() + "\n").catch(console.error);
@@ -92,17 +94,17 @@ async function spawnInto(id: string, mt: ManagedTerminal): Promise<void> {
     let skillMsg = "\r\n";
     if (outgoing.length > 0) {
       skillMsg +=
-        `\x1b[35m[NarraTer]\x1b[0m Você pode enviar para: \x1b[1m${outgoing.join(", ")}\x1b[0m\r\n` +
-        `Use: \x1b[36mnarrater send "<nome>" "mensagem"\x1b[0m ou \x1b[36mnarrater ask "<nome>" "pergunta"\x1b[0m\r\n`;
+        `\x1b[35m[NarraTer]\x1b[0m You can send to: \x1b[1m${outgoing.join(", ")}\x1b[0m\r\n` +
+        `Use: \x1b[36mnarrater send "<name>" "message"\x1b[0m or \x1b[36mnarrater ask "<name>" "question"\x1b[0m\r\n`;
     }
     if (incoming.length > 0) {
-      skillMsg += `\x1b[35m[NarraTer]\x1b[0m Recebe mensagens de: \x1b[1m${incoming.join(", ")}\x1b[0m\r\n`;
+      skillMsg += `\x1b[35m[NarraTer]\x1b[0m Receives messages from: \x1b[1m${incoming.join(", ")}\x1b[0m\r\n`;
     }
     ptyWrite(id, skillMsg + "\r\n").catch(console.error);
   }
 }
 
-/** Cria (uma vez) o xterm + listeners do terminal `id` e agenda o spawn. */
+/** Creates (once) the xterm + listeners for terminal `id` and schedules the spawn. */
 export function ensureTerminal(id: string, opts: SpawnOpts): ManagedTerminal {
   const existing = terminals.get(id);
   if (existing) return existing;
@@ -131,7 +133,7 @@ export function ensureTerminal(id: string, opts: SpawnOpts): ManagedTerminal {
     webgl.onContextLoss(() => webgl.dispose());
     term.loadAddon(webgl);
   } catch (e) {
-    console.warn("[NarraTer] WebGL indisponível, usando renderer DOM:", e);
+    console.warn("[NarraTer] WebGL unavailable, using DOM renderer:", e);
   }
 
   term.onData((d) => ptyWrite(id, d).catch(console.error));
@@ -146,7 +148,7 @@ export function ensureTerminal(id: string, opts: SpawnOpts): ManagedTerminal {
   return mt;
 }
 
-/** Anexa o terminal ao elemento do tile; primeiro attach dispara o spawn. */
+/** Attaches the terminal to the tile's element; the first attach triggers the spawn. */
 export function attachTerminal(id: string, parent: HTMLElement): void {
   const mt = terminals.get(id);
   if (!mt) return;
@@ -160,7 +162,7 @@ export function attachTerminal(id: string, parent: HTMLElement): void {
   }, 50);
 }
 
-/** Remove o DOM do tile sem matar terminal nem processo (culling/LOD). */
+/** Removes the tile's DOM without killing the terminal or process (culling/LOD). */
 export function detachTerminal(id: string): void {
   terminals.get(id)?.container.remove();
 }
@@ -172,11 +174,11 @@ export function fitTerminal(id: string): void {
     mt.fit.fit();
     ptyResize(id, mt.term.cols, mt.term.rows).catch(() => {});
   } catch {
-    // container escondido/tamanho zero — próximo resize corrige
+    // hidden/zero-size container — the next resize fixes it
   }
 }
 
-/** Reinicia o processo de um terminal encerrado, mantendo o xterm/scrollback. */
+/** Restarts the process of an exited terminal, keeping the xterm/scrollback. */
 export function respawnTerminal(id: string): void {
   const mt = terminals.get(id);
   if (!mt) return;
@@ -184,7 +186,7 @@ export function respawnTerminal(id: string): void {
   spawnInto(id, mt);
 }
 
-/** Mata o processo e libera o xterm — nó removido ou troca de história. */
+/** Kills the process and frees the xterm — node removed or scene switch. */
 export function disposeTerminal(id: string): void {
   const mt = terminals.get(id);
   if (!mt) return;

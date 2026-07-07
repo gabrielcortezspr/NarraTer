@@ -25,7 +25,7 @@ interface Props {
 export default function Sidebar({ collapsed, onToggle }: Props) {
   const { list, current, setCurrent, createWorkspace, deleteWorkspace, renameWorkspace } =
     useWorkspacesStore();
-  const loadHistoria = useCanvasStore((s) => s.loadHistoria);
+  const loadScene = useCanvasStore((s) => s.loadScene);
   const clearSketch = useSketchStore((s) => s.clear);
   const { roles, loaded, load: loadRoles } = useRolesStore();
   const [roleManagerOpen, setRoleManagerOpen] = useState(false);
@@ -65,15 +65,15 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
   const switchWorkspace = useCallback(
     async (name: string) => {
       if (name === current) return;
-      // saveNow (não saveHistoria direto): cancela o timer do auto-save — um
-      // timer disparando após o load gravaria o canvas novo no arquivo antigo.
+      // saveNow (not saveScene directly): cancels the auto-save timer — a
+      // timer firing after the load would write the new canvas into the old file.
       await saveNow();
-      await loadHistoria(name);
+      await loadScene(name);
       setCurrent(name);
       clearSketch();
       setContextMenu(null);
     },
-    [current, loadHistoria, setCurrent, clearSketch]
+    [current, loadScene, setCurrent, clearSketch]
   );
 
   const handleCreate = async () => {
@@ -122,28 +122,28 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
         )}
         <button
           onClick={onToggle}
-          aria-label={collapsed ? "Expandir sidebar" : "Recolher sidebar"}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           className="ml-auto p-1.5 rounded hover:bg-[#1f1f1f] text-[#555] hover:text-[#888] transition-colors"
         >
           {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
         </button>
       </div>
 
-      {/* Colapsada: ícones das seções, clicáveis */}
+      {/* Collapsed: clickable section icons */}
       {collapsed && (
         <div className="flex flex-col items-center gap-1 pt-2">
           <button
             onClick={onToggle}
-            title="Histórias"
-            aria-label="Histórias"
+            title="Scenes"
+            aria-label="Scenes"
             className="p-2 rounded hover:bg-[#1f1f1f] text-[#555] hover:text-accent transition-colors"
           >
             <BookOpen size={14} />
           </button>
           <button
             onClick={() => setRoleManagerOpen(true)}
-            title="Papéis"
-            aria-label="Papéis"
+            title="Roles"
+            aria-label="Roles"
             className="p-2 rounded hover:bg-[#1f1f1f] text-[#555] hover:text-accent transition-colors"
           >
             <Users size={14} />
@@ -153,11 +153,11 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
 
       {!collapsed && (
         <div className="flex flex-col flex-1 overflow-hidden">
-          {/* Histórias section */}
+          {/* Scenes section */}
           <div className="px-3 pt-3 pb-1">
             <div className="flex items-center justify-between mb-1">
               <span className="text-[10px] text-[#555] font-medium uppercase tracking-wider flex items-center gap-1">
-                <BookOpen size={10} /> Histórias
+                <BookOpen size={10} /> Scenes
               </span>
               <button
                 onClick={() => setCreating(true)}
@@ -205,7 +205,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
                         if (e.key === "Enter") handleCreate();
                         if (e.key === "Escape") { setCreating(false); setNewName(""); }
                       }}
-                      placeholder="nome..."
+                      placeholder="name..."
                       className="flex-1 bg-[#1a1a1a] border border-[#333] text-white text-xs rounded px-2 py-1
                         focus:outline-none focus:border-[#8b5cf6]"
                     />
@@ -221,14 +221,14 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
             </div>
           </div>
 
-          {/* Papéis section */}
+          {/* Roles section */}
           <div className="px-3 pt-3 pb-1 border-t border-[#1a1a1a]">
             <button
               onClick={() => setRoleManagerOpen(true)}
               className="flex items-center justify-between w-full group"
             >
               <span className="text-[10px] text-[#555] font-medium uppercase tracking-wider flex items-center gap-1 group-hover:text-[#888] transition-colors">
-                <Users size={10} /> Papéis
+                <Users size={10} /> Roles
               </span>
               <span className="text-[10px] text-[#333] group-hover:text-[#555] transition-colors">{roles.length}</span>
             </button>
@@ -254,19 +254,19 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
           <div className="px-3 pb-3 border-t border-[#1a1a1a] pt-3">
             <div className="flex items-center gap-1 mb-2">
               <Keyboard size={10} className="text-[#555]" />
-              <span className="text-[10px] text-[#555] uppercase tracking-wider font-medium">Atalhos</span>
+              <span className="text-[10px] text-[#555] uppercase tracking-wider font-medium">Shortcuts</span>
             </div>
             {[
-              ["V", "Seletor"],
+              ["V", "Select"],
               ["T", "Terminal"],
-              ["N", "Nota"],
-              ["X", "Texto"],
-              ["F", "Arquivos"],
-              ["A", "Anexo"],
+              ["N", "Note"],
+              ["X", "Text"],
+              ["F", "Files"],
+              ["A", "Attachment"],
               ["W", "Portal"],
-              ["D", "Desenho"],
-              ["Ctrl+S", "Salvar"],
-              ["Delete", "Remover"],
+              ["D", "Draw"],
+              ["Ctrl+S", "Save"],
+              ["Delete", "Remove"],
             ].map(([key, label]) => (
               <div key={key} className="flex items-center justify-between mb-0.5">
                 <span className="text-[10px] font-mono text-[#8b5cf6]">{key}</span>
@@ -294,22 +294,22 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
             onClick={() => startRename(contextMenu.name)}
             className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors"
           >
-            <Pencil size={12} /> Renomear
+            <Pencil size={12} /> Rename
           </button>
           {confirmingDelete === contextMenu.name ? (
             <button
               onClick={() => handleDelete(contextMenu.name)}
               className="flex items-center gap-2 w-full px-3 py-1.5 text-xs font-medium text-white bg-[#7f1d1d] hover:bg-[#991b1b] transition-colors"
             >
-              <Trash2 size={12} /> Confirmar exclusão?
+              <Trash2 size={12} /> Confirm delete?
             </button>
           ) : (
-            // Excluir é irreversível — primeiro clique só arma a confirmação
+            // Deleting is irreversible — the first click only arms the confirmation
             <button
               onClick={() => setConfirmingDelete(contextMenu.name)}
               className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#f87171] hover:bg-[#2a2a2a] transition-colors"
             >
-              <Trash2 size={12} /> Excluir
+              <Trash2 size={12} /> Delete
             </button>
           )}
         </div>
@@ -365,7 +365,7 @@ function WorkspaceItem({
           : "text-[#666] hover:text-[#aaa] hover:bg-[#1a1a1a]"
         }`}
     >
-      {/* Barra accent do item ativo */}
+      {/* Accent bar for the active item */}
       {active && <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-accent" />}
       <span
         className="w-1.5 h-1.5 rounded-full shrink-0"

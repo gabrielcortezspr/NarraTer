@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { applyNodeChanges, applyEdgeChanges } from "@xyflow/react";
 import type { Node, Edge, NodeChange, EdgeChange, XYPosition } from "@xyflow/react";
-import { loadHistoria, saveHistoria, connectionsSync } from "@/lib/tauri";
+import { loadScene, saveScene, connectionsSync } from "@/lib/tauri";
 import { disposeTerminal } from "@/lib/terminalManager";
 import type { AgentType } from "@/lib/tauri";
 
@@ -15,6 +15,7 @@ export interface TerminalNodeData extends Record<string, unknown> {
   roleId?: string;
   roleName?: string;
   roleColor?: string;
+  skipPermissions?: boolean;
 }
 
 export interface NoteNodeData extends Record<string, unknown> {
@@ -58,15 +59,16 @@ export interface AddTerminalOpts {
   roleId?: string;
   roleName?: string;
   roleColor?: string;
+  skipPermissions?: boolean;
 }
 
 interface CanvasStore {
   nodes: AppNode[];
   edges: AppEdge[];
-  // True once a historia finished loading — gates auto-save and fitView so
+  // True once a scene finished loading — gates auto-save and fitView so
   // neither runs against a canvas that is mid-hydration.
   hydrated: boolean;
-  /** Guarda o estado atual no histórico (chame ANTES de uma mutação estrutural). */
+  /** Pushes the current state onto the history (call BEFORE a structural mutation). */
   snapshot: () => void;
   undo: () => void;
   redo: () => void;
@@ -83,8 +85,8 @@ interface CanvasStore {
   addPortalNode: (position?: XYPosition, url?: string) => string;
   appendNoteContent: (noteId: string, text: string) => void;
   removeNode: (id: string) => void;
-  loadHistoria: (name: string) => Promise<void>;
-  saveHistoria: (name: string) => Promise<void>;
+  loadScene: (name: string) => Promise<void>;
+  saveScene: (name: string) => Promise<void>;
 }
 
 let nodeCounter = 0;
@@ -92,8 +94,8 @@ let nodeCounter = 0;
 const MAX_NOTE_CONTENT = 200_000;
 const liveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-// Undo/redo por snapshot da estrutura (nós+edges). Vive fora do estado
-// reativo — mudar o histórico não deve re-renderizar o canvas.
+// Undo/redo via structural snapshots (nodes+edges). Lives outside the
+// reactive state — changing history must not re-render the canvas.
 interface Snapshot {
   nodes: AppNode[];
   edges: AppEdge[];
@@ -102,9 +104,9 @@ const undoStack: Snapshot[] = [];
 const redoStack: Snapshot[] = [];
 const HISTORY_CAP = 50;
 
-// Restaurar um snapshot pode remover terminais (desfazer criação) — as
-// sessões deles precisam morrer; terminais que voltam (desfazer exclusão)
-// respawnam quando o tile montar (ensureTerminal).
+// Restoring a snapshot may remove terminals (undoing a create) — their
+// sessions must die; terminals that come back (undoing a delete) respawn
+// when their tile mounts (ensureTerminal).
 function terminalsToDispose(current: AppNode[], next: AppNode[]): string[] {
   const nextIds = new Set(next.filter((n) => n.type === "terminal").map((n) => n.id));
   return current.filter((n) => n.type === "terminal" && !nextIds.has(n.id)).map((n) => n.id);
@@ -150,8 +152,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   onNodesChange: (changes) => {
     if (changes.some((c) => c.type === "remove")) get().snapshot();
-    // Com o xterm/PTY fora do React, remover o nó (Delete) precisa matar a
-    // sessão explicitamente — desmontar o tile já não mata.
+    // With xterm/PTY living outside React, removing the node (Delete) must
+    // kill the session explicitly — unmounting the tile no longer does.
     for (const c of changes) {
       if (c.type === "remove" && get().nodes.find((n) => n.id === c.id)?.type === "terminal") {
         disposeTerminal(c.id);
@@ -188,7 +190,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         y: 80 + (nodeCounter % 4) * 60,
       },
       data: { ...opts, label },
-      // Nasce compacto — o NodeResizer deixa crescer quando precisar
+      // Born compact — the NodeResizer lets it grow when needed
       style: { width: 520, height: 360 },
     };
     set((s) => ({ nodes: [...s.nodes, newNode] }));
@@ -292,8 +294,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         const current = (n.data as NoteNodeData).content ?? "";
         const separator = current.length > 0 ? "\n" : "";
         let content = current + separator + text;
-        // Cap: agentes verbosos fariam a nota (e o <textarea> dela) crescer sem
-        // limite — mantém o fim, que é o output mais recente.
+        // Cap: verbose agents would grow the note (and its <textarea>) without
+        // bound — keep the tail, which is the most recent output.
         if (content.length > MAX_NOTE_CONTENT) {
           content = "…" + content.slice(content.length - MAX_NOTE_CONTENT);
         }
@@ -304,7 +306,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       }),
     }));
 
-    // "Ao vivo" desliga após 2s sem output novo (antes ficava para sempre)
+    // "Live" turns off after 2s without new output (used to stay on forever)
     const timer = liveTimers.get(noteId);
     if (timer) clearTimeout(timer);
     liveTimers.set(
@@ -329,16 +331,16 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     syncConnections(edges);
   },
 
-  loadHistoria: async (name) => {
+  loadScene: async (name) => {
     undoStack.length = 0;
     redoStack.length = 0;
-    // Troca de história encerra os agentes da atual (antes, o unmount matava)
+    // Switching scenes shuts down the current one's agents (unmount used to)
     get().nodes.forEach((n) => {
       if (n.type === "terminal") disposeTerminal(n.id);
     });
     set({ hydrated: false });
     try {
-      const data = await loadHistoria(name);
+      const data = await loadScene(name);
       const nodes: AppNode[] = data.nodes.map((n): AppNode => {
         const base = {
           id: n.id,
@@ -382,6 +384,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
             roleId: n.role_id,
             roleName: n.role_name,
             roleColor: n.role_color,
+            skipPermissions: n.skip_permissions,
           },
         };
       });
@@ -400,13 +403,13 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       set({ nodes, edges, hydrated: true });
       syncConnections(edges);
     } catch {
-      // No saved historia yet — start empty
+      // No saved scene yet — start empty
       set({ nodes: [], edges: [], hydrated: true });
       syncConnections([]);
     }
   },
 
-  saveHistoria: async (name) => {
+  saveScene: async (name) => {
     const { nodes, edges } = get();
     const data = {
       nodes: nodes.map((n) => {
@@ -437,6 +440,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           role_id: tdata?.roleId,
           role_name: tdata?.roleName,
           role_color: tdata?.roleColor,
+          skip_permissions: tdata?.skipPermissions,
         };
       }),
       edges: edges.map((e) => ({
@@ -448,6 +452,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         target_handle: e.targetHandle ?? undefined,
       })),
     };
-    await saveHistoria(name, data);
+    await saveScene(name, data);
   },
 }));

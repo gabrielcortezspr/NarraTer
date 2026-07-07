@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Terminal, Bot, Code2, Wrench, X, ChevronDown, Clock, Users } from "lucide-react";
+import { Terminal, Bot, Code2, Wrench, X, ChevronDown, Clock, Users, ShieldOff } from "lucide-react";
 import { useRolesStore } from "@/stores/roles";
 import type { AgentType } from "@/lib/tauri";
 
@@ -18,7 +18,7 @@ const AGENTS: AgentOption[] = [
     type: "shell",
     icon: <Terminal size={20} />,
     label: "Shell",
-    description: "bash / zsh / fish — terminal padrão",
+    description: "bash / zsh / fish — default terminal",
     color: "text-gray-400",
     borderColor: "border-gray-600 hover:border-gray-400",
   },
@@ -26,7 +26,7 @@ const AGENTS: AgentOption[] = [
     type: "claude",
     icon: <Bot size={20} />,
     label: "Claude Code",
-    description: "Agente de IA da Anthropic",
+    description: "Anthropic's AI agent",
     color: "text-purple-400",
     borderColor: "border-purple-700 hover:border-purple-400",
   },
@@ -34,7 +34,7 @@ const AGENTS: AgentOption[] = [
     type: "codex",
     icon: <Code2 size={20} />,
     label: "Codex",
-    description: "Agente de IA da OpenAI",
+    description: "OpenAI's AI agent",
     color: "text-blue-400",
     borderColor: "border-blue-700 hover:border-blue-400",
   },
@@ -42,24 +42,33 @@ const AGENTS: AgentOption[] = [
     type: "custom",
     icon: <Wrench size={20} />,
     label: "Custom",
-    description: "Comando personalizado",
+    description: "Custom command",
     color: "text-teal-400",
     borderColor: "border-teal-700 hover:border-teal-400",
   },
 ];
 
+/** Agents that support bypassing their permission/approval prompts. */
+const SKIP_PERMISSIONS_SUPPORT: Partial<Record<AgentType, string>> = {
+  claude: "claude --dangerously-skip-permissions",
+  codex: "codex --dangerously-bypass-approvals-and-sandbox",
+};
+
+export interface AgentPickerResult {
+  agentType: AgentType;
+  command?: string;
+  instructions?: string;
+  scheduleCommand?: string;
+  scheduleIntervalSecs?: number;
+  roleId?: string;
+  roleName?: string;
+  roleColor?: string;
+  skipPermissions?: boolean;
+}
+
 interface Props {
   open: boolean;
-  onConfirm: (
-    agentType: AgentType,
-    command?: string,
-    instructions?: string,
-    scheduleCommand?: string,
-    scheduleIntervalSecs?: number,
-    roleId?: string,
-    roleName?: string,
-    roleColor?: string,
-  ) => void;
+  onConfirm: (result: AgentPickerResult) => void;
   onClose: () => void;
 }
 
@@ -69,6 +78,7 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
   const [customCommand, setCustomCommand] = useState("");
   const [selectedRoleId, setSelectedRoleId] = useState<string>("");
   const [instructions, setInstructions] = useState("");
+  const [skipPermissions, setSkipPermissions] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [scheduleCommand, setScheduleCommand] = useState("");
   const [scheduleInterval, setScheduleInterval] = useState("60");
@@ -89,24 +99,27 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
   };
 
   const selectedRole = roles.find((r) => r.id === selectedRoleId);
+  const skipPermissionsFlag = SKIP_PERMISSIONS_SUPPORT[selected];
 
   const handleConfirm = () => {
     const intervalSecs = scheduleCommand.trim() ? parseInt(scheduleInterval) || 60 : undefined;
-    onConfirm(
-      selected,
-      selected === "custom" ? customCommand : undefined,
-      instructions.trim() || undefined,
-      scheduleCommand.trim() || undefined,
-      intervalSecs,
-      selectedRoleId || undefined,
-      selectedRole?.name,
-      selectedRole?.color,
-    );
+    onConfirm({
+      agentType: selected,
+      command: selected === "custom" ? customCommand : undefined,
+      instructions: instructions.trim() || undefined,
+      scheduleCommand: scheduleCommand.trim() || undefined,
+      scheduleIntervalSecs: intervalSecs,
+      roleId: selectedRoleId || undefined,
+      roleName: selectedRole?.name,
+      roleColor: selectedRole?.color,
+      skipPermissions: skipPermissionsFlag ? skipPermissions : undefined,
+    });
     // reset
     setSelected("shell");
     setCustomCommand("");
     setSelectedRoleId("");
     setInstructions("");
+    setSkipPermissions(false);
     setShowAdvanced(false);
     setScheduleCommand("");
     setScheduleInterval("60");
@@ -134,8 +147,8 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
             {/* Header */}
             <div className="flex items-center justify-between mb-5">
               <div>
-                <h2 className="text-white font-semibold text-base">Nova Cena</h2>
-                <p className="text-[#6b7280] text-xs mt-0.5">Escolha o tipo de agente</p>
+                <h2 className="text-white font-semibold text-base">New Terminal</h2>
+                <p className="text-[#6b7280] text-xs mt-0.5">Choose the agent type</p>
               </div>
               <button onClick={onClose} className="text-[#6b7280] hover:text-white transition-colors p-1 rounded-md hover:bg-[#2a2a2a]">
                 <X size={16} />
@@ -146,7 +159,7 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
             {roles.length > 0 && (
               <div className="mb-4">
                 <label className="flex items-center gap-1.5 text-[#9ca3af] text-xs mb-2">
-                  <Users size={11} /> Papel do agente
+                  <Users size={11} /> Agent role
                 </label>
                 <div className="flex gap-1.5 flex-wrap">
                   <button
@@ -157,7 +170,7 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
                         : "border-[#2a2a2a] text-[#555] hover:text-[#888] hover:border-[#333]"
                     }`}
                   >
-                    Sem papel
+                    No role
                   </button>
                   {roles.map((role) => (
                     <button
@@ -210,7 +223,7 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
                 >
-                  <label className="block text-[#9ca3af] text-xs mb-1.5">Comando</label>
+                  <label className="block text-[#9ca3af] text-xs mb-1.5">Command</label>
                   <input
                     type="text"
                     value={customCommand}
@@ -225,6 +238,42 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
               )}
             </AnimatePresence>
 
+            {/* Skip permissions (claude / codex) */}
+            <AnimatePresence>
+              {skipPermissionsFlag && (
+                <motion.div
+                  className="mb-4"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                >
+                  <label
+                    className={`flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-all ${
+                      skipPermissions
+                        ? "border-amber-600/60 bg-amber-950/20"
+                        : "border-[#2a2a2a] hover:border-[#3a3a3a]"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={skipPermissions}
+                      onChange={(e) => setSkipPermissions(e.target.checked)}
+                      className="mt-0.5 accent-amber-500"
+                    />
+                    <div className="flex-1">
+                      <span className={`flex items-center gap-1.5 text-xs font-medium ${skipPermissions ? "text-amber-400" : "text-[#9ca3af]"}`}>
+                        <ShieldOff size={12} /> Skip permission prompts
+                      </span>
+                      <p className="text-[#6b7280] text-[10px] mt-1 leading-snug">
+                        Runs <code className="font-mono text-[#888]">{skipPermissionsFlag}</code>.
+                        The agent acts without asking for approval — use only in trusted directories.
+                      </p>
+                    </div>
+                  </label>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Advanced */}
             <button
               onClick={() => setShowAdvanced((v) => !v)}
@@ -233,7 +282,7 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
               <motion.span animate={{ rotate: showAdvanced ? 180 : 0 }} transition={{ duration: 0.15 }}>
                 <ChevronDown size={12} />
               </motion.span>
-              Configurações avançadas
+              Advanced settings
             </button>
 
             <AnimatePresence>
@@ -245,36 +294,36 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
                   className="mb-4 space-y-3"
                 >
                   <div>
-                    <label className="block text-[#9ca3af] text-xs mb-1.5">Instruções iniciais</label>
+                    <label className="block text-[#9ca3af] text-xs mb-1.5">Initial instructions</label>
                     <textarea
                       value={instructions}
                       onChange={(e) => setInstructions(e.target.value)}
-                      placeholder="Ex: Trabalhe sempre em português e escreva testes."
+                      placeholder="E.g.: Always write tests for new code."
                       rows={3}
                       className="w-full bg-[#111] border border-[#333] text-white text-xs rounded-lg px-3 py-2
                         focus:outline-none focus:border-[#8b5cf6] placeholder-[#444] resize-none"
                     />
                     <p className="text-[#444] text-[10px] mt-1">
-                      {selectedRole ? `Preenchido pelo papel "${selectedRole.name}" — editável` : "Enviado como primeiro input ao PTY"}
+                      {selectedRole ? `Filled from role "${selectedRole.name}" — editable` : "Sent as the first input to the PTY"}
                     </p>
                   </div>
 
                   <div className="border-t border-[#2a2a2a] pt-3">
                     <div className="flex items-center gap-1.5 mb-2">
                       <Clock size={12} className="text-[#555]" />
-                      <label className="text-[#9ca3af] text-xs">Prompt agendado</label>
+                      <label className="text-[#9ca3af] text-xs">Scheduled prompt</label>
                     </div>
                     <input
                       type="text"
                       value={scheduleCommand}
                       onChange={(e) => setScheduleCommand(e.target.value)}
-                      placeholder="Ex: git status"
+                      placeholder="E.g.: git status"
                       className="w-full bg-[#111] border border-[#333] text-white text-xs rounded-lg px-3 py-2
                         focus:outline-none focus:border-[#8b5cf6] font-mono placeholder-[#444] mb-2"
                     />
                     {scheduleCommand.trim() && (
                       <div className="flex items-center gap-2">
-                        <label className="text-[#9ca3af] text-xs shrink-0">A cada</label>
+                        <label className="text-[#9ca3af] text-xs shrink-0">Every</label>
                         <input
                           type="number"
                           value={scheduleInterval}
@@ -283,7 +332,7 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
                           className="w-20 bg-[#111] border border-[#333] text-white text-xs rounded-lg px-2 py-1.5
                             focus:outline-none focus:border-[#8b5cf6] text-center"
                         />
-                        <label className="text-[#9ca3af] text-xs">segundos</label>
+                        <label className="text-[#9ca3af] text-xs">seconds</label>
                       </div>
                     )}
                   </div>
@@ -297,7 +346,7 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
                 onClick={onClose}
                 className="px-4 py-2 text-sm text-[#9ca3af] hover:text-white transition-colors rounded-lg hover:bg-[#2a2a2a]"
               >
-                Cancelar
+                Cancel
               </button>
               <button
                 onClick={handleConfirm}
@@ -310,7 +359,7 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
                     : {}
                 }
               >
-                Criar Terminal
+                Create Terminal
               </button>
             </div>
           </motion.div>

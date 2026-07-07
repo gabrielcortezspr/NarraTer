@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
 
-// Botão só-ícone dos headers/painéis: para propagação de mousedown (não
-// iniciar drag do nó), hover consistente e aria-label a partir do title.
+// Icon-only button for headers/panels: stops mousedown propagation (so it
+// doesn't start a node drag), consistent hover and aria-label from the title.
 interface IconButtonProps {
   title: string;
   onClick: (e: React.MouseEvent) => void;
   children: ReactNode;
-  /** Cor do hover: accent (padrão), danger (fechar/excluir) ou info. */
+  /** Hover color: accent (default), danger (close/delete) or info. */
   intent?: "accent" | "danger" | "info";
   className?: string;
 }

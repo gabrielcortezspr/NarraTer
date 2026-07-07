@@ -9,7 +9,7 @@ const KIND_STYLE: Record<ToastKind, { color: string; icon: React.ReactNode }> = 
   success: { color: "var(--status-running)", icon: <CheckCircle2 size={13} /> },
 };
 
-/** Toasts discretos no canto inferior direito, no dark theme do app. */
+/** Discreet toasts in the bottom-right corner, in the app's dark theme. */
 export default function Toaster() {
   const toasts = useToastsStore((s) => s.toasts);
   const dismiss = useToastsStore((s) => s.dismiss);
@@ -34,7 +34,7 @@ export default function Toaster() {
               <span className="text-[11px] text-ink leading-snug break-words min-w-0">{t.text}</span>
               <button
                 onClick={() => dismiss(t.id)}
-                aria-label="Fechar aviso"
+                aria-label="Dismiss notification"
                 className="text-ink-faint hover:text-ink transition-colors shrink-0 mt-px"
               >
                 <X size={11} />

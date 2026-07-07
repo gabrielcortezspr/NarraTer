@@ -42,27 +42,27 @@ fn default_roles() -> Vec<Role> {
     vec![
         Role {
             id: "leader".to_string(),
-            name: "Líder".to_string(),
+            name: "Leader".to_string(),
             color: "#8b5cf6".to_string(),
-            instructions: "Você é o agente líder. Coordene as tarefas, delegue para outros agentes e mantenha o foco no objetivo principal. Responda sempre em português.".to_string(),
+            instructions: "You are the lead agent. Coordinate the tasks, delegate to other agents and keep the focus on the main goal.".to_string(),
         },
         Role {
             id: "coder".to_string(),
-            name: "Desenvolvedor".to_string(),
+            name: "Developer".to_string(),
             color: "#3b82f6".to_string(),
-            instructions: "Você é um desenvolvedor especialista. Implemente código limpo, siga boas práticas e escreva testes. Responda sempre em português.".to_string(),
+            instructions: "You are an expert developer. Write clean code, follow best practices and write tests.".to_string(),
         },
         Role {
             id: "reviewer".to_string(),
-            name: "Revisor".to_string(),
+            name: "Reviewer".to_string(),
             color: "#4ade80".to_string(),
-            instructions: "Você é um revisor de código. Analise criticamente, aponte problemas, sugira melhorias e garanta qualidade. Responda sempre em português.".to_string(),
+            instructions: "You are a code reviewer. Analyze critically, point out problems, suggest improvements and ensure quality.".to_string(),
         },
         Role {
             id: "tester".to_string(),
-            name: "Testador".to_string(),
+            name: "Tester".to_string(),
             color: "#fbbf24".to_string(),
-            instructions: "Você é um especialista em QA. Crie cenários de teste, identifique edge cases e documente bugs encontrados. Responda sempre em português.".to_string(),
+            instructions: "You are a QA specialist. Create test scenarios, identify edge cases and document the bugs you find.".to_string(),
         },
     ]
 }

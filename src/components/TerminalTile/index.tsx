@@ -43,24 +43,24 @@ const AGENT_LABELS: Record<AgentType, string> = {
 
 const TERMINAL_BG = "#0e0e0e";
 
-// Abaixo deste zoom o conteúdo do terminal é ilegível — troca por card (LOD)
+// Below this zoom the terminal content is unreadable — swap for a card (LOD)
 const LOD_ZOOM = 0.35;
 
-// Referência estável para o selector da fila (evita re-render por identidade)
+// Stable reference for the queue selector (avoids identity re-renders)
 const NO_QUEUE: QueueItem[] = [];
 
 const STATUS_DOT: Record<SessionStatus, { color: string; label: string }> = {
-  spawning: { color: "#fbbf24", label: "Iniciando…" },
-  running: { color: "#4ade80", label: "Executando" },
-  idle: { color: "#6b7280", label: "Ocioso" },
-  exited: { color: "#f87171", label: "Encerrado" },
+  spawning: { color: "#fbbf24", label: "Starting…" },
+  running: { color: "#4ade80", label: "Running" },
+  idle: { color: "#6b7280", label: "Idle" },
+  exited: { color: "#f87171", label: "Exited" },
 };
 
 function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   const termDivRef = useRef<HTMLDivElement>(null);
   const scheduleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cwdRef = useRef<string>("~");
-  // Só re-renderiza ao cruzar o limiar, não a cada tick de zoom
+  // Only re-renders when crossing the threshold, not on every zoom tick
   const lod = useStore((s) => s.transform[2] < LOD_ZOOM);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const pipeCount = useCanvasStore((s) =>
@@ -76,8 +76,8 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   const [showEditorMenu, setShowEditorMenu] = useState(false);
   const [showQueueMenu, setShowQueueMenu] = useState(false);
 
-  // Anexa o terminal gerenciado (xterm/PTY vivem fora do React — desmontar o
-  // tile por culling/LOD não mata o processo nem perde o scrollback)
+  // Attaches the managed terminal (xterm/PTY live outside React — unmounting
+  // the tile via culling/LOD doesn't kill the process or lose the scrollback)
   useEffect(() => {
     const parent = termDivRef.current;
     if (!parent) return;
@@ -95,6 +95,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
       command: data.command,
       label: data.label,
       instructions: data.instructions,
+      skipPermissions: data.skipPermissions,
       systemPrompt: isClaude
         ? buildAgentSystemPrompt({
             label: data.label,
@@ -116,7 +117,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
       observer.disconnect();
       detachTerminal(id);
     };
-  }, [id]); // spawn opts são lidos uma vez — mudanças exigem respawn
+  }, [id]); // spawn opts are read once — changes require a respawn
 
   // Scheduled prompts
   useEffect(() => {
@@ -146,7 +147,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
         await openInEditor(editorCmd, cwdRef.current);
       } catch (err) {
         console.warn("Failed to open editor:", err);
-        toast.error(`Não foi possível abrir o editor (${editorCmd})`);
+        toast.error(`Could not open the editor (${editorCmd})`);
       }
     },
     []
@@ -171,7 +172,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
         handleStyle={{ borderColor: accentColor, background: "#1a1a1a" }}
       />
 
-      {/* Fio de identidade: 1px na cor do agente para escanear o canvas */}
+      {/* Identity thread: 1px in the agent color for scanning the canvas */}
       <div
         className="h-px shrink-0"
         style={{ background: `linear-gradient(90deg, transparent, ${accentColor}, transparent)` }}
@@ -205,13 +206,13 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
 
         <span className="text-[#555] text-xs truncate flex-1">{data.label}</span>
 
-        {/* Queued messages badge — clique mostra a fila e permite cancelar */}
+        {/* Queued messages badge — click shows the queue and allows cancelling */}
         {queuePending > 0 && (
           <div className="relative nodrag shrink-0">
             <button
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); setShowQueueMenu((v) => !v); }}
-              title={`${queuePending} mensagem${queuePending > 1 ? "s" : ""} aguardando entrega — clique para ver`}
+              title={`${queuePending} message${queuePending > 1 ? "s" : ""} awaiting delivery — click to view`}
               className="flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
               style={{ color: "#fbbf24", background: "#fbbf2418", border: "1px solid #fbbf2430" }}
             >
@@ -224,7 +225,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
                 onMouseDown={(e) => e.stopPropagation()}
               >
                 <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-[#666] select-none">
-                  Fila de mensagens
+                  Message queue
                 </div>
                 {queueItems.map((item, i) => (
                   <div
@@ -238,7 +239,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
                     </div>
                     <button
                       onClick={() => ptyQueueCancel(id, i).catch(console.error)}
-                      title="Cancelar mensagem"
+                      title="Cancel message"
                       className="text-[#555] hover:text-[#f87171] transition-colors shrink-0 mt-0.5"
                     >
                       <X size={10} />
@@ -252,7 +253,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
 
         {/* Agent pipe badge */}
         {pipeCount > 0 && (
-          <Badge color="#a78bfa" title={`Conectado a ${pipeCount} agente${pipeCount > 1 ? "s" : ""} via pipe`}>
+          <Badge color="#a78bfa" title={`Connected to ${pipeCount} agent${pipeCount > 1 ? "s" : ""} via pipe`}>
             <Plug size={8} />
             {pipeCount}
           </Badge>
@@ -261,7 +262,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
         {/* Scheduled prompt indicator */}
         {data.scheduleCommand?.trim() && (
           <span
-            title={`Agendado: "${data.scheduleCommand}" a cada ${data.scheduleIntervalSecs}s`}
+            title={`Scheduled: "${data.scheduleCommand}" every ${data.scheduleIntervalSecs}s`}
             className="flex items-center gap-0.5 text-[9px] text-[#fbbf24] opacity-70"
           >
             <Clock size={9} />
@@ -271,7 +272,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
 
         {/* Open in editor */}
         <div className="relative nodrag">
-          <IconButton title="Abrir no editor" intent="info" onClick={() => setShowEditorMenu((v) => !v)}>
+          <IconButton title="Open in editor" intent="info" onClick={() => setShowEditorMenu((v) => !v)}>
             <FolderOpen size={12} />
           </IconButton>
           {showEditorMenu && (
@@ -293,12 +294,12 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
         </div>
 
         {/* Close */}
-        <IconButton title="Fechar terminal" intent="danger" onClick={handleClose}>
+        <IconButton title="Close terminal" intent="danger" onClick={handleClose}>
           <X size={12} />
         </IconButton>
       </div>
 
-      {/* Terminal body (escondido em zoom baixo — LOD) */}
+      {/* Terminal body (hidden at low zoom — LOD) */}
       <div
         ref={termDivRef}
         className="flex-1 min-h-0 nodrag nowheel"
@@ -310,7 +311,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
         onMouseDown={(e) => e.stopPropagation()}
       />
 
-      {/* LOD: card legível no overview (o terminal continua vivo, só sem DOM visível) */}
+      {/* LOD: readable card in the overview (the terminal stays alive, just without visible DOM) */}
       {lod && (
         <div
           className="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 select-none"
@@ -327,18 +328,18 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
         </div>
       )}
 
-      {/* Processo encerrado: overlay elegante com reinício no lugar */}
+      {/* Process exited: elegant overlay with in-place restart */}
       {sessionStatus === "exited" && (
         <div className="absolute inset-x-0 top-9 bottom-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/60 nodrag">
           <span className="text-xs text-ink-muted">
-            Processo encerrado{typeof exitCode === "number" ? ` · código ${exitCode}` : ""}
+            Process exited{typeof exitCode === "number" ? ` · code ${exitCode}` : ""}
           </span>
           <button
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); respawnTerminal(id); }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-canvas-tile border border-canvas-border text-ink hover:border-accent hover:text-accent transition-colors"
           >
-            <RotateCcw size={12} /> Reiniciar
+            <RotateCcw size={12} /> Restart
           </button>
         </div>
       )}
@@ -349,6 +350,6 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   );
 }
 
-// React Flow re-renderiza nós custom a cada mudança de qualquer nó; com memo,
-// arrastar um tile não re-renderiza os demais.
+// React Flow re-renders custom nodes on every change to any node; with memo,
+// dragging one tile doesn't re-render the others.
 export default memo(TerminalTile);

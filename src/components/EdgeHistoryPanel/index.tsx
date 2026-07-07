@@ -5,9 +5,9 @@ import type { LedgerEntry } from "@/lib/tauri";
 import { pairKey, useLedgerStore } from "@/stores/ledger";
 import { useCanvasStore } from "@/stores/canvas";
 
-// Painel de histórico de uma conversa agente↔agente, aberto ao clicar numa
-// edge agent-pipe. Carrega o ledger do backend e recarrega a cada mensagem
-// nova no par (lastActivity), com scroll preso no fim como um chat.
+// History panel for an agent↔agent conversation, opened by clicking an
+// agent-pipe edge. Loads the ledger from the backend and reloads on each new
+// message for the pair (lastActivity), with scroll pinned to the end like a chat.
 
 const KIND_STYLE: Record<string, { color: string; label: string }> = {
   send: { color: "#a78bfa", label: "send" },
@@ -17,7 +17,7 @@ const KIND_STYLE: Record<string, { color: string; label: string }> = {
 };
 
 function timeOf(ts: number): string {
-  return new Date(ts).toLocaleTimeString("pt-BR", { hour12: false });
+  return new Date(ts).toLocaleTimeString(undefined, { hour12: false });
 }
 
 export default function EdgeHistoryPanel() {
@@ -57,19 +57,19 @@ export default function EdgeHistoryPanel() {
         <button
           onClick={() => setOpenEdge(null)}
           className="text-[#555] hover:text-[#f87171] transition-colors p-0.5 rounded hover:bg-[#2a2a2a] shrink-0"
-          title="Fechar histórico"
+          title="Close history"
         >
           <X size={13} />
         </button>
       </div>
 
-      {/* Mensagens */}
+      {/* Messages */}
       <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-2">
         {entries.length === 0 && (
           <div className="text-[10px] text-[#555] text-center pt-8">
-            Nenhuma mensagem entre esses agentes ainda.
+            No messages between these agents yet.
             <br />
-            (o histórico registra send, ask, reply e broadcast)
+            (the history records send, ask, reply and broadcast)
           </div>
         )}
         {entries.map((e, i) => {

@@ -18,20 +18,20 @@ interface ToolButton {
 }
 
 const TOOL_BUTTONS: ToolButton[] = [
-  { tool: "select", icon: MousePointer2, label: "Seletor", shortcut: "V" },
+  { tool: "select", icon: MousePointer2, label: "Select", shortcut: "V" },
   { tool: "terminal", icon: Terminal, label: "Terminal", shortcut: "T" },
-  { tool: "note", icon: StickyNote, label: "Nota", shortcut: "N" },
-  { tool: "text", icon: Type, label: "Texto", shortcut: "X" },
-  { tool: "files", icon: Folder, label: "Arquivos", shortcut: "F" },
-  { tool: "attachment", icon: Paperclip, label: "Anexo", shortcut: "A" },
+  { tool: "note", icon: StickyNote, label: "Note", shortcut: "N" },
+  { tool: "text", icon: Type, label: "Text", shortcut: "X" },
+  { tool: "files", icon: Folder, label: "Files", shortcut: "F" },
+  { tool: "attachment", icon: Paperclip, label: "Attachment", shortcut: "A" },
   { tool: "portal", icon: Globe, label: "Portal", shortcut: "W" },
 ];
 
 const DISABLED_TOOLS: ReadonlySet<Tool> = new Set();
 
 interface Props {
-  // Terminal e Anexo são ações (abrem picker/dialog), não modos persistentes —
-  // o dono do fluxo é o Canvas.
+  // Terminal and Attachment are actions (they open a picker/dialog), not
+  // persistent modes — the Canvas owns that flow.
   onTerminal: () => void;
   onAttachment: () => void;
 }
@@ -63,7 +63,7 @@ export default function Toolbar({ onTerminal, onAttachment }: Props) {
               key={tool}
               whileTap={disabled ? undefined : { scale: 0.9 }}
               onClick={() => handleTool(tool)}
-              title={disabled ? `${label} — em breve` : `${label} (${shortcut})`}
+              title={disabled ? `${label} — coming soon` : `${label} (${shortcut})`}
               className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors
                 ${isActive
                   ? "bg-[#8b5cf6]/20 text-[#8b5cf6]"
@@ -78,11 +78,11 @@ export default function Toolbar({ onTerminal, onAttachment }: Props) {
 
         <div className="w-px h-5 bg-[#2a2a2a] mx-0.5" />
 
-        {/* Desenho + sub-controles expansíveis */}
+        {/* Draw + expandable sub-controls */}
         <motion.button
           whileTap={{ scale: 0.9 }}
           onClick={() => handleTool("draw")}
-          title="Desenho (D)"
+          title="Draw (D)"
           className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors
             ${active === "draw"
               ? "bg-[#8b5cf6]/20 text-[#8b5cf6]"
@@ -105,7 +105,7 @@ export default function Toolbar({ onTerminal, onAttachment }: Props) {
                   onClick={() => setColor(c)}
                   className="w-4 h-4 rounded-full border-2 transition-transform hover:scale-110 shrink-0"
                   style={{ background: c, borderColor: c === color ? "#fff" : "transparent" }}
-                  title="Cor"
+                  title="Color"
                 />
               ))}
               <button
@@ -123,14 +123,14 @@ export default function Toolbar({ onTerminal, onAttachment }: Props) {
               </button>
               <button
                 onClick={undoSketch}
-                title="Desfazer (Ctrl+Z)"
+                title="Undo (Ctrl+Z)"
                 className="w-6 h-6 flex items-center justify-center rounded-full text-[#888] hover:text-white shrink-0"
               >
                 <Undo2 size={12} />
               </button>
               <button
                 onClick={clearSketch}
-                title="Limpar desenho"
+                title="Clear sketch"
                 className="w-6 h-6 flex items-center justify-center rounded-full text-[#f87171] hover:text-white shrink-0"
               >
                 <Eraser size={12} />
@@ -141,10 +141,10 @@ export default function Toolbar({ onTerminal, onAttachment }: Props) {
 
         <div className="w-px h-5 bg-[#2a2a2a] mx-0.5" />
 
-        {/* Indicador de auto-save (Ctrl+S força) */}
+        {/* Auto-save indicator (Ctrl+S forces) */}
         <button
           onClick={() => saveNow().catch(console.error)}
-          title="Auto-save ativo — Ctrl+S salva agora"
+          title="Auto-save on — Ctrl+S saves now"
           className="flex items-center gap-1 px-2 h-8 rounded-full text-[10px] transition-colors hover:bg-[#222]"
           style={{ color: saveState === "saved" ? "#4ade80" : saveState === "saving" ? "#8b5cf6" : "#6b7280" }}
         >
@@ -155,7 +155,7 @@ export default function Toolbar({ onTerminal, onAttachment }: Props) {
           ) : (
             <Save size={11} />
           )}
-          {saveState === "saving" ? "Salvando" : saveState === "saved" ? "Salvo" : "Salvar"}
+          {saveState === "saving" ? "Saving" : saveState === "saved" ? "Saved" : "Save"}
         </button>
       </div>
     </div>

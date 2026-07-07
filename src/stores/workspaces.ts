@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { listHistorias, saveHistoria, deleteHistoria, renameHistoria } from "@/lib/tauri";
+import { listScenes, saveScene, deleteScene, renameScene } from "@/lib/tauri";
 
 interface WorkspacesStore {
   list: string[];
@@ -17,7 +17,7 @@ export const useWorkspacesStore = create<WorkspacesStore>((set, get) => ({
 
   loadList: async () => {
     try {
-      let list = await listHistorias();
+      let list = await listScenes();
       if (!list.includes("default")) list = ["default", ...list];
       set({ list });
     } catch {
@@ -30,13 +30,13 @@ export const useWorkspacesStore = create<WorkspacesStore>((set, get) => ({
   createWorkspace: async (name) => {
     const trimmed = name.trim();
     if (!trimmed || get().list.includes(trimmed)) return;
-    await saveHistoria(trimmed, { nodes: [], edges: [] });
+    await saveScene(trimmed, { nodes: [], edges: [] });
     set((s) => ({ list: [...s.list, trimmed] }));
   },
 
   deleteWorkspace: async (name) => {
     if (name === "default") return;
-    await deleteHistoria(name);
+    await deleteScene(name);
     set((s) => {
       const list = s.list.filter((w) => w !== name);
       return { list, current: s.current === name ? "default" : s.current };
@@ -46,7 +46,7 @@ export const useWorkspacesStore = create<WorkspacesStore>((set, get) => ({
   renameWorkspace: async (oldName, newName) => {
     const trimmed = newName.trim();
     if (!trimmed || oldName === "default" || get().list.includes(trimmed)) return;
-    await renameHistoria(oldName, trimmed);
+    await renameScene(oldName, trimmed);
     set((s) => ({
       list: s.list.map((w) => (w === oldName ? trimmed : w)),
       current: s.current === oldName ? trimmed : s.current,

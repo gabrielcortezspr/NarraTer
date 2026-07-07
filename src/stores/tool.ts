@@ -10,7 +10,7 @@ export type Tool =
   | "portal"
   | "draw";
 
-// Ferramentas em que o próximo clique no pane posiciona um nó novo.
+// Tools where the next click on the pane places a new node.
 export const PLACEMENT_TOOLS: ReadonlySet<Tool> = new Set(["note", "text", "files", "portal"]);
 
 interface ToolStore {

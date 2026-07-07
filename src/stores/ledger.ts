@@ -1,10 +1,10 @@
 import { create } from "zustand";
 
-// Observabilidade das conversas entre agentes: o backend emite `narrater_msg`
-// para cada send/ask/reply/broadcast; aqui vive o "última atividade por par"
-// (pulso das edges) e qual edge está com o painel de histórico aberto.
+// Observability for inter-agent conversations: the backend emits `narrater_msg`
+// for each send/ask/reply/broadcast; this holds the "last activity per pair"
+// (edge pulses) and which edge has the history panel open.
 
-/** Chave normalizada do par — a mesma para A→B e B→A. */
+/** Normalized pair key — the same for A→B and B→A. */
 export const pairKey = (a: string, b: string) => [a, b].sort().join("|");
 
 export interface OpenEdge {
@@ -13,9 +13,9 @@ export interface OpenEdge {
 }
 
 interface LedgerStore {
-  /** pairKey → timestamp (ms) da última mensagem trafegada. */
+  /** pairKey → timestamp (ms) of the last message exchanged. */
   lastActivity: Record<string, number>;
-  /** Edge agent-pipe com o painel de histórico aberto, se houver. */
+  /** Agent-pipe edge with the history panel open, if any. */
   openEdge: OpenEdge | null;
   bump: (from: string, to: string, ts: number) => void;
   setOpenEdge: (edge: OpenEdge | null) => void;

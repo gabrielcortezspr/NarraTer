@@ -14,7 +14,7 @@ import { initCanvasBridge } from "@/lib/canvasBridge";
 import type { LedgerEntry, QueueItem } from "@/lib/tauri";
 
 export default function App() {
-  const { loadHistoria } = useCanvasStore();
+  const { loadScene } = useCanvasStore();
   const { loadList } = useWorkspacesStore();
   const { load: loadRoles } = useRolesStore();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -23,7 +23,7 @@ export default function App() {
 
   useEffect(() => {
     const init = async () => {
-      await Promise.all([loadList(), loadRoles(), loadHistoria("default")]);
+      await Promise.all([loadList(), loadRoles(), loadScene("default")]);
     };
     init();
   }, []);
@@ -43,7 +43,7 @@ export default function App() {
       if (code !== 0) {
         const node = useCanvasStore.getState().nodes.find((n) => n.id === id);
         const label = (node?.data as { label?: string } | undefined)?.label ?? id;
-        toast.warning(`"${label}" encerrou com código ${code}`);
+        toast.warning(`"${label}" exited with code ${code}`);
       }
     }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
@@ -51,13 +51,13 @@ export default function App() {
       useTerminalsStore.getState().setQueue(event.payload.id, event.payload.items ?? []);
     }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
-    // Ledger de mensagens entre agentes → pulso nas edges e histórico ao vivo
+    // Inter-agent message ledger → edge pulses and live history
     listen<LedgerEntry>("narrater_msg", (event) => {
       const { from, to, ts } = event.payload;
       useLedgerStore.getState().bump(from, to, ts);
     }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
-    // Agentes manipulando o canvas via MCP (canvas_request → store → respond)
+    // Agents manipulating the canvas via MCP (canvas_request → store → respond)
     initCanvasBridge().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
     return () => {

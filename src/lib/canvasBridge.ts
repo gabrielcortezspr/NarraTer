@@ -3,10 +3,10 @@ import { useCanvasStore } from "@/stores/canvas";
 import { canvasRespond } from "@/lib/tauri";
 import type { AppEdge, AppNode, NoteNodeData } from "@/stores/canvas";
 
-// Ponte agente → canvas (MCP): o backend emite `canvas_request` para cada
-// tool canvas_* chamada por um agente; aplicamos a ação no store (única fonte
-// de verdade — o auto-save persiste) e devolvemos o resultado via
-// canvas_respond, que acorda o handler do socket aguardando com timeout.
+// Agent → canvas bridge (MCP): the backend emits `canvas_request` for each
+// canvas_* tool called by an agent; we apply the action on the store (single
+// source of truth — auto-save persists it) and return the result via
+// canvas_respond, which wakes the socket handler waiting with a timeout.
 export interface CanvasRequest {
   req_id: string;
   from: string;
@@ -15,8 +15,8 @@ export interface CanvasRequest {
   params: Record<string, unknown> | null;
 }
 
-// Resolve por id exato ou, na falta, por label (case-insensitive). Erro
-// legível quando o label bate em mais de um nó — o agente deve usar o id.
+// Resolves by exact id or, failing that, by label (case-insensitive). Readable
+// error when the label matches more than one node — the agent must use the id.
 function resolveNode(nodes: AppNode[], ref: string, kind: string): AppNode | string {
   const byId = nodes.find((n) => n.id === ref);
   if (byId) return byId;
@@ -24,13 +24,13 @@ function resolveNode(nodes: AppNode[], ref: string, kind: string): AppNode | str
     (n) => ((n.data as { label?: string }).label ?? "").toLowerCase() === ref.toLowerCase()
   );
   if (byLabel.length > 1) {
-    return `Erro: label '${ref}' é ambíguo (${byLabel.length} ${kind}s) — use o id (canvas_list_nodes)`;
+    return `Error: label '${ref}' is ambiguous (${byLabel.length} ${kind}s) — use the id (canvas_list_nodes)`;
   }
-  if (byLabel.length === 0) return `Erro: nenhum(a) ${kind} com id ou label '${ref}'`;
+  if (byLabel.length === 0) return `Error: no ${kind} with id or label '${ref}'`;
   return byLabel[0];
 }
 
-// Default de posição para nós criados por agente: à direita do terminal de quem pediu.
+// Default position for agent-created nodes: to the right of the caller's terminal.
 function defaultPosition(nodes: AppNode[], fromId: string): { x: number; y: number } {
   const fromNode = nodes.find((n) => n.id === fromId);
   return fromNode
@@ -59,7 +59,7 @@ function handleRequest(req: CanvasRequest): string {
 
     case "create_note": {
       const content = typeof params.content === "string" ? params.content : "";
-      if (!content) return "Erro: content vazio";
+      if (!content) return "Error: empty content";
       const label = typeof params.label === "string" && params.label ? params.label : "Note";
 
       const position =
@@ -68,57 +68,57 @@ function handleRequest(req: CanvasRequest): string {
           : defaultPosition(store.nodes, req.from);
 
       const id = store.addNoteNode(position, { content, label });
-      return `ok: nota criada (id: ${id})`;
+      return `ok: note created (id: ${id})`;
     }
 
     case "read_note": {
       const ref = typeof params.id === "string" ? params.id : "";
-      if (!ref) return "Erro: informe o id ou label da nota";
-      const resolved = resolveNode(store.nodes.filter((n) => n.type === "note"), ref, "nota");
+      if (!ref) return "Error: provide the note's id or label";
+      const resolved = resolveNode(store.nodes.filter((n) => n.type === "note"), ref, "note");
       if (typeof resolved === "string") return resolved;
       const content = (resolved.data as NoteNodeData).content ?? "";
-      return content.length > 0 ? content : "(nota vazia)";
+      return content.length > 0 ? content : "(empty note)";
     }
 
     case "create_text": {
       const text = typeof params.text === "string" ? params.text : "";
-      if (!text) return "Erro: text vazio";
+      if (!text) return "Error: empty text";
       const position =
         typeof params.x === "number" && typeof params.y === "number"
           ? { x: params.x, y: params.y }
           : defaultPosition(store.nodes, req.from);
       const id = store.addTextNode(position, text);
-      return `ok: texto criado (id: ${id})`;
+      return `ok: text created (id: ${id})`;
     }
 
     case "move_node": {
       const ref = typeof params.id === "string" ? params.id : "";
-      if (!ref) return "Erro: informe o id ou label do nó";
+      if (!ref) return "Error: provide the node's id or label";
       if (typeof params.x !== "number" || typeof params.y !== "number") {
-        return "Erro: x e y são obrigatórios (números)";
+        return "Error: x and y are required (numbers)";
       }
-      const resolved = resolveNode(store.nodes, ref, "nó");
+      const resolved = resolveNode(store.nodes, ref, "node");
       if (typeof resolved === "string") return resolved;
       store.moveNode(resolved.id, { x: params.x, y: params.y });
-      return `ok: nó movido (id: ${resolved.id}) para (${Math.round(params.x)}, ${Math.round(params.y)})`;
+      return `ok: node moved (id: ${resolved.id}) to (${Math.round(params.x)}, ${Math.round(params.y)})`;
     }
 
     case "connect_nodes": {
       const sourceRef = typeof params.source === "string" ? params.source : "";
       const targetRef = typeof params.target === "string" ? params.target : "";
-      if (!sourceRef || !targetRef) return "Erro: informe source e target (id ou label)";
+      if (!sourceRef || !targetRef) return "Error: provide source and target (id or label)";
 
-      const source = resolveNode(store.nodes, sourceRef, "nó");
+      const source = resolveNode(store.nodes, sourceRef, "node");
       if (typeof source === "string") return source;
-      const target = resolveNode(store.nodes, targetRef, "nó");
+      const target = resolveNode(store.nodes, targetRef, "node");
       if (typeof target === "string") return target;
-      if (source.id === target.id) return "Erro: source e target são o mesmo nó";
+      if (source.id === target.id) return "Error: source and target are the same node";
 
       const existing = store.edges.find((e) => e.source === source.id && e.target === target.id);
-      if (existing) return `ok: conexão já existia (id: ${existing.id}, tipo: ${existing.type})`;
+      if (existing) return `ok: connection already existed (id: ${existing.id}, type: ${existing.type})`;
 
-      // Mesma classificação do onConnect do Canvas — agent-pipe vira rota de
-      // comunicação no backend via syncConnections (dentro de addEdge).
+      // Same classification as the Canvas onConnect — agent-pipe becomes a
+      // communication route in the backend via syncConnections (inside addEdge).
       const isAgentNote =
         (source.type === "terminal" && target.type === "note") ||
         (source.type === "note" && target.type === "terminal");
@@ -134,25 +134,25 @@ function handleRequest(req: CanvasRequest): string {
         style: edgeType === "default" ? { stroke: "#4a4a4a", strokeWidth: 1.5 } : undefined,
       };
       store.addEdge(edge);
-      return `ok: conexão criada (id: ${edge.id}, tipo: ${edgeType}, rota: ${source.id} → ${target.id})`;
+      return `ok: connection created (id: ${edge.id}, type: ${edgeType}, route: ${source.id} → ${target.id})`;
     }
 
     case "update_note": {
       const ref = typeof params.id === "string" ? params.id : "";
       const content = typeof params.content === "string" ? params.content : "";
-      if (!ref) return "Erro: informe o id ou label da nota";
-      if (!content) return "Erro: content vazio";
+      if (!ref) return "Error: provide the note's id or label";
+      if (!content) return "Error: empty content";
 
-      const resolved = resolveNode(store.nodes.filter((n) => n.type === "note"), ref, "nota");
+      const resolved = resolveNode(store.nodes.filter((n) => n.type === "note"), ref, "note");
       if (typeof resolved === "string") return resolved;
 
       if (params.mode === "replace") store.updateNodeData(resolved.id, { content });
       else store.appendNoteContent(resolved.id, content);
-      return `ok: nota atualizada (id: ${resolved.id})`;
+      return `ok: note updated (id: ${resolved.id})`;
     }
 
     default:
-      return `Erro: ação de canvas desconhecida '${req.action}'`;
+      return `Error: unknown canvas action '${req.action}'`;
   }
 }
 
@@ -163,9 +163,9 @@ export function initCanvasBridge(): Promise<() => void> {
     try {
       result = handleRequest(req);
     } catch (e) {
-      result = `Erro: ${e}`;
+      result = `Error: ${e}`;
     }
-    // Sempre responder — inclusive erro — para não deixar o agente no timeout
+    // Always respond — including errors — so the agent never hits the timeout
     canvasRespond(req.req_id, result).catch(console.error);
   });
 }
