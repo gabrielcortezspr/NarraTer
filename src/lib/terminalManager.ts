@@ -5,7 +5,9 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { onPtyOutput, onPtyExit } from "@/lib/ptyBus";
 import { ptySpawn, ptyWrite, ptyResize, ptyKill, getSpawnSpec } from "@/lib/tauri";
 import type { AgentType } from "@/lib/tauri";
+import { buildAgentSystemPrompt } from "@/lib/agentPrompt";
 import { useTerminalsStore } from "@/stores/terminals";
+import { useRolesStore } from "@/stores/roles";
 import { toast } from "@/stores/toasts";
 
 // xterm+PTY lifecycle outside React (item 1.2 of the frontend plan).
@@ -17,7 +19,9 @@ export interface SpawnOpts {
   agentType: AgentType;
   command?: string;
   label?: string;
-  systemPrompt?: string;
+  /** Role assigned to the node; resolved against the roles store at spawn. */
+  roleId?: string;
+  roleName?: string;
   /** Written into the composer after spawn (non-claude agents). */
   instructions?: string;
   /** Spawn the agent with its permission prompts bypassed (claude/codex). */
@@ -62,11 +66,74 @@ const XTERM_THEME = {
 
 const terminals = new Map<string, ManagedTerminal>();
 
+const BASE_FONT_SIZE = 13;
+// Crisp re-render only where the terminal is actually readable; below the
+// tile's LOD threshold the body is hidden anyway, above 3 it's the maxZoom.
+const CRISP_MIN_ZOOM = 0.35;
+const CRISP_MAX_ZOOM = 3;
+
+let currentZoom = 1;
+let zoomTimer: number | undefined;
+
+// React Flow zooms with a CSS transform, so the xterm canvas is rasterized at
+// the node's logical size and then stretched — blurry at any zoom ≠ 1. The
+// fix is counter-scaling: lay the container out `zoom`× larger, scale it back
+// down with CSS, and scale the font up by `zoom`. The WebGL canvas then backs
+// the screen 1:1 in device pixels (crisp), while cell metrics scale uniformly
+// so cols/rows — and therefore the PTY size — stay put.
+function styleContainerForZoom(container: HTMLDivElement, zoom: number): void {
+  container.style.width = `${100 * zoom}%`;
+  container.style.height = `${100 * zoom}%`;
+  container.style.transform = `scale(${1 / zoom})`;
+  container.style.transformOrigin = "top left";
+}
+
+function applyZoom(zoom: number): void {
+  currentZoom = zoom;
+  for (const [id, mt] of terminals) {
+    styleContainerForZoom(mt.container, zoom);
+    mt.term.options.fontSize = BASE_FONT_SIZE * zoom;
+    if (mt.container.isConnected) fitTerminal(id);
+  }
+}
+
+/**
+ * Re-renders all terminals at the screen's physical resolution for the given
+ * canvas zoom. Debounced: during the gesture the plain CSS scale keeps things
+ * cheap (slightly soft); once the zoom settles, the atlas re-renders crisp.
+ */
+export function scheduleTerminalZoomSync(zoom: number): void {
+  const clamped = Math.min(CRISP_MAX_ZOOM, Math.max(CRISP_MIN_ZOOM, zoom));
+  if (clamped === currentZoom) return;
+  if (zoomTimer !== undefined) clearTimeout(zoomTimer);
+  zoomTimer = window.setTimeout(() => {
+    zoomTimer = undefined;
+    applyZoom(clamped);
+  }, 120);
+}
+
 async function spawnInto(id: string, mt: ManagedTerminal): Promise<void> {
   const { addSession, setRunning, setExited } = useTerminalsStore.getState();
-  const { agentType, command, label, systemPrompt, instructions, skipPermissions, pipes } = mt.opts;
+  const { agentType, command, label, roleId, roleName, instructions, skipPermissions, pipes } = mt.opts;
   addSession(id);
-  const { command: cmd, args } = getSpawnSpec(agentType, command, systemPrompt, skipPermissions);
+
+  // Delegate-only roles must be resolved before the spawn args are built —
+  // scenes can hydrate terminals before the roles store finishes loading.
+  let orchestrator = false;
+  if (roleId) {
+    if (!useRolesStore.getState().loaded) {
+      await useRolesStore.getState().load().catch(console.error);
+    }
+    orchestrator = useRolesStore.getState().getRole(roleId)?.orchestrator ?? false;
+  }
+
+  // Claude gets identity/role/protocol as a durable system prompt (plus the
+  // narrater MCP tools); other agents keep the composer injection below.
+  const systemPrompt =
+    agentType === "claude"
+      ? buildAgentSystemPrompt({ label: label ?? "agent", roleName, instructions, orchestrator })
+      : undefined;
+  const { command: cmd, args } = getSpawnSpec(agentType, command, systemPrompt, skipPermissions, orchestrator);
   try {
     const effectiveLabel = await ptySpawn({
       id, command: cmd, args, cols: mt.term.cols, rows: mt.term.rows, label, agentType,
@@ -112,7 +179,7 @@ export function ensureTerminal(id: string, opts: SpawnOpts): ManagedTerminal {
   const term = new XTerm({
     theme: XTERM_THEME,
     fontFamily: '"JetBrains Mono", "Cascadia Code", "Fira Code", monospace',
-    fontSize: 13,
+    fontSize: BASE_FONT_SIZE * currentZoom,
     lineHeight: 1.4,
     cursorBlink: true,
     cursorStyle: "block",
@@ -124,8 +191,7 @@ export function ensureTerminal(id: string, opts: SpawnOpts): ManagedTerminal {
   term.loadAddon(new WebLinksAddon());
 
   const container = document.createElement("div");
-  container.style.width = "100%";
-  container.style.height = "100%";
+  styleContainerForZoom(container, currentZoom);
   term.open(container);
 
   try {
@@ -171,8 +237,13 @@ export function fitTerminal(id: string): void {
   const mt = terminals.get(id);
   if (!mt || !mt.container.isConnected) return;
   try {
+    const { cols, rows } = mt.term;
     mt.fit.fit();
-    ptyResize(id, mt.term.cols, mt.term.rows).catch(() => {});
+    // Zoom re-renders keep the grid identical by design — only tell the PTY
+    // when the terminal actually changed size (avoids SIGWINCH noise).
+    if (mt.term.cols !== cols || mt.term.rows !== rows) {
+      ptyResize(id, mt.term.cols, mt.term.rows).catch(() => {});
+    }
   } catch {
     // hidden/zero-size container — the next resize fixes it
   }

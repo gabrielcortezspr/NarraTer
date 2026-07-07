@@ -9,8 +9,9 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
 use crate::pty::{
-    enqueue_message, now_ms, record_msg, AskWaiter, LedgerEntry, PtyStateInner, PtyStatusEvent,
-    QueuedMsg, ResponseListener, RunStatus, MAX_QUEUE_WAIT, REPLY_GRANT_TTL,
+    enqueue_message, now_ms, queue_snapshot, record_msg, AskWaiter, LedgerEntry, PtyQueueEvent,
+    PtyStateInner, PtyStatusEvent, QueuedMsg, ResponseListener, RunStatus, HOOKED_QUEUE_WAIT,
+    MAX_QUEUE_WAIT, REPLY_GRANT_TTL,
 };
 
 const ASK_DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -386,7 +387,7 @@ async fn ask_by_reply(
     let (tx, rx) = oneshot::channel::<String>();
     let (delivered_tx, delivered_rx) = oneshot::channel::<()>();
 
-    let (msg_id, to_label) = {
+    let (msg_id, to_label, delivery_wait) = {
         let mut inner = state.lock().unwrap();
         let id = new_ask_id(&inner.ask_waiters);
         inner.ask_waiters.insert(id.clone(), AskWaiter {
@@ -394,7 +395,15 @@ async fn ask_by_reply(
             asker_id: req.from.clone(),
             tx,
         });
-        (id, label_of(&inner, &target_id))
+        // Wait for delivery at least as long as the monitor's force-inject
+        // backstop for this target — hooked sessions only get force-injected
+        // after HOOKED_QUEUE_WAIT, so giving up earlier strands the message.
+        let force_wait = inner
+            .sessions
+            .get(&target_id)
+            .map(|s| if s.hook_idle { HOOKED_QUEUE_WAIT } else { MAX_QUEUE_WAIT })
+            .unwrap_or(MAX_QUEUE_WAIT);
+        (id, label_of(&inner, &target_id), force_wait + Duration::from_secs(5))
     };
 
     enqueue_message(state, app, &target_id, QueuedMsg {
@@ -416,13 +425,31 @@ async fn ask_by_reply(
         ts: now_ms(),
     });
 
-    if timeout(MAX_QUEUE_WAIT + Duration::from_secs(5), delivered_rx)
+    if timeout(delivery_wait, delivered_rx)
         .await
         .map(|r| r.is_err())
         .unwrap_or(true)
     {
-        state.lock().unwrap().ask_waiters.remove(&msg_id);
-        return "Erro: timeout aguardando a entrega da mensagem ao agente\n".to_string();
+        // Give up cleanly: withdraw the undelivered message from the target's
+        // queue too — otherwise it gets injected later as a zombie ask nobody
+        // is waiting on, and the target burns a turn answering into the void.
+        let items = {
+            let mut inner = state.lock().unwrap();
+            inner.ask_waiters.remove(&msg_id);
+            if let Some(queue) = inner.inbox.get_mut(&target_id) {
+                queue.retain(|m| m.msg_id.as_deref() != Some(msg_id.as_str()));
+                if queue.is_empty() {
+                    inner.inbox.remove(&target_id);
+                }
+            }
+            queue_snapshot(&inner, &target_id)
+        };
+        let _ = app.emit("pty_queue", PtyQueueEvent {
+            id: target_id.clone(),
+            pending: items.len(),
+            items,
+        });
+        return "Error: timeout waiting for the message to be delivered — the agent stayed busy; the message was withdrawn from the queue, try again\n".to_string();
     }
 
     let max = req.timeout_secs.map(Duration::from_secs).unwrap_or(ASK_DEFAULT_TIMEOUT);
@@ -430,19 +457,19 @@ async fn ask_by_reply(
         Ok(Ok(text)) => {
             if text.ends_with('\n') { text } else { format!("{}\n", text) }
         }
-        Ok(Err(_)) => "Erro: o agente encerrou sem responder\n".to_string(),
+        Ok(Err(_)) => "Error: the agent exited without replying\n".to_string(),
         Err(_) => {
             state.lock().unwrap().ask_waiters.remove(&msg_id);
             format!(
-                "Erro: o agente não respondeu (reply) em {}s — ele pode ainda estar trabalhando; tente de novo com --timeout maior\n",
+                "Error: the agent did not reply within {}s — it may still be working; try again with a larger --timeout\n",
                 max.as_secs()
             )
         }
     }
 }
 
-/// Ids curtos de 4 hex, únicos entre os asks pendentes — legíveis no frame
-/// (`#a3f2`) e fáceis de digitar num `narrater reply`.
+/// Short 4-hex ids, unique among the pending asks — readable in the frame
+/// (`#a3f2`) and easy to type in a `narrater reply`.
 fn new_ask_id(pending: &std::collections::HashMap<String, AskWaiter>) -> String {
     loop {
         let id = uuid::Uuid::new_v4().simple().to_string()[..4].to_string();
@@ -452,17 +479,17 @@ fn new_ask_id(pending: &std::collections::HashMap<String, AskWaiter>) -> String 
     }
 }
 
-/// Responde a um ask pendente: resolve o oneshot registrado pelo id curto.
-/// Sem checagem de edge — o reply é o canal de volta de uma pergunta que já
-/// chegou até você; só o terminal que recebeu o ask pode respondê-lo.
+/// Answers a pending ask: resolves the oneshot registered under the short id.
+/// No edge check — the reply is the return channel of a question that already
+/// reached you; only the terminal that received the ask can answer it.
 fn handle_reply(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInner>>) -> String {
     let msg_id = match req.msg_id.as_deref() {
         Some(i) if !i.is_empty() => i.trim_start_matches('#').to_string(),
-        _ => return "Erro: informe o id da mensagem (o #id do frame recebido)\n".to_string(),
+        _ => return "Error: provide the message id (the #id from the received frame)\n".to_string(),
     };
     let text = match req.msg.as_deref() {
         Some(m) if !m.is_empty() => m.to_string(),
-        _ => return "Erro: resposta vazia\n".to_string(),
+        _ => return "Error: empty reply\n".to_string(),
     };
 
     let entry = {
@@ -473,12 +500,12 @@ fn handle_reply(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInn
         match inner.ask_waiters.get(&msg_id) {
             None => {
                 return format!(
-                    "Erro: nenhuma pergunta pendente com id '{}' — ela expirou, já foi respondida, ou o id está errado\n",
+                    "Error: no pending question with id '{}' — it expired, was already answered, or the id is wrong\n",
                     msg_id
                 )
             }
             Some(w) if w.responder_id != req.from => {
-                return "Erro: essa pergunta não foi direcionada a você\n".to_string()
+                return "Error: that question was not directed to you\n".to_string()
             }
             Some(_) => {}
         }
@@ -497,12 +524,13 @@ fn handle_reply(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtyStateInn
         entry
     };
     record_msg(state, app, entry);
-    "ok: resposta entregue\n".to_string()
+    "ok: reply delivered\n".to_string()
 }
 
-/// Hook Stop do claude (`narrater notify-idle`): sinal autoritativo de fim de
-/// turno. Marca a sessão Idle (a fila drena no próximo tick) e registra que
-/// esta sessão tem hook — o timer de silêncio deixa de valer para ela.
+/// claude's Stop hook (`narrater notify-idle`): the authoritative end-of-turn
+/// signal. Marks the session Idle (the queue drains on the next tick) and
+/// records that this session has a hook — the silence timer no longer applies
+/// to it.
 fn handle_notify_idle(
     req: &IpcRequest,
     app: &AppHandle,
@@ -523,7 +551,7 @@ fn handle_notify_idle(
     "ok\n".to_string()
 }
 
-/// Fallback para alvos shell: captura o stdout até o alvo assentar em Idle.
+/// Fallback for shell targets: scrapes stdout until the target settles on Idle.
 async fn ask_by_scraping(
     req: &IpcRequest,
     app: &AppHandle,
@@ -584,7 +612,7 @@ async fn ask_by_scraping(
 
     if !delivered {
         state.lock().unwrap().response_listeners.remove(&req_id);
-        return "Erro: timeout aguardando a entrega da mensagem ao agente\n".to_string();
+        return "Error: timeout waiting for the message to be delivered to the agent\n".to_string();
     }
 
     // Phase B: capture until the target settles back to Idle (authoritative
@@ -620,16 +648,16 @@ async fn ask_by_scraping(
     strip_injected_echo(&strip_ansi(&response), &from_label, &msg)
 }
 
-/// Remove sequências de escape ANSI (CSI, OSC e escapes de 2 bytes) e
-/// retornos de carro, deixando só o texto — o output cru de PTY vem cheio de
-/// cores, redraws e movimentação de cursor.
+/// Strips ANSI escape sequences (CSI, OSC and 2-byte escapes) and carriage
+/// returns, leaving only the text — raw PTY output is full of colors, redraws
+/// and cursor movement.
 fn strip_ansi(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
         match c {
             '\x1b' => match chars.next() {
-                // CSI: ESC [ ... byte final em 0x40-0x7E
+                // CSI: ESC [ ... final byte in 0x40-0x7E
                 Some('[') => {
                     for n in chars.by_ref() {
                         if ('\x40'..='\x7e').contains(&n) {
@@ -637,7 +665,7 @@ fn strip_ansi(s: &str) -> String {
                         }
                     }
                 }
-                // OSC: ESC ] ... terminado por BEL ou ST (ESC \)
+                // OSC: ESC ] ... terminated by BEL or ST (ESC \)
                 Some(']') => {
                     while let Some(n) = chars.next() {
                         if n == '\x07' {
@@ -651,11 +679,11 @@ fn strip_ansi(s: &str) -> String {
                         }
                     }
                 }
-                // Designação de charset: ESC ( X / ESC ) X
+                // Charset designation: ESC ( X / ESC ) X
                 Some('(') | Some(')') => {
                     chars.next();
                 }
-                // Escapes de 2 bytes (ESC =, ESC >, ESC 7, …): já consumido
+                // 2-byte escapes (ESC =, ESC >, ESC 7, …): already consumed
                 _ => {}
             },
             '\r' => {}
@@ -674,11 +702,11 @@ struct CanvasRequestEvent {
     params: serde_json::Value,
 }
 
-/// Ponte agente → canvas: registra um waiter, emite `canvas_request` para o
-/// frontend (que aplica a ação no store e responde via canvas_respond) e
-/// espera o resultado. ACL v1: qualquer agente com sessão válida pode
-/// manipular o canvas — as edges seguem governando só a comunicação
-/// agente↔agente (ver docs/mcp-canvas-tools.md).
+/// Agent → canvas bridge: registers a waiter, emits `canvas_request` to the
+/// frontend (which applies the action to the store and answers via
+/// canvas_respond) and awaits the result. ACL v1: any agent with a valid
+/// session can manipulate the canvas — edges keep governing only agent↔agent
+/// communication (see docs/mcp-canvas-tools.md).
 async fn handle_canvas(
     req: &IpcRequest,
     app: &AppHandle,
@@ -686,10 +714,10 @@ async fn handle_canvas(
 ) -> String {
     let action = match req.action.as_deref() {
         Some(a) if !a.is_empty() => a.to_string(),
-        _ => return "Erro: ação de canvas não informada\n".to_string(),
+        _ => return "Error: no canvas action given\n".to_string(),
     };
     if req.from.is_empty() {
-        return "Erro: NARRATER_ID não definido. Você está dentro de um terminal NarraTer?\n".into();
+        return "Error: NARRATER_ID not set. Are you inside a NarraTer terminal?\n".into();
     }
 
     let req_id = uuid::Uuid::new_v4().to_string();
@@ -717,16 +745,16 @@ async fn handle_canvas(
         }
         _ => {
             state.lock().unwrap().canvas_waiters.remove(&req_id);
-            "Erro: timeout aguardando o canvas\n".to_string()
+            "Error: timeout waiting for the canvas\n".to_string()
         }
     }
 }
 
-/// The target PTY echoes the injected line back — `[narrater de <label>]: ...`
+/// The target PTY echoes the injected line back — `[narrater from <label>]: ...`
 /// for AI agents, the bare command for shells. Cut everything up to and
 /// including that echo so the caller sees only the actual reply.
 fn strip_injected_echo(response: &str, from_label: &str, msg: &str) -> String {
-    let marker = format!("[narrater de {}]", from_label);
+    let marker = format!("[narrater from {}]", from_label);
     let pos = response.find(&marker).or_else(|| response.find(msg));
     if let Some(pos) = pos {
         if let Some(nl) = response[pos..].find('\n') {
@@ -762,8 +790,8 @@ fn write_executable_script(name: &str, content: &str) {
     }
 }
 
-/// Settings extras passadas ao claude via `--settings` no spawn (pty.rs):
-/// hook Stop → `narrater notify-idle`, o sinal autoritativo de idle.
+/// Extra settings passed to claude via `--settings` at spawn (pty.rs):
+/// Stop hook → `narrater notify-idle`, the authoritative idle signal.
 pub fn claude_hooks_path() -> Option<std::path::PathBuf> {
     let home = std::env::var("HOME").ok()?;
     Some(std::path::PathBuf::from(home).join(".local/share/narrater/claude-hooks.json"))
@@ -792,16 +820,16 @@ fn write_claude_hooks_settings() {
 fn write_narrater_script() {
 
     let script = r#"#!/usr/bin/env python3
-"""narrater - comunicacao entre agentes NarraTer
+"""narrater - communication between NarraTer agents
 
-Uso:
-  narrater send <alvo> <mensagem>              envia e retorna imediatamente
-  narrater ask <alvo> <mensagem> [--timeout N] envia e espera a resposta
-  narrater reply <id> <resposta>               responde a um ask recebido (o #id do frame)
-  narrater broadcast <mensagem>                envia para todos os peers de uma vez
-  narrater inbox                               puxa (e drena) suas mensagens pendentes
-  narrater peers                               lista agentes alcancaveis
-  narrater whoami                              mostra sua identidade
+Usage:
+  narrater send <target> <message>              sends and returns immediately
+  narrater ask <target> <message> [--timeout N] sends and waits for the answer
+  narrater reply <id> <answer>                  answers a received ask (the frame's #id)
+  narrater broadcast <message>                  sends to all peers at once
+  narrater inbox                                pulls (and drains) your pending messages
+  narrater peers                                lists reachable agents
+  narrater whoami                               shows your identity
 """
 import socket, json, sys, os
 
@@ -809,7 +837,7 @@ import socket, json, sys, os
 def request(payload):
     sock = os.environ.get("NARRATER_SOCKET", "")
     if not sock:
-        print("Erro: NARRATER_SOCKET nao definido. Voce esta dentro de um terminal NarraTer?", file=sys.stderr)
+        print("Error: NARRATER_SOCKET not set. Are you inside a NarraTer terminal?", file=sys.stderr)
         sys.exit(1)
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
@@ -824,7 +852,7 @@ def request(payload):
             r += c
         return r.decode("utf-8")
     except Exception as e:
-        print(f"narrater erro: {e}", file=sys.stderr)
+        print(f"narrater error: {e}", file=sys.stderr)
         sys.exit(1)
     finally:
         s.close()
@@ -850,24 +878,24 @@ def main():
             try:
                 payload["timeout_secs"] = int(rest[i + 1])
             except (IndexError, ValueError):
-                print("Erro: --timeout requer um numero de segundos", file=sys.stderr)
+                print("Error: --timeout requires a number of seconds", file=sys.stderr)
                 sys.exit(1)
             del rest[i:i + 2]
         if len(rest) < 2:
-            print(f"Uso: narrater {mode} <alvo> <mensagem>", file=sys.stderr)
+            print(f"Usage: narrater {mode} <target> <message>", file=sys.stderr)
             sys.exit(1)
         payload["to"] = rest[0]
         payload["msg"] = " ".join(rest[1:])
     elif mode == "reply":
         rest = args[1:]
         if len(rest) < 2:
-            print("Uso: narrater reply <id> <resposta>", file=sys.stderr)
+            print("Usage: narrater reply <id> <answer>", file=sys.stderr)
             sys.exit(1)
         payload["msg_id"] = rest[0]
         payload["msg"] = " ".join(rest[1:])
     elif mode == "broadcast":
         if len(args) < 2:
-            print("Uso: narrater broadcast <mensagem>", file=sys.stderr)
+            print("Usage: narrater broadcast <message>", file=sys.stderr)
             sys.exit(1)
         payload["msg"] = " ".join(args[1:])
     elif mode not in ("peers", "whoami", "inbox", "notify-idle"):
@@ -877,7 +905,7 @@ def main():
     out = request(payload)
     if out:
         print(out, end="" if out.endswith("\n") else "\n")
-    if out.startswith("Erro"):
+    if out.startswith("Error"):
         sys.exit(1)
 
 
@@ -892,150 +920,150 @@ if __name__ == "__main__":
 /// agents (claude --mcp-config). Pure bridge to the same Unix socket.
 fn write_narrater_mcp_script() {
     let script = r#"#!/usr/bin/env python3
-"""narrater-mcp - servidor MCP que expoe a comunicacao entre agentes NarraTer"""
+"""narrater-mcp - MCP server exposing communication between NarraTer agents"""
 import json, os, socket, sys, threading
 
 TOOLS = [
     {
         "name": "send_message",
-        "description": "Envia uma mensagem para outro agente do canvas NarraTer (fire-and-forget; a entrega ocorre quando o agente alvo estiver ocioso). Use para delegar tarefas, notificar ou responder a uma mensagem recebida.",
+        "description": "Sends a message to another agent on the NarraTer canvas (fire-and-forget; delivery happens when the target agent is idle). Use it to delegate tasks, notify, or answer a received message.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "to": {"type": "string", "description": "Label do agente alvo (veja list_peers)"},
-                "msg": {"type": "string", "description": "Mensagem a enviar"},
+                "to": {"type": "string", "description": "Label of the target agent (see list_peers)"},
+                "msg": {"type": "string", "description": "Message to send"},
             },
             "required": ["to", "msg"],
         },
     },
     {
         "name": "ask_agent",
-        "description": "Envia uma pergunta a outro agente do canvas NarraTer e espera a resposta dele (bloqueia ate o agente responder via reply_message). Use quando precisar do resultado para continuar.",
+        "description": "Sends a question to another agent on the NarraTer canvas and waits for its answer (blocks until the agent answers via reply_message). Use it when you need the result to continue.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "to": {"type": "string", "description": "Label do agente alvo (veja list_peers)"},
-                "msg": {"type": "string", "description": "Pergunta ou tarefa"},
-                "timeout_secs": {"type": "integer", "description": "Tempo maximo de espera em segundos (default 120)"},
+                "to": {"type": "string", "description": "Label of the target agent (see list_peers)"},
+                "msg": {"type": "string", "description": "Question or task"},
+                "timeout_secs": {"type": "integer", "description": "Maximum wait time in seconds (default 120)"},
             },
             "required": ["to", "msg"],
         },
     },
     {
         "name": "reply_message",
-        "description": "Responde a uma pergunta recebida de outro agente NarraTer (mensagens no formato '[narrater de X #id]: ...'). A resposta chega direto a quem perguntou, sem precisar de conexao de volta. Sempre prefira esta tool a send_message quando a mensagem recebida tiver #id.",
+        "description": "Answers a question received from another NarraTer agent (messages in the format '[narrater from X #id]: ...'). The answer goes straight to whoever asked, no return connection needed. Always prefer this tool over send_message when the received message carries a #id.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "id": {"type": "string", "description": "O id curto da mensagem recebida (o '#a3f2' do frame, com ou sem '#')"},
-                "msg": {"type": "string", "description": "Sua resposta"},
+                "id": {"type": "string", "description": "The short id of the received message (the frame's '#a3f2', with or without '#')"},
+                "msg": {"type": "string", "description": "Your answer"},
             },
             "required": ["id", "msg"],
         },
     },
     {
         "name": "broadcast_message",
-        "description": "Envia a mesma mensagem para todos os agentes conectados a voce, de uma vez (fire-and-forget). Util para orquestrar varios workers.",
+        "description": "Sends the same message to every agent connected to you, at once (fire-and-forget). Useful for orchestrating multiple workers.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "msg": {"type": "string", "description": "Mensagem a enviar a todos os peers"},
+                "msg": {"type": "string", "description": "Message to send to all peers"},
             },
             "required": ["msg"],
         },
     },
     {
         "name": "check_messages",
-        "description": "Puxa (e drena) as mensagens pendentes na sua fila do NarraTer sem esperar a entrega automatica. Use no meio de tarefas longas para ver se alguem te chamou. Perguntas puxadas assim (com #id) devem ser respondidas com reply_message.",
+        "description": "Pulls (and drains) the pending messages in your NarraTer queue without waiting for automatic delivery. Use it in the middle of long tasks to see if someone called you. Questions pulled this way (with #id) must be answered with reply_message.",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "list_peers",
-        "description": "Lista os agentes do canvas NarraTer que voce pode contatar (conectados a voce por uma edge), com o status de cada um.",
+        "description": "Lists the NarraTer canvas agents you can contact (connected to you by an edge), with each one's status.",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "whoami",
-        "description": "Mostra sua identidade (id e label) no canvas NarraTer.",
+        "description": "Shows your identity (id and label) on the NarraTer canvas.",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "canvas_list_nodes",
-        "description": "Lista todos os nos do canvas NarraTer (terminais, notas, textos etc.) com id, tipo, label e posicao. Use antes de criar ou editar notas para descobrir o que ja existe.",
+        "description": "Lists all nodes on the NarraTer canvas (terminals, notes, texts etc.) with id, type, label and position. Use it before creating or editing notes to discover what already exists.",
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "canvas_create_note",
-        "description": "Cria uma nota no canvas NarraTer. Por padrao nasce ao lado do seu terminal. Use notas para publicar resultados persistentes visiveis ao usuario. Retorna o id da nota criada.",
+        "description": "Creates a note on the NarraTer canvas. By default it spawns next to your terminal. Use notes to publish persistent results visible to the user. Returns the id of the created note.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "content": {"type": "string", "description": "Conteudo da nota"},
-                "label": {"type": "string", "description": "Titulo opcional"},
-                "x": {"type": "number", "description": "Posicao X opcional no canvas"},
-                "y": {"type": "number", "description": "Posicao Y opcional no canvas"},
+                "content": {"type": "string", "description": "Note content"},
+                "label": {"type": "string", "description": "Optional title"},
+                "x": {"type": "number", "description": "Optional X position on the canvas"},
+                "y": {"type": "number", "description": "Optional Y position on the canvas"},
             },
             "required": ["content"],
         },
     },
     {
         "name": "canvas_update_note",
-        "description": "Anexa ou substitui o conteudo de uma nota existente do canvas NarraTer, identificada por id ou label (veja canvas_list_nodes).",
+        "description": "Appends to or replaces the content of an existing NarraTer canvas note, identified by id or label (see canvas_list_nodes).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "id": {"type": "string", "description": "Id ou label da nota"},
-                "content": {"type": "string", "description": "Conteudo"},
-                "mode": {"type": "string", "enum": ["append", "replace"], "description": "append (default) ou replace"},
+                "id": {"type": "string", "description": "Note id or label"},
+                "content": {"type": "string", "description": "Content"},
+                "mode": {"type": "string", "enum": ["append", "replace"], "description": "append (default) or replace"},
             },
             "required": ["id", "content"],
         },
     },
     {
         "name": "canvas_read_note",
-        "description": "Le o conteudo de uma nota do canvas NarraTer, identificada por id ou label (veja canvas_list_nodes). Use para retomar contexto persistido em notas por voce ou por outros agentes.",
+        "description": "Reads the content of a NarraTer canvas note, identified by id or label (see canvas_list_nodes). Use it to resume context persisted in notes by you or by other agents.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "id": {"type": "string", "description": "Id ou label da nota"},
+                "id": {"type": "string", "description": "Note id or label"},
             },
             "required": ["id"],
         },
     },
     {
         "name": "canvas_create_text",
-        "description": "Cria um bloco de texto leve no canvas NarraTer (sem titulo; bom para rotulos e anotacoes curtas). Por padrao nasce ao lado do seu terminal. Retorna o id criado.",
+        "description": "Creates a lightweight text block on the NarraTer canvas (no title; good for labels and short annotations). By default it spawns next to your terminal. Returns the created id.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "text": {"type": "string", "description": "Texto do bloco"},
-                "x": {"type": "number", "description": "Posicao X opcional no canvas"},
-                "y": {"type": "number", "description": "Posicao Y opcional no canvas"},
+                "text": {"type": "string", "description": "Block text"},
+                "x": {"type": "number", "description": "Optional X position on the canvas"},
+                "y": {"type": "number", "description": "Optional Y position on the canvas"},
             },
             "required": ["text"],
         },
     },
     {
         "name": "canvas_move_node",
-        "description": "Move um no do canvas NarraTer (qualquer tipo, identificado por id ou label) para a posicao (x, y). Use canvas_list_nodes para ver as posicoes atuais.",
+        "description": "Moves a NarraTer canvas node (any type, identified by id or label) to position (x, y). Use canvas_list_nodes to see the current positions.",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "id": {"type": "string", "description": "Id ou label do no"},
-                "x": {"type": "number", "description": "Nova posicao X"},
-                "y": {"type": "number", "description": "Nova posicao Y"},
+                "id": {"type": "string", "description": "Node id or label"},
+                "x": {"type": "number", "description": "New X position"},
+                "y": {"type": "number", "description": "New Y position"},
             },
             "required": ["id", "x", "y"],
         },
     },
     {
         "name": "canvas_connect_nodes",
-        "description": "Conecta dois nos do canvas NarraTer com uma edge direcionada source -> target. terminal->terminal cria rota de comunicacao entre agentes (agent-pipe); terminal<->nota espelha o output do terminal na nota (agent-note).",
+        "description": "Connects two NarraTer canvas nodes with a directed edge source -> target. terminal->terminal creates a communication route between agents (agent-pipe); terminal<->note mirrors the terminal's output into the note (agent-note).",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "source": {"type": "string", "description": "Id ou label do no de origem"},
-                "target": {"type": "string", "description": "Id ou label do no de destino"},
+                "source": {"type": "string", "description": "Id or label of the source node"},
+                "target": {"type": "string", "description": "Id or label of the target node"},
             },
             "required": ["source", "target"],
         },
@@ -1056,7 +1084,7 @@ MODE = {
 def narrater_request(payload):
     sock_path = os.environ.get("NARRATER_SOCKET", "")
     if not sock_path:
-        return "Erro: NARRATER_SOCKET nao definido"
+        return "Error: NARRATER_SOCKET not set"
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         s.connect(sock_path)
@@ -1070,7 +1098,7 @@ def narrater_request(payload):
             r += c
         return r.decode("utf-8")
     except Exception as e:
-        return f"Erro: {e}"
+        return f"Error: {e}"
     finally:
         s.close()
 
@@ -1110,7 +1138,7 @@ def handle_tool_call(msg_id, params):
     else:
         mode = MODE.get(name)
         if not mode:
-            reply(msg_id, {"content": [{"type": "text", "text": f"Erro: ferramenta desconhecida '{name}'"}], "isError": True})
+            reply(msg_id, {"content": [{"type": "text", "text": f"Error: unknown tool '{name}'"}], "isError": True})
             return
         payload = {**ident, "mode": mode}
         if mode in ("send", "ask"):
@@ -1124,7 +1152,7 @@ def handle_tool_call(msg_id, params):
         elif mode == "broadcast":
             payload["msg"] = args.get("msg", "")
 
-    # Progress durante asks longos, para o chamador nao parecer travado
+    # Progress during long asks, so the caller doesn't look stuck
     done = threading.Event()
     token = (params.get("_meta") or {}).get("progressToken")
     if token is not None and name == "ask_agent":
@@ -1134,15 +1162,15 @@ def handle_tool_call(msg_id, params):
             waited = 0
             while not done.wait(10):
                 waited += 10
-                notify_progress(token, waited, f"aguardando resposta de {target} ({waited}s)")
+                notify_progress(token, waited, f"waiting for {target}'s answer ({waited}s)")
 
         threading.Thread(target=ping, daemon=True).start()
 
     try:
-        text = narrater_request(payload).strip() or "(sem resposta)"
+        text = narrater_request(payload).strip() or "(no answer)"
     finally:
         done.set()
-    reply(msg_id, {"content": [{"type": "text", "text": text}], "isError": text.startswith("Erro")})
+    reply(msg_id, {"content": [{"type": "text", "text": text}], "isError": text.startswith("Error")})
 
 
 def main():
@@ -1165,7 +1193,7 @@ def main():
         elif method == "tools/list":
             reply(msg_id, {"tools": TOOLS})
         elif method == "tools/call":
-            # Thread por chamada: um ask bloqueante nao trava as demais tools
+            # One thread per call: a blocking ask doesn't stall the other tools
             threading.Thread(target=handle_tool_call, args=(msg_id, msg.get("params", {})), daemon=True).start()
         elif msg_id is not None:
             _write({"jsonrpc": "2.0", "id": msg_id, "error": {"code": -32601, "message": f"method not found: {method}"}})
@@ -1183,39 +1211,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn strip_ansi_remove_csi_e_cores() {
-        assert_eq!(strip_ansi("\x1b[31mvermelho\x1b[0m normal"), "vermelho normal");
-        assert_eq!(strip_ansi("\x1b[2J\x1b[1;1Hlimpo"), "limpo");
+    fn strip_ansi_removes_csi_and_colors() {
+        assert_eq!(strip_ansi("\x1b[31mred\x1b[0m normal"), "red normal");
+        assert_eq!(strip_ansi("\x1b[2J\x1b[1;1Hclean"), "clean");
     }
 
     #[test]
-    fn strip_ansi_remove_osc_e_carriage_return() {
-        assert_eq!(strip_ansi("\x1b]0;titulo\x07texto"), "texto");
+    fn strip_ansi_removes_osc_and_carriage_return() {
+        assert_eq!(strip_ansi("\x1b]0;title\x07text"), "text");
         assert_eq!(strip_ansi("\x1b]8;;http://x\x1b\\link"), "link");
-        assert_eq!(strip_ansi("linha\r\n"), "linha\n");
+        assert_eq!(strip_ansi("line\r\n"), "line\n");
     }
 
     #[test]
-    fn strip_ansi_remove_escapes_simples_e_preserva_utf8() {
+    fn strip_ansi_removes_simple_escapes_and_preserves_utf8() {
         assert_eq!(strip_ansi("\x1b=\x1b>ok"), "ok");
         assert_eq!(strip_ansi("\x1b(Bacentuação ção"), "acentuação ção");
     }
 
     #[test]
-    fn echo_cortado_pelo_marcador() {
-        let resp = "lixo anterior\n[narrater de planner]: qual o status?\na resposta real";
-        assert_eq!(strip_injected_echo(resp, "planner", "qual o status?"), "a resposta real");
+    fn echo_cut_at_the_marker() {
+        let resp = "earlier junk\n[narrater from planner]: what's the status?\nthe actual answer";
+        assert_eq!(strip_injected_echo(resp, "planner", "what's the status?"), "the actual answer");
     }
 
     #[test]
-    fn echo_cortado_pela_mensagem_quando_sem_marcador() {
-        // Shells ecoam o comando cru, sem frame
-        let resp = "ls -la\ntotal 42\narquivo.txt";
-        assert_eq!(strip_injected_echo(resp, "dev", "ls -la"), "total 42\narquivo.txt");
+    fn echo_cut_at_the_message_when_no_marker() {
+        // Shells echo the raw command, no frame
+        let resp = "ls -la\ntotal 42\nfile.txt";
+        assert_eq!(strip_injected_echo(resp, "dev", "ls -la"), "total 42\nfile.txt");
     }
 
     #[test]
-    fn rota_por_edge_grant_valido_e_grant_expirado() {
+    fn route_via_edge_valid_grant_and_expired_grant() {
         use std::collections::{HashMap, HashSet};
         let mut connections = HashSet::new();
         let mut grants: HashMap<(String, String), Instant> = HashMap::new();
@@ -1224,14 +1252,14 @@ mod tests {
 
         connections.insert(("a".to_string(), "b".to_string()));
         assert!(route_allowed(&connections, &grants, "a", "b"));
-        // Edge é direcionada: b→a continua proibido
+        // Edges are directed: b→a stays forbidden
         assert!(!route_allowed(&connections, &grants, "b", "a"));
 
-        // Grant de resposta recém-concedido libera b→a
+        // A freshly granted reply route opens b→a
         grants.insert(("b".to_string(), "a".to_string()), Instant::now());
         assert!(route_allowed(&connections, &grants, "b", "a"));
 
-        // Grant vencido volta a proibir
+        // An expired grant forbids it again
         if let Some(old) = Instant::now().checked_sub(REPLY_GRANT_TTL + Duration::from_secs(1)) {
             grants.insert(("b".to_string(), "a".to_string()), old);
             assert!(!route_allowed(&connections, &grants, "b", "a"));
@@ -1239,10 +1267,10 @@ mod tests {
     }
 
     #[test]
-    fn echo_sem_match_retorna_tudo() {
-        // Line-wrap quebra o marcador (fragilidade conhecida — ver PLANO_MCP.md;
-        // o caminho reply da Fase 1 não depende mais deste heurístico)
-        let resp = "[narrater de plan\nner]: pergunta\nresposta";
-        assert_eq!(strip_injected_echo(resp, "planner", "pergunta longa que quebrou"), resp);
+    fn echo_without_match_returns_everything() {
+        // Line-wrap breaks the marker (known fragility; the reply path no
+        // longer depends on this heuristic)
+        let resp = "[narrater from plan\nner]: question\nanswer";
+        assert_eq!(strip_injected_echo(resp, "planner", "long question that wrapped"), resp);
     }
 }

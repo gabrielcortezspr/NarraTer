@@ -3,7 +3,6 @@ import { Handle, Position, NodeResizer, useStore } from "@xyflow/react";
 import { Bot, Code2, Terminal, Wrench, X, GripVertical, FolderOpen, Clock, Plug, RotateCcw } from "lucide-react";
 import { attachTerminal, detachTerminal, ensureTerminal, fitTerminal, respawnTerminal } from "@/lib/terminalManager";
 import { ptyWrite } from "@/lib/tauri";
-import { buildAgentSystemPrompt } from "@/lib/agentPrompt";
 import { useCanvasStore } from "@/stores/canvas";
 import { useTerminalsStore } from "@/stores/terminals";
 import type { SessionStatus } from "@/stores/terminals";
@@ -82,9 +81,6 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
     const parent = termDivRef.current;
     if (!parent) return;
 
-    // Claude gets identity/role/protocol as a durable system prompt (plus
-    // the narrater MCP tools); other agents keep the composer injection
-    const isClaude = agentType === "claude";
     const { edges, nodes } = useCanvasStore.getState();
     const labelFor = (nodeId: string) => {
       const node = nodes.find((n) => n.id === nodeId);
@@ -94,15 +90,10 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
       agentType,
       command: data.command,
       label: data.label,
+      roleId: data.roleId,
+      roleName: data.roleName,
       instructions: data.instructions,
       skipPermissions: data.skipPermissions,
-      systemPrompt: isClaude
-        ? buildAgentSystemPrompt({
-            label: data.label,
-            roleName: data.roleName,
-            instructions: data.instructions,
-          })
-        : undefined,
       pipes: {
         outgoing: edges.filter((e) => e.source === id && e.type === "agent-pipe").map((e) => labelFor(e.target)),
         incoming: edges.filter((e) => e.target === id && e.type === "agent-pipe").map((e) => labelFor(e.source)),

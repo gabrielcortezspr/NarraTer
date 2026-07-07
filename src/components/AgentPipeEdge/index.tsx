@@ -29,7 +29,7 @@ function AgentPipeEdge({
   // Flow animation when a message is queued or either endpoint is working
   const active = pending > 0 || targetStatus === "running" || sourceStatus === "running";
 
-  // Pulso quando uma mensagem passa pela rota (ledger → lastActivity do par)
+  // Pulse when a message travels the route (ledger → the pair's lastActivity)
   const activity = useLedgerStore((s) => s.lastActivity[pairKey(source, target)]);
   const [pulse, setPulse] = useState(false);
   useEffect(() => {
@@ -41,7 +41,7 @@ function AgentPipeEdge({
 
   const gradientId = `pipe-gradient-${id}`;
   const glowId = `pipe-glow-${id}`;
-  const label = pulse ? "✉ mensagem" : pending > 0 ? `⧗ ${pending} na fila` : "⟶ agent pipe";
+  const label = pulse ? "✉ message" : pending > 0 ? `⧗ ${pending} queued` : "⟶ agent pipe";
   const labelColor = pulse ? "#4ade80" : pending > 0 ? "#fbbf24" : "#a78bfa";
   const labelStroke = pulse ? "#4ade8040" : pending > 0 ? "#fbbf2440" : "#8b5cf640";
 

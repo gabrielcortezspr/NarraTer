@@ -19,11 +19,16 @@ export default function RoleManager({ open, onClose }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Partial<Role>>({});
   const [creating, setCreating] = useState(false);
-  const [newDraft, setNewDraft] = useState({ name: "", color: "#8b5cf6", instructions: "" });
+  const [newDraft, setNewDraft] = useState({ name: "", color: "#8b5cf6", instructions: "", orchestrator: false });
 
   const startEdit = (role: Role) => {
     setEditingId(role.id);
-    setEditDraft({ name: role.name, color: role.color, instructions: role.instructions });
+    setEditDraft({
+      name: role.name,
+      color: role.color,
+      instructions: role.instructions,
+      orchestrator: role.orchestrator ?? false,
+    });
   };
 
   const saveEdit = async () => {
@@ -35,7 +40,7 @@ export default function RoleManager({ open, onClose }: Props) {
   const handleCreate = async () => {
     if (!newDraft.name.trim()) return;
     await addRole(newDraft);
-    setNewDraft({ name: "", color: "#8b5cf6", instructions: "" });
+    setNewDraft({ name: "", color: "#8b5cf6", instructions: "", orchestrator: false });
     setCreating(false);
   };
 
@@ -132,6 +137,11 @@ function RoleCard({ role, onEdit, onDelete }: { role: Role; onEdit: () => void; 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
           <span className="text-white text-sm font-medium">{role.name}</span>
+          {role.orchestrator && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#8b5cf620] text-[#a78bfa] border border-[#8b5cf640]">
+              delegate-only
+            </span>
+          )}
         </div>
         <p className="text-[#555] text-xs leading-relaxed line-clamp-2">{role.instructions}</p>
       </div>
@@ -204,6 +214,19 @@ function RoleEditCard({ draft, onChange, onSave, onCancel, isNew }: EditProps) {
         className="w-full bg-[#1a1a1a] border border-[#333] text-white text-xs rounded-lg px-3 py-2
           focus:outline-none focus:border-[#8b5cf6] placeholder-[#444] resize-none"
       />
+      {/* Delegate-only */}
+      <label className="flex items-start gap-2 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={draft.orchestrator ?? false}
+          onChange={(e) => onChange({ orchestrator: e.target.checked })}
+          className="mt-0.5 accent-[#8b5cf6]"
+        />
+        <span className="text-xs text-[#888] leading-relaxed">
+          <span className="text-white">Delegate-only (orchestrator)</span> — never executes tasks
+          itself: claude agents spawn without Bash/Edit/Write and must delegate to connected agents.
+        </span>
+      </label>
       <div className="flex gap-2 justify-end">
         <button onClick={onCancel} className="px-3 py-1.5 text-xs text-[#555] hover:text-white transition-colors rounded hover:bg-[#2a2a2a]">
           Cancel

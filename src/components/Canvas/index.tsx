@@ -15,6 +15,7 @@ import {
 } from "@xyflow/react";
 import { useShallow } from "zustand/react/shallow";
 import { onPtyOutput } from "@/lib/ptyBus";
+import { scheduleTerminalZoomSync } from "@/lib/terminalManager";
 import "@xyflow/react/dist/style.css";
 import TerminalTile from "@/components/TerminalTile";
 import NoteTile from "@/components/NoteTile";
@@ -349,6 +350,7 @@ function CanvasInner() {
         onPaneClick={onPaneClick}
         onEdgeClick={onEdgeClick}
         onNodeDragStart={onNodeDragStart}
+        onMove={(_, viewport) => scheduleTerminalZoomSync(viewport.zoom)}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         minZoom={0.05}

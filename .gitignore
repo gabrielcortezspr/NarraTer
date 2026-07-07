@@ -1,6 +1,32 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
+dist-ssr/
 src-tauri/target/
+src-tauri/gen/
+
+# Cargo machine-local config (network workarounds etc.)
+.cargo/
+
+# Environment & secrets
 .env
-.env.local
+.env.*
+!.env.example
+
+# Logs
 *.log
+logs/
+
+# Claude Code — per-user files (commit .claude/settings.json and skills if shared)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+
+# Editors & OS
+.vscode/
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.swp

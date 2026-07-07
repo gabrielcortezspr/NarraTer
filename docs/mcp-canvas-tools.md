@@ -1,76 +1,78 @@
-# MCP → Canvas: fundação e roadmap
+# MCP → Canvas: foundation and roadmap
 
-Agentes rodando em terminais do NarraTer podem manipular o canvas através de
-tools MCP do servidor `narrater-mcp`. Este documento descreve o contrato da
-ponte e o roadmap das próximas tools.
+Agents running inside NarraTer terminals can manipulate the canvas through
+MCP tools exposed by the `narrater-mcp` server. This document describes the
+bridge contract and the roadmap for upcoming tools.
 
-## Fluxo
+## Flow
 
 ```
-agente (claude) ── tool call canvas_* ──► narrater-mcp (stdio, ~/.local/bin)
+agent (claude) ── tool call canvas_* ──► narrater-mcp (stdio, ~/.local/bin)
   │ JSON {from: $NARRATER_ID, mode: "canvas", action, params}
   ▼ Unix socket /tmp/narrater-<pid>.sock
 ipc.rs handle_canvas():
-  valida a sessão do `from`
-  req_id = uuid; registra oneshot::Sender em PtyStateInner.canvas_waiters[req_id]
+  validates the `from` session
+  req_id = uuid; registers a oneshot::Sender in PtyStateInner.canvas_waiters[req_id]
   app.emit("canvas_request", { req_id, from, from_label, action, params })
-  await oneshot (timeout 10s) ──► escreve o resultado no socket ──► tool retorna
+  await oneshot (10s timeout) ──► writes the result to the socket ──► tool returns
                     ▲
-frontend (src/lib/canvasBridge.ts, listener global no App):
-  aplica a action no useCanvasStore (única fonte de verdade; o auto-save persiste)
+frontend (src/lib/canvasBridge.ts, global listener in App):
+  applies the action to useCanvasStore (single source of truth; auto-save persists)
   invoke("canvas_respond", { reqId, result })
 ```
 
-Pontos do contrato:
+Contract points:
 
-- **`canvas_request`** (evento Tauri): `{ req_id, from, from_label, action, params }`.
-  `params` chega como veio do agente (`serde_json::Value`, pode ser `null`).
-- **`canvas_respond`** (comando Tauri, `src-tauri/src/canvas_bridge.rs`): resolve o
-  waiter pelo `req_id`. O frontend **sempre** responde, inclusive com `Erro: ...`,
-  para não deixar o agente esperando o timeout.
-- **Timeout**: 10s (`CANVAS_TIMEOUT` em `ipc.rs`). Se o frontend não responder,
-  o waiter é removido e a tool retorna `Erro: timeout aguardando o canvas`.
-- **Convenção de resultado**: texto livre; prefixo `Erro:` marca falha
-  (o narrater-mcp converte em `isError: true`).
+- **`canvas_request`** (Tauri event): `{ req_id, from, from_label, action, params }`.
+  `params` arrives as sent by the agent (`serde_json::Value`, may be `null`).
+- **`canvas_respond`** (Tauri command, `src-tauri/src/canvas_bridge.rs`): resolves the
+  waiter by `req_id`. The frontend **always** responds, including with `Error: ...`,
+  so the agent is never left waiting for the timeout.
+- **Timeout**: 10s (`CANVAS_TIMEOUT` in `ipc.rs`). If the frontend doesn't respond,
+  the waiter is removed and the tool returns `Error: timeout waiting for the canvas`.
+- **Result convention**: free-form text; an `Error:` prefix marks failure
+  (narrater-mcp converts it into `isError: true`).
 
 ## ACL (v1)
 
-Qualquer agente com **sessão PTY válida** pode usar as tools de canvas — ele
-manipula o próprio canvas em que vive. As **edges continuam governando apenas
-a comunicação agente↔agente** (send/ask). Evolução futura: permissão por nó
-(ex.: nota "trancada"), capability por role, e modo somente-leitura.
+Any agent with a **valid PTY session** can use the canvas tools — it
+manipulates the very canvas it lives on. **Edges keep governing only
+agent↔agent communication** (send/ask). Future evolution: per-node permission
+(e.g. a "locked" note), per-role capabilities, and a read-only mode.
 
-## Tools implementadas
+## Implemented tools
 
-| Tool | Params | Resultado |
+| Tool | Params | Result |
 |---|---|---|
 | `canvas_list_nodes` | — | JSON `[{id, type, label, x, y}]` |
-| `canvas_create_note` | `content` (req), `label?`, `x?`, `y?` | `ok: nota criada (id: …)`. Sem x/y, nasce à direita do terminal do agente. |
-| `canvas_update_note` | `id` (id **ou** label), `content` (req), `mode?: append\|replace` | `ok: nota atualizada (id: …)`; erro legível se o label for ambíguo. |
-| `canvas_read_note` | `id` (id **ou** label) | Conteúdo da nota (`(nota vazia)` se em branco). |
-| `canvas_create_text` | `text` (req), `x?`, `y?` | `ok: texto criado (id: …)`. Mesmo default de posição das notas. |
-| `canvas_move_node` | `id` (id **ou** label, qualquer tipo de nó), `x`, `y` | `ok: nó movido (id: …) para (x, y)`. |
-| `canvas_connect_nodes` | `source`, `target` (id **ou** label) | `ok: conexão criada (id, tipo, rota)`. Classifica agent-pipe/agent-note/default como o `onConnect` do Canvas; `addEdge` roda `syncConnections`, então rotas agent-pipe valem no backend imediatamente. Idempotente: edge existente retorna `ok: conexão já existia`. |
+| `canvas_create_note` | `content` (req), `label?`, `x?`, `y?` | `ok: note created (id: …)`. Without x/y, it spawns to the right of the agent's terminal. |
+| `canvas_update_note` | `id` (id **or** label), `content` (req), `mode?: append\|replace` | `ok: note updated (id: …)`; readable error if the label is ambiguous. |
+| `canvas_read_note` | `id` (id **or** label) | Note content (`(empty note)` if blank). |
+| `canvas_create_text` | `text` (req), `x?`, `y?` | `ok: text created (id: …)`. Same position default as notes. |
+| `canvas_move_node` | `id` (id **or** label, any node type), `x`, `y` | `ok: node moved (id: …) to (x, y)`. |
+| `canvas_connect_nodes` | `source`, `target` (id **or** label) | `ok: connection created (id, type, route)`. Classifies agent-pipe/agent-note/default like the Canvas `onConnect`; `addEdge` runs `syncConnections`, so agent-pipe routes take effect in the backend immediately. Idempotent: an existing edge returns `ok: connection already existed`. |
 
-Nota sobre `connect_nodes`: diferente da edge desenhada pelo usuário, a edge
-criada por agente **não** injeta a mensagem de sistema nos endpoints — o agente
-criador já sabe da rota e pode se apresentar com `send_message` se quiser.
+Note on `connect_nodes`: unlike a user-drawn edge, an agent-created edge does
+**not** inject the system message into the endpoints — the creating agent
+already knows about the route and can introduce itself with `send_message` if
+it wants.
 
-## Roadmap (rascunho de schemas)
+## Roadmap (schema drafts)
 
-- `canvas_create_terminal { agent_type, role?, instructions? }` → spawn de agente
-  por agente; exigirá política de aprovação do usuário (prompt/toast) antes de
-  executar.
-- `canvas_delete_node { id }` → destrutiva; exigirá confirmação do usuário.
-- `canvas_disconnect_nodes { source, target }` → remover edge (par do connect).
+- `canvas_create_terminal { agent_type, role?, instructions? }` → agent
+  spawning agents; will require a user approval policy (prompt/toast) before
+  executing.
+- `canvas_delete_node { id }` → destructive; will require user confirmation.
+- `canvas_disconnect_nodes { source, target }` → remove an edge (the connect
+  counterpart).
 
 ## Gotchas
 
-- O `narrater-mcp` é **regravado a cada boot** do app (`ipc.rs`); mudanças na
-  lista de tools só valem após reiniciar o NarraTer **e** os agentes claude
-  (o servidor MCP é processo filho do claude).
-- `--allowedTools mcp__narrater` (em `src/lib/tauri.ts`) pré-aprova o servidor
-  inteiro — tools novas não precisam de mudança ali.
-- A ponte depende do refactor "store como única fonte de verdade": o nó criado
-  pelo backend entra no zustand store sem resetar posições, e o auto-save
-  persiste sem interação do usuário.
+- `narrater-mcp` is **rewritten on every app boot** (`ipc.rs`); changes to the
+  tool list only take effect after restarting NarraTer **and** the claude
+  agents (the MCP server is a child process of claude).
+- `--allowedTools mcp__narrater` (in `src/lib/tauri.ts`) pre-approves the whole
+  server — new tools need no change there.
+- The bridge depends on the "store as single source of truth" refactor: a node
+  created by the backend enters the zustand store without resetting positions,
+  and auto-save persists it without user interaction.

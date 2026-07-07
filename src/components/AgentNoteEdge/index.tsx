@@ -48,7 +48,7 @@ function AgentNoteEdge({
           dominantBaseline="middle"
           style={{ fontSize: 9, fill: "#fbbf24", fontFamily: "inherit", opacity: 0.9 }}
         >
-          ✍ agent→nota
+          ✍ agent→note
         </text>
       </g>
     </g>

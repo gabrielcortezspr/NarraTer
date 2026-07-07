@@ -154,6 +154,8 @@ export interface Role {
   name: string;
   color: string;
   instructions: string;
+  /** Delegate-only: never executes tasks itself (claude spawns lose the execution tools). */
+  orchestrator?: boolean;
 }
 
 export const loadRoles = () => invoke<Role[]>("load_roles");
@@ -171,6 +173,7 @@ export function getSpawnSpec(
   customCommand?: string,
   systemPrompt?: string,
   skipPermissions?: boolean,
+  orchestrator?: boolean,
 ): SpawnSpec {
   const shell = "/bin/bash";
   switch (agentType) {
@@ -183,6 +186,12 @@ export function getSpawnSpec(
         "--mcp-config", NARRATER_MCP_CONFIG,
         "--allowedTools", "mcp__narrater", "Bash(narrater)", "Bash(narrater:*)",
       ];
+      if (orchestrator) {
+        // Delegate-only role: no execution tools — deny rules also cover
+        // subagents, so the leader can't route around them via Task. It keeps
+        // read tools (for context) and the narrater MCP tools (its real job).
+        args.push("--disallowedTools", "Bash", "Edit", "Write", "NotebookEdit");
+      }
       if (skipPermissions) {
         args.push("--dangerously-skip-permissions");
       }

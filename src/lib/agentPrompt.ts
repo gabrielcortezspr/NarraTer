@@ -2,12 +2,14 @@ export interface AgentPromptParams {
   label: string;
   roleName?: string;
   instructions?: string;
+  /** Delegate-only role: the agent coordinates and never executes tasks itself. */
+  orchestrator?: boolean;
 }
 
 // System prompt appended to claude agents (--append-system-prompt): identity,
 // role instructions and the inter-agent communication protocol. This is what
 // makes agents actually use the narrater MCP tools instead of ignoring them.
-export function buildAgentSystemPrompt({ label, roleName, instructions }: AgentPromptParams): string {
+export function buildAgentSystemPrompt({ label, roleName, instructions, orchestrator }: AgentPromptParams): string {
   const parts: string[] = [];
 
   parts.push(
@@ -17,6 +19,25 @@ export function buildAgentSystemPrompt({ label, roleName, instructions }: AgentP
 
   if (instructions?.trim()) {
     parts.push(`## Your role\n\n${instructions.trim()}`);
+  }
+
+  if (orchestrator) {
+    parts.push(
+      [
+        "## Orchestrator mode (mandatory)",
+        "",
+        "You delegate — always. You never execute tasks yourself: no editing files, no running commands, no writing code, no matter how trivial the request. Your execution tools are disabled; your team is your hands.",
+        "",
+        "For every task you receive:",
+        "1. Use list_peers to see which agents are connected to you.",
+        "2. Make sure each worker has a route back to you before delegating: use canvas_list_nodes and canvas_connect_nodes (worker → you) to create the reverse edge if it's missing — otherwise their questions and reports can't reach you.",
+        "3. Break the task down and delegate each piece with ask_agent (when you need the result) or send_message (fire-and-forget).",
+        "4. Follow up on the work, consolidate, and report the result — to the user, or back to whoever delegated to you.",
+        "",
+        "You are your workers' single point of contact: answer their questions, make the decisions and unblock them. Never tell a worker to ask the user.",
+        "If no connected agent can do the job, say exactly that and ask for one to be connected. Doing it yourself is never the fallback.",
+      ].join("\n")
+    );
   }
 
   parts.push(
@@ -33,6 +54,8 @@ export function buildAgentSystemPrompt({ label, roleName, instructions }: AgentP
       "- Sending messages (send/ask) requires an agent connected to you by an edge on the canvas. Exception: whoever messaged you recently can be answered with send_message even without a return edge. If the route doesn't exist, tell the user instead of insisting.",
       "- With several connected workers, broadcast_message sends to all of them at once. In the middle of a long task, check_messages pulls pending messages without waiting for automatic delivery.",
       "- Be concise in inter-agent messages: minimal context, what needs to be done and the definition of done.",
+      "- Chain of command: a task delegated to you by another agent is only done after you report the outcome back to that agent (reply_message if there was an #id, send_message otherwise) — including failures. Never leave the delegator waiting.",
+      '- Doubts about a delegated task go to the agent that delegated it, never to the user: use ask_agent to "X", or answer its #id with your question (the delegator will re-ask with clarification). The human at your terminal is not part of the delegation chain — only tasks the user types directly in your terminal are discussed with the user.',
       "",
       "## Canvas",
       "",

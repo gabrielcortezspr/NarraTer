@@ -9,6 +9,10 @@ pub struct Role {
     pub name: String,
     pub color: String,
     pub instructions: String,
+    /// Delegate-only: the agent never executes tasks itself. For claude
+    /// terminals this also disables the execution tools at spawn.
+    #[serde(default)]
+    pub orchestrator: bool,
 }
 
 fn roles_path() -> PathBuf {
@@ -44,25 +48,15 @@ fn default_roles() -> Vec<Role> {
             id: "leader".to_string(),
             name: "Leader".to_string(),
             color: "#8b5cf6".to_string(),
-            instructions: "You are the lead agent. Coordinate the tasks, delegate to other agents and keep the focus on the main goal.".to_string(),
+            instructions: "You are the lead agent — a pure orchestrator. You NEVER execute tasks yourself: do not edit files, run commands or write code, no matter how trivial the request is. For every task you receive: use list_peers to see your team, break the task down, delegate each piece with ask_agent or send_message, follow up, and report the consolidated result. Before delegating to a worker, make sure it has a route back to you — if list_peers on its side wouldn't show you, create the reverse edge with canvas_connect_nodes (worker -> you). You are your workers' single point of contact: answer their questions and unblock them; never redirect them to the user. If no connected agent can do the job, say so and ask for one to be connected — doing it yourself is not an option.".to_string(),
+            orchestrator: true,
         },
         Role {
             id: "coder".to_string(),
             name: "Developer".to_string(),
             color: "#3b82f6".to_string(),
-            instructions: "You are an expert developer. Write clean code, follow best practices and write tests.".to_string(),
-        },
-        Role {
-            id: "reviewer".to_string(),
-            name: "Reviewer".to_string(),
-            color: "#4ade80".to_string(),
-            instructions: "You are a code reviewer. Analyze critically, point out problems, suggest improvements and ensure quality.".to_string(),
-        },
-        Role {
-            id: "tester".to_string(),
-            name: "Tester".to_string(),
-            color: "#fbbf24".to_string(),
-            instructions: "You are a QA specialist. Create test scenarios, identify edge cases and document the bugs you find.".to_string(),
+            instructions: "You are an expert developer. Write clean code, follow best practices and write tests. Chain of command: when a task arrives from another agent ('[narrater from X]'), that agent is your ONLY point of contact for it — send every question, doubt and status update to X (ask_agent, or answer its #id with your question), NEVER to the user. The human at your terminal is not part of delegated tasks; only discuss with the user what the user typed directly in your terminal.".to_string(),
+            orchestrator: false,
         },
     ]
 }

@@ -80,7 +80,7 @@ pub struct QueuedMsg {
     pub msg: String,
     pub enqueued: Instant,
     /// Short ask id. When present, delivery frames the message as
-    /// `[narrater de X #id]: ...` so the target can answer via `reply`.
+    /// `[narrater from X #id]: ...` so the target can answer via `reply`.
     pub msg_id: Option<String>,
     /// Fired when the message is actually written to the target PTY, so an
     /// `ask` starts capturing output only from that point.
@@ -401,7 +401,12 @@ pub fn pty_spawn(
                         let mut became_running = false;
                         if let Some(session) = inner.sessions.get_mut(&id_clone) {
                             session.last_output = Instant::now();
-                            if session.status == RunStatus::Idle {
+                            // Hooked sessions go Running only on message
+                            // injection or a user-submitted line — trailing
+                            // TUI output right after the Stop hook marked
+                            // Idle must not flip them back (nothing would
+                            // ever mark Idle again: no turn, no Stop hook).
+                            if session.status == RunStatus::Idle && !session.hook_idle {
                                 session.status = RunStatus::Running;
                                 became_running = true;
                             }
@@ -432,11 +437,35 @@ pub fn pty_spawn(
 }
 
 #[tauri::command]
-pub fn pty_write(id: String, data: String, state: State<'_, PtyState>) -> Result<(), String> {
-    let mut inner = state.0.lock().unwrap();
-    if let Some(session) = inner.sessions.get_mut(&id) {
+pub fn pty_write(
+    id: String,
+    data: String,
+    app_handle: AppHandle,
+    state: State<'_, PtyState>,
+) -> Result<(), String> {
+    let became_running = {
+        let mut inner = state.0.lock().unwrap();
+        let Some(session) = inner.sessions.get_mut(&id) else { return Ok(()) };
         session.writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
         session.writer.flush().map_err(|e| e.to_string())?;
+        // Hooked sessions don't go Running on output (see the reader thread);
+        // a user-submitted line starts a turn, so mark it here.
+        if session.hook_idle
+            && session.status == RunStatus::Idle
+            && (data.contains('\r') || data.contains('\n'))
+        {
+            session.status = RunStatus::Running;
+            session.last_output = Instant::now();
+            true
+        } else {
+            false
+        }
+    };
+    if became_running {
+        let _ = app_handle.emit("pty_status", PtyStatusEvent {
+            id,
+            status: RunStatus::Running.as_str(),
+        });
     }
     Ok(())
 }
@@ -520,7 +549,7 @@ pub fn record_msg(state_arc: &Arc<Mutex<PtyStateInner>>, app: &AppHandle, entry:
     let _ = app.emit("narrater_msg", entry);
 }
 
-fn queue_snapshot(inner: &PtyStateInner, id: &str) -> Vec<QueueItem> {
+pub(crate) fn queue_snapshot(inner: &PtyStateInner, id: &str) -> Vec<QueueItem> {
     inner
         .inbox
         .get(id)
@@ -586,6 +615,18 @@ pub fn enqueue_message(
     let (pending, items) = {
         let mut inner = state_arc.lock().unwrap();
         let queue = inner.inbox.entry(target_id.to_string()).or_default();
+        // Collapse retries: an identical fire-and-forget message from the
+        // same sender that is still awaiting delivery is not queued twice
+        // (senders re-send when delivery is slow). Asks are never collapsed —
+        // each has its own #id and reply rendezvous.
+        if msg.msg_id.is_none() {
+            if let Some(pos) = queue
+                .iter()
+                .position(|m| m.msg_id.is_none() && m.from_id == msg.from_id && m.msg == msg.msg)
+            {
+                return pos;
+            }
+        }
         queue.push_back(msg);
         let pending = queue.len();
         (pending, queue_snapshot(&inner, target_id))
@@ -610,7 +651,7 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
                 .iter_mut()
                 // Sessions with a working Stop hook go idle only via
                 // `narrater notify-idle` — the silence timer would flag
-                // "idle" nas pausas de output no meio de um turno longo.
+                // "idle" during output pauses in the middle of a long turn.
                 .filter(|(_, s)| {
                     !s.hook_idle
                         && s.status == RunStatus::Running
