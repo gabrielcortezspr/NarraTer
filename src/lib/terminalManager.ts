@@ -173,7 +173,8 @@ async function spawnInto(id: string, mt: ManagedTerminal): Promise<void> {
     if (incoming.length > 0) {
       skillMsg += `\x1b[35m[NarraTer]\x1b[0m Receives messages from: \x1b[1m${incoming.join(", ")}\x1b[0m\r\n`;
     }
-    ptyWrite(id, skillMsg + "\r\n").catch(console.error);
+    // Screen only — via stdin the shell would execute the hint as a command
+    mt.term.write(skillMsg + "\r\n");
   }
 }
 
@@ -253,6 +254,15 @@ export function fitTerminal(id: string): void {
   } catch {
     // hidden/zero-size container — the next resize fixes it
   }
+}
+
+/**
+ * Display-only write to a terminal's screen (xterm). Never goes near the PTY:
+ * writing "hints" to stdin types them into the child — a shell echoes and then
+ * executes the text as a command (`bash: [NarraTer]: command not found`).
+ */
+export function printToTerminal(id: string, text: string): void {
+  terminals.get(id)?.term.write(text);
 }
 
 /** Restarts the process of an exited terminal, keeping the xterm/scrollback. */

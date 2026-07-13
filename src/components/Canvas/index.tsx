@@ -39,7 +39,8 @@ import { useToolStore, PLACEMENT_TOOLS } from "@/stores/tool";
 import { saveNow } from "@/hooks/useAutoSave";
 import { useSketchStore } from "@/stores/sketch";
 import { stripAnsi, cleanLines } from "@/lib/ansi";
-import { ptyWrite, pickFile } from "@/lib/tauri";
+import { pickFile } from "@/lib/tauri";
+import { printToTerminal } from "@/lib/terminalManager";
 import type { AgentPickerResult } from "@/components/AgentPicker";
 import type { AppEdge, TerminalNodeData } from "@/stores/canvas";
 import type { Tool } from "@/stores/tool";
@@ -247,7 +248,7 @@ function CanvasInner() {
       // message auto-submits and burns a turn on each endpoint per edge. They
       // verify routes when a prompt actually flows — list_peers on the sender
       // side, the [narrater from X] frame on the receiver side. Shells get a
-      // visual hint, which costs nothing.
+      // hint on screen only (never stdin — the shell would execute it).
       if (isAgentPipe) {
         const srcLabel = (sourceNode?.data as TerminalNodeData | undefined)?.label ?? connection.source;
         const tgtLabel = (targetNode?.data as TerminalNodeData | undefined)?.label ?? connection.target;
@@ -256,18 +257,18 @@ function CanvasInner() {
         const isAi = (t: string) => t === "claude" || t === "codex";
 
         if (!isAi(srcType)) {
-          ptyWrite(
+          printToTerminal(
             connection.source,
             `\r\n\x1b[35m[NarraTer]\x1b[0m Connected \x1b[1m→ "${tgtLabel}"\x1b[0m\r\n` +
               `Use: \x1b[36mnarrater send "${tgtLabel}" "message"\x1b[0m or \x1b[36mnarrater ask "${tgtLabel}" "question"\x1b[0m\r\n\r\n`
-          ).catch(console.error);
+          );
         }
 
         if (!isAi(tgtType)) {
-          ptyWrite(
+          printToTerminal(
             connection.target,
             `\r\n\x1b[35m[NarraTer]\x1b[0m Agent \x1b[1m"${srcLabel}" →\x1b[0m connected to you.\r\n\r\n`
-          ).catch(console.error);
+          );
         }
       }
     },
