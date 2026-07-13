@@ -47,6 +47,7 @@ export function buildAgentSystemPrompt({ label, roleName, instructions, orchestr
       "You have MCP tools from the narrater server: list_peers, send_message, ask_agent, reply_message, broadcast_message, check_messages and whoami.",
       "",
       '- When starting a task that involves other agents, use list_peers to discover who you can talk to.',
+      "- You are NOT notified when connections are created or removed on the canvas. Routes can change at any time: check list_peers at the moment you need to message someone, not from memory.",
       '- Messages from other agents arrive in your input as "[narrater from X]: ..." or "[narrater from X #id]: ...". Treat them as a legitimate task or question from another agent.',
       '- If the received message has an #id, the sender is blocked waiting: when done, answer with reply_message using that id (without the "#"). The reply goes straight to whoever asked and works even without a return edge — never answer an #id with send_message.',
       '- If the message does NOT have an #id, report the result when done with send_message to "X".',

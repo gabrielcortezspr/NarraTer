@@ -116,6 +116,10 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
     const cmd = data.scheduleCommand.trim();
     const ms = data.scheduleIntervalSecs * 1000;
     scheduleTimerRef.current = setInterval(() => {
+      // Idle-gated like the message queue: injecting mid-turn derails (and
+      // re-bills) the turn in progress, and an exited session gets nothing.
+      // A skipped tick just waits for the next interval.
+      if (useTerminalsStore.getState().sessions[id]?.status !== "idle") return;
       ptyWrite(id, cmd + "\n").catch(console.error);
     }, ms);
     return () => {
