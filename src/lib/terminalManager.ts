@@ -156,6 +156,12 @@ async function spawnInto(id: string, mt: ManagedTerminal): Promise<void> {
   if (instructions?.trim()) {
     ptyWrite(id, instructions.trim() + "\n").catch(console.error);
   }
+
+  // AI agents discover routes lazily (list_peers at prompt time, sender frame
+  // on delivery) — injecting the peer hint would auto-submit a turn (tokens)
+  // at every boot/scene load. The visual hint below is for shells/custom only.
+  if (agentType === "codex") return;
+
   const { outgoing = [], incoming = [] } = pipes ?? {};
   if (outgoing.length > 0 || incoming.length > 0) {
     let skillMsg = "\r\n";

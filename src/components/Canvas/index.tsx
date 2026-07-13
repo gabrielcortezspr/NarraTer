@@ -39,7 +39,7 @@ import { useToolStore, PLACEMENT_TOOLS } from "@/stores/tool";
 import { saveNow } from "@/hooks/useAutoSave";
 import { useSketchStore } from "@/stores/sketch";
 import { stripAnsi, cleanLines } from "@/lib/ansi";
-import { ptyWrite, ptyNotify, pickFile } from "@/lib/tauri";
+import { ptyWrite, pickFile } from "@/lib/tauri";
 import type { AgentPickerResult } from "@/components/AgentPicker";
 import type { AppEdge, TerminalNodeData } from "@/stores/canvas";
 import type { Tool } from "@/stores/tool";
@@ -208,7 +208,12 @@ function CanvasInner() {
 
   const onConnect: OnConnect = useCallback(
     (connection: Connection) => {
-      const currentNodes = useCanvasStore.getState().nodes;
+      // Same guards as the MCP connect_nodes: no self-loops, and an existing
+      // route is not duplicated (each duplicate snapshots + resyncs for nothing).
+      if (!connection.source || !connection.target || connection.source === connection.target) return;
+      const { nodes: currentNodes, edges: currentEdges } = useCanvasStore.getState();
+      if (currentEdges.some((e) => e.source === connection.source && e.target === connection.target)) return;
+
       const sourceNode = currentNodes.find((n) => n.id === connection.source);
       const targetNode = currentNodes.find((n) => n.id === connection.target);
 
@@ -237,23 +242,20 @@ function CanvasInner() {
       // Store is the source of truth: it mirrors the route to the backend
       addStoreEdge(newEdge);
 
-      // Tell both endpoints about the new route. AI agents get a queued
-      // system message (auto-submitted, becomes part of the conversation);
-      // shells/custom get a visual hint only — queued delivery would execute
-      // the text as a command. The route is directed: source → target.
-      if (isAgentPipe && connection.source && connection.target) {
+      // Creating the route only updates the backend table (syncConnections,
+      // token-free). AI agents are deliberately NOT notified: a queued system
+      // message auto-submits and burns a turn on each endpoint per edge. They
+      // verify routes when a prompt actually flows — list_peers on the sender
+      // side, the [narrater from X] frame on the receiver side. Shells get a
+      // visual hint, which costs nothing.
+      if (isAgentPipe) {
         const srcLabel = (sourceNode?.data as TerminalNodeData | undefined)?.label ?? connection.source;
         const tgtLabel = (targetNode?.data as TerminalNodeData | undefined)?.label ?? connection.target;
         const srcType = (sourceNode?.data as TerminalNodeData | undefined)?.agentType ?? "shell";
         const tgtType = (targetNode?.data as TerminalNodeData | undefined)?.agentType ?? "shell";
         const isAi = (t: string) => t === "claude" || t === "codex";
 
-        if (isAi(srcType)) {
-          ptyNotify(
-            connection.source,
-            `New agent connected: you → "${tgtLabel}". You can message it with send_message/ask_agent (to: "${tgtLabel}").`
-          ).catch(console.error);
-        } else {
+        if (!isAi(srcType)) {
           ptyWrite(
             connection.source,
             `\r\n\x1b[35m[NarraTer]\x1b[0m Connected \x1b[1m→ "${tgtLabel}"\x1b[0m\r\n` +
@@ -261,12 +263,7 @@ function CanvasInner() {
           ).catch(console.error);
         }
 
-        if (isAi(tgtType)) {
-          ptyNotify(
-            connection.target,
-            `New agent connected: "${srcLabel}" → you. Its messages will arrive as [narrater from ${srcLabel}].`
-          ).catch(console.error);
-        } else {
+        if (!isAi(tgtType)) {
           ptyWrite(
             connection.target,
             `\r\n\x1b[35m[NarraTer]\x1b[0m Agent \x1b[1m"${srcLabel}" →\x1b[0m connected to you.\r\n\r\n`
