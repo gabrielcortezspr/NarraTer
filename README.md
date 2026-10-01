@@ -29,27 +29,28 @@ concept to Linux.
 
 - **Infinite canvas** with pan/zoom, undo/redo, a floating toolbar and a
   Ctrl+K command palette.
-- **Terminals as nodes**: spawn Shell, Claude Code, Codex or custom-command
-  terminals anywhere on the canvas (xterm.js frontend, real PTYs in the Rust
-  backend, with zoom-aware culling and level-of-detail rendering).
+- **Terminals as nodes**: spawn Shell, Claude Code, Codex, Gemini CLI,
+  OpenCode or any custom command anywhere on the canvas, each in its own
+  working directory (xterm.js frontend, real PTYs in the Rust backend, with
+  zoom-aware culling and level-of-detail rendering). Every terminal of a scene
+  runs whether or not it's on screen.
 - **Six node types**: terminal, note, text, file tree, attachment and portal
   (embedded web page).
-- **Agent-to-agent communication**: draw a directed edge between two terminals
-  and the agents can talk. Inside every terminal a `narrater` CLI
-  (`send`, `ask`, `reply`, `broadcast`, `inbox`, `peers`, `whoami`) and a
-  `narrater-mcp` MCP server expose the same routes as native tools for AI
-  agents. Delivery is idle-gated: messages are injected only when the target
-  agent isn't in the middle of a turn.
-- **Agents can edit the canvas**: MCP tools let an agent list nodes, create
-  and update notes, drop text blocks, move nodes and connect them — see
-  [docs/mcp-canvas-tools.md](docs/mcp-canvas-tools.md).
-- **Roles**: reusable agent role presets (name, color, instructions) you can
-  assign to terminals. A role can be flagged **delegate-only (orchestrator)**:
-  a claude agent spawned with it loses the execution tools (Bash/Edit/Write)
-  and can only coordinate — it must delegate through its team. The default
-  roles are **Leader** (delegate-only) and **Developer**, wired for chain of
-  command: doubts about a delegated task go back to the delegator, never to
-  the user.
+- **Agents from any vendor talk to each other**: connect two terminals and
+  either side can `narrater ask` the other. The prompt is typed into the
+  target's terminal when it's idle, and `ask` returns what the target's
+  screen shows once its turn is over — the target needs no plugin, hook or
+  special protocol, so Claude can ask Codex, Gemini can ask a shell, and so on.
+  See [docs/narrater-cli.md](docs/narrater-cli.md).
+- **Shared notes**: agents create, read and edit sticky notes connected to
+  them (`narrater note …`) and can wire agents and notes together
+  (`narrater connect`).
+- **Roles**: reusable role presets (name, color, instructions). A role reaches
+  the agent as `CLAUDE.md` + `AGENTS.md` in `<project>/.narrater/roles/<id>/`,
+  where the agent is started — every agent CLI loads its instruction file
+  natively. A role can be flagged **delegate-only (orchestrator)**: the agent
+  only coordinates (Claude Code also loses its file-editing tools). The
+  default roles are **Leader** (delegate-only) and **Developer**.
 - **Scenes**: workspaces are auto-saved (1s debounce, Ctrl+S to flush) as JSON
   under `~/.config/narrater/scenes/` and restored on load.
 - **Sticky notes, sketch layer and edge history** for annotating and auditing
@@ -107,17 +108,29 @@ npx tsc --noEmit             # frontend typecheck
 
 ## How agent communication works
 
-1. Each terminal is spawned with `NARRATER_ID`, `NARRATER_TOKEN` and
-   `NARRATER_SOCKET` in its environment.
-2. The backend listens on a per-app Unix socket
-   (`/tmp/narrater-<pid>.sock`); the `narrater` CLI and the `narrater-mcp`
-   server (both written to `~/.local/bin` at boot) speak JSON over it.
-3. Directed canvas edges define who may message whom; receiving a message
-   grants a temporary reply route back. Replies to `ask` are matched by short
-   ids (`#a3f2`) framed into the injected message
-   (`[narrater from X #id]: ...`).
-4. For Claude Code agents, a Stop hook (`narrater notify-idle`) provides the
-   authoritative idle signal that drains each terminal's message queue.
+Same model as [Maestri](https://www.themaestri.app/en): the terminal is the
+universal API, so nothing depends on which AI runs inside it.
+
+1. **Screen model.** Every PTY is mirrored into a headless terminal emulator
+   (`vt100`) in the backend (`src-tauri/src/screen.rs`). From the rendered
+   screen it derives each terminal's turn state — `working` (screen changing,
+   or a busy footer like `esc to interrupt`), `idle` (settled), or
+   `attention` (a permission menu / y-n prompt) — and whether the program
+   enabled bracketed paste. Shells are `working` while a foreground job runs.
+2. **CLI + skill.** At boot NarraTer installs the `narrater` CLI in
+   `~/.local/bin` and a `narrater` skill in `~/.claude/skills` and
+   `~/.agents/skills` (read by Claude Code, Codex, Gemini CLI, OpenCode…).
+   Each terminal gets `NARRATER_ID`, `NARRATER_TOKEN` and `NARRATER_SOCKET`;
+   the CLI speaks JSON over a private Unix socket
+   (`/tmp/narrater-<pid>/narrater.sock`).
+3. **ask.** The prompt waits in the target's queue until it's idle, is typed
+   in as `[narrater from X]: …` (bracketed paste when the program enabled
+   it), and the call blocks until the target settles; it returns the screen.
+   If the target messages the caller back meanwhile (`narrater ask "X" …`),
+   that resolves the waiting ask instead (the *ask back* pattern, for answers
+   longer than a screen). `check` reads a screen, `--raw` types keys,
+   `--batch` fans out in parallel.
+4. **Connections** are undirected and only gate who can reach whom.
 
 ## Distribution goal
 

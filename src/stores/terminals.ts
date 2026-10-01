@@ -1,7 +1,8 @@
 import { create } from "zustand";
 import type { QueueItem } from "@/lib/tauri";
 
-export type SessionStatus = "spawning" | "running" | "idle" | "exited";
+/** "attention": the program waits for the user (permission menu, y/n). */
+export type SessionStatus = "spawning" | "running" | "idle" | "attention" | "exited";
 
 export interface TerminalSession {
   id: string;
@@ -15,7 +16,7 @@ interface TerminalsStore {
   queues: Record<string, QueueItem[]>;
   addSession: (id: string) => void;
   setRunning: (id: string) => void;
-  setStatus: (id: string, status: "running" | "idle") => void;
+  setStatus: (id: string, status: "running" | "idle" | "attention") => void;
   setQueue: (id: string, items: QueueItem[]) => void;
   setExited: (id: string, code: number) => void;
   removeSession: (id: string) => void;

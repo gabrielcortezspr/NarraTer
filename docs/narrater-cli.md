@@ -1,0 +1,69 @@
+# The `narrater` CLI and protocol
+
+Every terminal on the canvas can reach the agents and notes connected to it
+through the `narrater` CLI. It is installed at boot in `~/.local/bin`, and a
+`narrater` skill teaching it is installed in `~/.claude/skills` and
+`~/.agents/skills`, so any agent CLI that supports skills (Claude Code, Codex,
+Gemini CLI, OpenCode…) knows how to use it. The command set mirrors Maestri's
+`maestri` CLI.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `narrater list` | You (`You:`), connected agents (status, role) and reachable notes |
+| `narrater ask "Agent" "prompt" [--timeout S]` | Types the prompt into the agent's terminal when it's idle; blocks until its turn is over and prints its screen |
+| `narrater ask --batch '{"A": "…", "B": "…"}'` | Several asks in parallel; JSON array of `{name, output}` / `{name, error}` |
+| `narrater ask "Agent" --raw "2\n"` | Types raw keys (`\n` Enter, `\t`, `\e` ESC, `\xNN`) and prints the resulting screen |
+| `narrater check "Agent"` | The agent's current screen, nothing sent |
+| `narrater note create ["content"] [--name N]` | New note next to you, connected to you |
+| `narrater note read "Note" [offset] [limit]` | Read with line numbers |
+| `narrater note write "Note" "content"` | Replace the content |
+| `narrater note edit "Note" "old" "new"` | Replace a unique substring |
+| `narrater note delete "Note"` | Remove (only on explicit user request) |
+| `narrater connect "From" "To"` | Wire two things you can reach |
+| `narrater debug` | Environment + socket diagnostics |
+| `narrater help [command]` | Help |
+
+## Flow
+
+```
+agent (any vendor) ── shell tool ──► narrater ask "Dev" "…"
+  │ JSON {from: $NARRATER_ID, token: $NARRATER_TOKEN, mode: "ask", to, msg}
+  ▼ Unix socket /tmp/narrater-<pid>/narrater.sock (dir 0700, socket 0600)
+ipc.rs ask_one():
+  resolve "Dev" among the caller's connections (undirected)
+  ask back? if Dev is itself blocked asking the caller → wake that ask
+  enqueue [narrater from Caller]: … → pty.rs monitor types it when Dev is idle
+  wait until Dev's turn state settles (screen.rs) → return Dev's screen
+```
+
+- **Turn state** (`screen.rs`): every PTY feeds a headless `vt100` emulator.
+  A 200 ms monitor hashes the rendered screen; `working` while it changes (or
+  shows a busy footer such as `esc to interrupt`, for up to 20 s without
+  change), `attention` when a settled screen shows a permission menu
+  (`1. Yes`/`1. Allow`… or `(y/n)`), `idle` otherwise. Shells are `working`
+  while a foreground job other than the shell runs.
+- **Delivery** (`plan_delivery`): bracketed paste + Enter when the program
+  enabled DECSET 2004; otherwise text then Enter after 300 ms (newlines
+  flattened). Control bytes are stripped from prompts.
+- **Canvas commands** (`list`, `note …`, `connect`) are forwarded to the
+  frontend (`canvas_request` event → `src/lib/canvasBridge.ts` →
+  `canvas_respond`), which owns the graph. An agent reaches only notes wired
+  to its terminal, or chained to such a note.
+- **Roles** (`roles.rs`): `<project>/.narrater/roles/<key>/{CLAUDE.md,AGENTS.md}`
+  (+ `.gemini/settings.json` / `.qwen/settings.json` pointing at AGENTS.md);
+  the agent starts there and the files point back to the project.
+
+## Testing the heuristics against a real program
+
+```sh
+cd src-tauri
+cargo run --example turn_probe -- --shell 'sleep 2; echo done' /bin/bash
+cargo run --example turn_probe -- 'Reply with PONG' claude
+```
+
+The probe spawns the program in a PTY, waits for idle, delivers the prompt
+with the app's delivery plan and prints each turn-state transition plus the
+final screen. Run it when adding a new agent preset or after an agent CLI
+changes its TUI.

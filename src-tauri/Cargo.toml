@@ -27,6 +27,7 @@ dirs = "5"
 uuid = { version = "1", features = ["v4"] }
 tauri-plugin-dialog = "2"
 base64 = "0.22"
+vt100 = "0.16"
 
 [profile.release]
 panic = "abort"

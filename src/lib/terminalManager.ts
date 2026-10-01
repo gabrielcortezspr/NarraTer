@@ -3,17 +3,20 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { onPtyOutput, onPtyExit } from "@/lib/ptyBus";
-import { ptySpawn, ptyWrite, ptyResize, ptyKill, getSpawnSpec } from "@/lib/tauri";
-import type { AgentType } from "@/lib/tauri";
-import { buildAgentSystemPrompt } from "@/lib/agentPrompt";
+import { ptySpawn, ptyWrite, ptyResize, ptyKill } from "@/lib/tauri";
+import type { RoleSpec } from "@/lib/tauri";
+import { getSpawnSpec, type AgentType } from "@/lib/agents";
 import { useTerminalsStore } from "@/stores/terminals";
 import { useRolesStore } from "@/stores/roles";
 import { toast } from "@/stores/toasts";
+import type { TerminalNodeData } from "@/stores/canvas";
 
 // xterm+PTY lifecycle outside React (item 1.2 of the frontend plan).
-// Unmounting a TerminalTile (viewport culling, LOD switch) only detaches the
-// terminal's DOM — the process and scrollback stay alive. The session only
-// dies in disposeTerminal (node removed / scene switch).
+// The session belongs to the canvas, not to the tile: scenes start every
+// terminal on load, so agents off-screen (viewport culling, LOD) are just as
+// reachable by `narrater ask` as visible ones. Tiles only attach/detach the
+// xterm DOM. The session only dies in disposeTerminal (node removed / scene
+// switch).
 
 export interface SpawnOpts {
   agentType: AgentType;
@@ -22,12 +25,25 @@ export interface SpawnOpts {
   /** Role assigned to the node; resolved against the roles store at spawn. */
   roleId?: string;
   roleName?: string;
-  /** Written into the composer after spawn (non-claude agents). */
+  /** Role instructions (possibly customized for this terminal). */
   instructions?: string;
-  /** Spawn the agent with its permission prompts bypassed (claude/codex). */
+  /** Spawn the agent with its permission prompts bypassed. */
   skipPermissions?: boolean;
-  /** Peer labels (agent-pipe routes), for the skill message at boot. */
-  pipes?: { outgoing: string[]; incoming: string[] };
+  /** Project directory the terminal works on. */
+  cwd?: string;
+}
+
+export function spawnOptsFor(data: TerminalNodeData): SpawnOpts {
+  return {
+    agentType: data.agentType ?? "shell",
+    command: data.command,
+    label: data.label,
+    roleId: data.roleId,
+    roleName: data.roleName,
+    instructions: data.instructions,
+    skipPermissions: data.skipPermissions,
+    cwd: data.cwd,
+  };
 }
 
 interface ManagedTerminal {
@@ -38,6 +54,21 @@ interface ManagedTerminal {
   unlisteners: Array<() => void>;
   opts: SpawnOpts;
   spawned: boolean;
+  /** xterm.open() done — needs a container attached to the DOM. */
+  opened: boolean;
+}
+
+function openInDom(mt: ManagedTerminal): void {
+  if (mt.opened || !mt.container.isConnected) return;
+  mt.opened = true;
+  mt.term.open(mt.container);
+  try {
+    const webgl = new WebglAddon();
+    webgl.onContextLoss(() => webgl.dispose());
+    mt.term.loadAddon(webgl);
+  } catch (e) {
+    console.warn("[NarraTer] WebGL unavailable, using DOM renderer:", e);
+  }
 }
 
 const XTERM_THEME = {
@@ -67,6 +98,12 @@ const XTERM_THEME = {
 const terminals = new Map<string, ManagedTerminal>();
 
 const BASE_FONT_SIZE = 13;
+// Below this a measured size is a hidden/collapsed container, not a real one
+const MIN_COLS = 20;
+const MIN_ROWS = 5;
+// Size a terminal starts with before its tile is ever laid out
+const DEFAULT_COLS = 120;
+const DEFAULT_ROWS = 32;
 // Crisp re-render only where the terminal is actually readable; below the
 // tile's LOD threshold the body is hidden anyway, above 3 it's the maxZoom.
 const CRISP_MIN_ZOOM = 0.35;
@@ -114,29 +151,31 @@ export function scheduleTerminalZoomSync(zoom: number): void {
 
 async function spawnInto(id: string, mt: ManagedTerminal): Promise<void> {
   const { addSession, setRunning, setExited } = useTerminalsStore.getState();
-  const { agentType, command, label, roleId, roleName, instructions, skipPermissions, pipes } = mt.opts;
+  const { agentType, command, label, roleId, roleName, instructions, skipPermissions, cwd } = mt.opts;
   addSession(id);
 
-  // Delegate-only roles must be resolved before the spawn args are built —
-  // scenes can hydrate terminals before the roles store finishes loading.
-  let orchestrator = false;
-  if (roleId) {
-    if (!useRolesStore.getState().loaded) {
-      await useRolesStore.getState().load().catch(console.error);
-    }
-    orchestrator = useRolesStore.getState().getRole(roleId)?.orchestrator ?? false;
+  // Roles must be resolved before the spawn args are built — scenes can
+  // hydrate terminals before the roles store finishes loading.
+  if (roleId && !useRolesStore.getState().loaded) {
+    await useRolesStore.getState().load().catch(console.error);
+  }
+  const roleDef = roleId ? useRolesStore.getState().getRole(roleId) : undefined;
+  const orchestrator = roleDef?.orchestrator ?? false;
+
+  // The role reaches the agent as instruction files (CLAUDE.md / AGENTS.md)
+  // in its start directory — works for any agent CLI. Instructions edited for
+  // this terminal get their own directory instead of the role's shared one.
+  let role: RoleSpec | undefined;
+  const text = instructions?.trim() ?? "";
+  if (agentType !== "shell" && text) {
+    const shared = roleDef && roleDef.instructions.trim() === text;
+    role = { key: shared ? roleDef.id : id, name: roleName, instructions: text, orchestrator };
   }
 
-  // Claude gets identity/role/protocol as a durable system prompt (plus the
-  // narrater MCP tools); other agents keep the composer injection below.
-  const systemPrompt =
-    agentType === "claude"
-      ? buildAgentSystemPrompt({ label: label ?? "agent", roleName, instructions, orchestrator })
-      : undefined;
-  const { command: cmd, args } = getSpawnSpec(agentType, command, systemPrompt, skipPermissions, orchestrator);
+  const { command: cmd, args } = getSpawnSpec(agentType, command, skipPermissions, orchestrator);
   try {
     const effectiveLabel = await ptySpawn({
-      id, command: cmd, args, cols: mt.term.cols, rows: mt.term.rows, label, agentType,
+      id, command: cmd, args, cols: mt.term.cols, rows: mt.term.rows, label, agentType, cwd, role,
     });
     setRunning(id);
     if (effectiveLabel && effectiveLabel !== label) {
@@ -148,33 +187,6 @@ async function spawnInto(id: string, mt: ManagedTerminal): Promise<void> {
     console.error("PTY spawn failed:", err);
     toast.error(`Failed to start ${label ?? agentType}: ${err}`);
     setExited(id, 1);
-    return;
-  }
-
-  if (agentType === "claude") return; // protocol goes in the system prompt
-
-  if (instructions?.trim()) {
-    ptyWrite(id, instructions.trim() + "\n").catch(console.error);
-  }
-
-  // AI agents discover routes lazily (list_peers at prompt time, sender frame
-  // on delivery) — injecting the peer hint would auto-submit a turn (tokens)
-  // at every boot/scene load. The visual hint below is for shells/custom only.
-  if (agentType === "codex") return;
-
-  const { outgoing = [], incoming = [] } = pipes ?? {};
-  if (outgoing.length > 0 || incoming.length > 0) {
-    let skillMsg = "\r\n";
-    if (outgoing.length > 0) {
-      skillMsg +=
-        `\x1b[35m[NarraTer]\x1b[0m You can send to: \x1b[1m${outgoing.join(", ")}\x1b[0m\r\n` +
-        `Use: \x1b[36mnarrater send "<name>" "message"\x1b[0m or \x1b[36mnarrater ask "<name>" "question"\x1b[0m\r\n`;
-    }
-    if (incoming.length > 0) {
-      skillMsg += `\x1b[35m[NarraTer]\x1b[0m Receives messages from: \x1b[1m${incoming.join(", ")}\x1b[0m\r\n`;
-    }
-    // Screen only — via stdin the shell would execute the hint as a command
-    mt.term.write(skillMsg + "\r\n");
   }
 }
 
@@ -191,23 +203,18 @@ export function ensureTerminal(id: string, opts: SpawnOpts): ManagedTerminal {
     cursorBlink: true,
     cursorStyle: "block",
     scrollback: 5000,
+    cols: DEFAULT_COLS,
+    rows: DEFAULT_ROWS,
     allowTransparency: true,
   });
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.loadAddon(new WebLinksAddon());
 
+  // Opened (and given its WebGL renderer) on the first attach, once the
+  // container is in the DOM — until then the buffer still records output.
   const container = document.createElement("div");
   styleContainerForZoom(container, currentZoom);
-  term.open(container);
-
-  try {
-    const webgl = new WebglAddon();
-    webgl.onContextLoss(() => webgl.dispose());
-    term.loadAddon(webgl);
-  } catch (e) {
-    console.warn("[NarraTer] WebGL unavailable, using DOM renderer:", e);
-  }
 
   term.onData((d) => ptyWrite(id, d).catch(console.error));
 
@@ -216,16 +223,25 @@ export function ensureTerminal(id: string, opts: SpawnOpts): ManagedTerminal {
     onPtyExit(id, () => term.writeln("\r\n\x1b[2m[Process exited]\x1b[0m")),
   ];
 
-  const mt: ManagedTerminal = { term, fit, container, unlisteners, opts, spawned: false };
+  const mt: ManagedTerminal = { term, fit, container, unlisteners, opts, spawned: false, opened: false };
   terminals.set(id, mt);
   return mt;
 }
 
-/** Attaches the terminal to the tile's element; the first attach triggers the spawn. */
+/** Creates the terminal (if needed) and starts its process — no DOM required. */
+export function startTerminal(id: string, opts: SpawnOpts): void {
+  const mt = ensureTerminal(id, opts);
+  if (mt.spawned) return;
+  mt.spawned = true;
+  spawnInto(id, mt);
+}
+
+/** Attaches the terminal to the tile's element (and starts it if it wasn't). */
 export function attachTerminal(id: string, parent: HTMLElement): void {
   const mt = terminals.get(id);
   if (!mt) return;
   parent.appendChild(mt.container);
+  openInDom(mt);
   setTimeout(() => {
     fitTerminal(id);
     if (!mt.spawned) {
@@ -242,8 +258,14 @@ export function detachTerminal(id: string): void {
 
 export function fitTerminal(id: string): void {
   const mt = terminals.get(id);
-  if (!mt || !mt.container.isConnected) return;
+  if (!mt || !mt.opened || !mt.container.isConnected) return;
   try {
+    // A hidden tile (LOD: body is display:none) measures 0px and the fit
+    // would shrink the PTY to 2 cols × 1 row — the agent would then render
+    // for that size, and its screen (what `narrater ask` reads) is garbage.
+    // Keep the last real size until the tile is visible again.
+    const dims = mt.fit.proposeDimensions();
+    if (!dims || dims.cols < MIN_COLS || dims.rows < MIN_ROWS) return;
     const { cols, rows } = mt.term;
     mt.fit.fit();
     // Zoom re-renders keep the grid identical by design — only tell the PTY

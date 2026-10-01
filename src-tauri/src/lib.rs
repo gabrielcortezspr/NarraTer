@@ -4,6 +4,7 @@ mod ipc;
 mod pty;
 mod roles;
 mod scene;
+pub mod screen;
 
 use pty::PtyState;
 
@@ -32,7 +33,7 @@ pub fn run() {
             pty::pty_kill,
             pty::pty_update_label,
             pty::connections_sync,
-            pty::pty_notify,
+            pty::pty_statuses,
             pty::pty_queue_cancel,
             pty::narrater_ledger,
             scene::load_scene,

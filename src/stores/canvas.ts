@@ -2,8 +2,8 @@ import { create } from "zustand";
 import { applyNodeChanges, applyEdgeChanges } from "@xyflow/react";
 import type { Node, Edge, NodeChange, EdgeChange, XYPosition } from "@xyflow/react";
 import { loadScene, saveScene, connectionsSync } from "@/lib/tauri";
-import { disposeTerminal } from "@/lib/terminalManager";
-import type { AgentType } from "@/lib/tauri";
+import { disposeTerminal, startTerminal, spawnOptsFor } from "@/lib/terminalManager";
+import type { AgentType } from "@/lib/agents";
 
 export interface TerminalNodeData extends Record<string, unknown> {
   agentType: AgentType;
@@ -16,6 +16,8 @@ export interface TerminalNodeData extends Record<string, unknown> {
   roleName?: string;
   roleColor?: string;
   skipPermissions?: boolean;
+  /** Project directory the terminal works on. */
+  cwd?: string;
 }
 
 export interface NoteNodeData extends Record<string, unknown> {
@@ -60,6 +62,7 @@ export interface AddTerminalOpts {
   roleName?: string;
   roleColor?: string;
   skipPermissions?: boolean;
+  cwd?: string;
 }
 
 interface CanvasStore {
@@ -83,7 +86,8 @@ interface CanvasStore {
   addFileTreeNode: (position?: XYPosition, rootPath?: string) => string;
   addAttachmentNode: (position: XYPosition, path: string) => string;
   addPortalNode: (position?: XYPosition, url?: string) => string;
-  appendNoteContent: (noteId: string, text: string) => void;
+  /** Lights the note's "live" badge for a moment (an agent just wrote it). */
+  flashNoteLive: (noteId: string) => void;
   removeNode: (id: string) => void;
   loadScene: (name: string) => Promise<void>;
   saveScene: (name: string) => Promise<void>;
@@ -91,7 +95,6 @@ interface CanvasStore {
 
 let nodeCounter = 0;
 
-const MAX_NOTE_CONTENT = 200_000;
 const liveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 // Undo/redo via structural snapshots (nodes+edges). Lives outside the
@@ -105,15 +108,23 @@ const redoStack: Snapshot[] = [];
 const HISTORY_CAP = 50;
 
 // Restoring a snapshot may remove terminals (undoing a create) — their
-// sessions must die; terminals that come back (undoing a delete) respawn
-// when their tile mounts (ensureTerminal).
+// sessions must die; terminals that come back (undoing a delete) are
+// restarted by startTerminals.
 function terminalsToDispose(current: AppNode[], next: AppNode[]): string[] {
   const nextIds = new Set(next.filter((n) => n.type === "terminal").map((n) => n.id));
   return current.filter((n) => n.type === "terminal" && !nextIds.has(n.id)).map((n) => n.id);
 }
 
-// Mirror agent-pipe edges into the backend routing table — narrater send/ask
-// is only allowed along these directed routes.
+// Every terminal of the scene runs, on screen or not — `narrater ask` must
+// reach agents the camera isn't looking at. Idempotent per terminal.
+function startTerminals(nodes: AppNode[]) {
+  for (const n of nodes) {
+    if (n.type === "terminal") startTerminal(n.id, spawnOptsFor(n.data as TerminalNodeData));
+  }
+}
+
+// Mirror agent ropes into the backend routing table. Undirected: an edge
+// between two terminals lets either side `narrater ask` the other.
 function syncConnections(edges: AppEdge[]) {
   const pairs = edges
     .filter((e) => e.type === "agent-pipe")
@@ -138,6 +149,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     redoStack.push({ nodes: get().nodes, edges: get().edges });
     terminalsToDispose(get().nodes, prev.nodes).forEach(disposeTerminal);
     set({ nodes: prev.nodes, edges: prev.edges });
+    startTerminals(prev.nodes);
     syncConnections(prev.edges);
   },
 
@@ -147,6 +159,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     undoStack.push({ nodes: get().nodes, edges: get().edges });
     terminalsToDispose(get().nodes, next.nodes).forEach(disposeTerminal);
     set({ nodes: next.nodes, edges: next.edges });
+    startTerminals(next.nodes);
     syncConnections(next.edges);
   },
 
@@ -194,6 +207,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       style: { width: 520, height: 360 },
     };
     set((s) => ({ nodes: [...s.nodes, newNode] }));
+    startTerminals([newNode]);
     return id;
   },
 
@@ -287,26 +301,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     return id;
   },
 
-  appendNoteContent: (noteId, text) => {
-    set((s) => ({
-      nodes: s.nodes.map((n) => {
-        if (n.id !== noteId || n.type !== "note") return n;
-        const current = (n.data as NoteNodeData).content ?? "";
-        const separator = current.length > 0 ? "\n" : "";
-        let content = current + separator + text;
-        // Cap: verbose agents would grow the note (and its <textarea>) without
-        // bound — keep the tail, which is the most recent output.
-        if (content.length > MAX_NOTE_CONTENT) {
-          content = "…" + content.slice(content.length - MAX_NOTE_CONTENT);
-        }
-        return {
-          ...n,
-          data: { ...n.data, content, isAgentLive: true },
-        } as AppNode;
-      }),
-    }));
-
-    // "Live" turns off after 2s without new output (used to stay on forever)
+  flashNoteLive: (noteId) => {
+    get().updateNodeData(noteId, { isAgentLive: true });
     const timer = liveTimers.get(noteId);
     if (timer) clearTimeout(timer);
     liveTimers.set(
@@ -385,6 +381,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
             roleName: n.role_name,
             roleColor: n.role_color,
             skipPermissions: n.skip_permissions,
+            cwd: n.cwd,
           },
         };
       });
@@ -402,6 +399,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       }));
       set({ nodes, edges, hydrated: true });
       syncConnections(edges);
+      startTerminals(nodes);
     } catch {
       // No saved scene yet — start empty
       set({ nodes: [], edges: [], hydrated: true });
@@ -441,6 +439,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           role_name: tdata?.roleName,
           role_color: tdata?.roleColor,
           skip_permissions: tdata?.skipPermissions,
+          cwd: tdata?.cwd,
         };
       }),
       edges: edges.map((e) => ({

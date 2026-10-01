@@ -14,7 +14,6 @@ import {
   type XYPosition,
 } from "@xyflow/react";
 import { useShallow } from "zustand/react/shallow";
-import { onPtyOutput } from "@/lib/ptyBus";
 import { scheduleTerminalZoomSync } from "@/lib/terminalManager";
 import "@xyflow/react/dist/style.css";
 import TerminalTile from "@/components/TerminalTile";
@@ -38,8 +37,8 @@ import { useWorkspacesStore } from "@/stores/workspaces";
 import { useToolStore, PLACEMENT_TOOLS } from "@/stores/tool";
 import { saveNow } from "@/hooks/useAutoSave";
 import { useSketchStore } from "@/stores/sketch";
-import { stripAnsi, cleanLines } from "@/lib/ansi";
 import { pickFile } from "@/lib/tauri";
+import { presetOf } from "@/lib/agents";
 import { printToTerminal } from "@/lib/terminalManager";
 import type { AgentPickerResult } from "@/components/AgentPicker";
 import type { AppEdge, TerminalNodeData } from "@/stores/canvas";
@@ -168,52 +167,16 @@ function CanvasInner() {
     }
   }, []);
 
-  // Agent → Note pipe: mirrors terminal output into connected notes.
-  // Chunks are buffered per note and applied in batches (~100ms) — a verbose
-  // agent emits dozens of chunks per second, and each appendNoteContent is a
-  // global setState (item 1.4 of the frontend plan).
-  useEffect(() => {
-    const buffers = new Map<string, string>();
-    let flushTimer: number | undefined;
-
-    const flush = () => {
-      flushTimer = undefined;
-      const { appendNoteContent } = useCanvasStore.getState();
-      buffers.forEach((text, noteId) => appendNoteContent(noteId, text));
-      buffers.clear();
-    };
-
-    const unlisten = onPtyOutput("*", ({ id: termId, data: rawData }) => {
-      const currentEdges = useCanvasStore.getState().edges;
-      const agentNoteEdges = currentEdges.filter(
-        (e) => e.type === "agent-note" && (e.source === termId || e.target === termId)
-      );
-      if (!agentNoteEdges.length) return;
-
-      const clean = cleanLines(stripAnsi(rawData));
-      if (!clean) return;
-
-      agentNoteEdges.forEach((edge) => {
-        const noteId = edge.source === termId ? edge.target : edge.source;
-        const pending = buffers.get(noteId);
-        buffers.set(noteId, pending ? `${pending}\n${clean}` : clean);
-      });
-      flushTimer ??= window.setTimeout(flush, 100);
-    });
-
-    return () => {
-      unlisten();
-      if (flushTimer !== undefined) window.clearTimeout(flushTimer);
-    };
-  }, []);
-
   const onConnect: OnConnect = useCallback(
     (connection: Connection) => {
-      // Same guards as the MCP connect_nodes: no self-loops, and an existing
-      // route is not duplicated (each duplicate snapshots + resyncs for nothing).
+      // Same guards as `narrater connect`: no self-loops, and an existing
+      // connection (either direction) is not duplicated.
       if (!connection.source || !connection.target || connection.source === connection.target) return;
       const { nodes: currentNodes, edges: currentEdges } = useCanvasStore.getState();
-      if (currentEdges.some((e) => e.source === connection.source && e.target === connection.target)) return;
+      if (currentEdges.some((e) =>
+        (e.source === connection.source && e.target === connection.target) ||
+        (e.source === connection.target && e.target === connection.source)
+      )) return;
 
       const sourceNode = currentNodes.find((n) => n.id === connection.source);
       const targetNode = currentNodes.find((n) => n.id === connection.target);
@@ -243,33 +206,27 @@ function CanvasInner() {
       // Store is the source of truth: it mirrors the route to the backend
       addStoreEdge(newEdge);
 
-      // Creating the route only updates the backend table (syncConnections,
-      // token-free). AI agents are deliberately NOT notified: a queued system
-      // message auto-submits and burns a turn on each endpoint per edge. They
-      // verify routes when a prompt actually flows — list_peers on the sender
-      // side, the [narrater from X] frame on the receiver side. Shells get a
-      // hint on screen only (never stdin — the shell would execute it).
+      // Creating the connection only updates the backend table — agents are
+      // not prompted (that would burn a turn on each side). They find their
+      // teammates with `narrater list` when a prompt actually flows. Shells
+      // get a hint on screen only (never stdin — the shell would execute it).
       if (isAgentPipe) {
-        const srcLabel = (sourceNode?.data as TerminalNodeData | undefined)?.label ?? connection.source;
-        const tgtLabel = (targetNode?.data as TerminalNodeData | undefined)?.label ?? connection.target;
-        const srcType = (sourceNode?.data as TerminalNodeData | undefined)?.agentType ?? "shell";
-        const tgtType = (targetNode?.data as TerminalNodeData | undefined)?.agentType ?? "shell";
-        const isAi = (t: string) => t === "claude" || t === "codex";
-
-        if (!isAi(srcType)) {
+        const label = (n: typeof sourceNode, fallback: string) =>
+          (n?.data as TerminalNodeData | undefined)?.label ?? fallback;
+        const isShell = (n: typeof sourceNode) =>
+          ((n?.data as TerminalNodeData | undefined)?.agentType ?? "shell") === "shell";
+        const ends: Array<[string, string]> = [
+          [connection.source, label(targetNode, connection.target)],
+          [connection.target, label(sourceNode, connection.source)],
+        ];
+        ends.forEach(([termId, peer], i) => {
+          if (!isShell(i === 0 ? sourceNode : targetNode)) return;
           printToTerminal(
-            connection.source,
-            `\r\n\x1b[35m[NarraTer]\x1b[0m Connected \x1b[1m→ "${tgtLabel}"\x1b[0m\r\n` +
-              `Use: \x1b[36mnarrater send "${tgtLabel}" "message"\x1b[0m or \x1b[36mnarrater ask "${tgtLabel}" "question"\x1b[0m\r\n\r\n`
+            termId,
+            `\r\n\x1b[35m[NarraTer]\x1b[0m Connected to \x1b[1m"${peer}"\x1b[0m — ` +
+              `\x1b[36mnarrater ask "${peer}" "..."\x1b[0m\r\n\r\n`
           );
-        }
-
-        if (!isAi(tgtType)) {
-          printToTerminal(
-            connection.target,
-            `\r\n\x1b[35m[NarraTer]\x1b[0m Agent \x1b[1m"${srcLabel}" →\x1b[0m connected to you.\r\n\r\n`
-          );
-        }
+        });
       }
     },
     [addStoreEdge]
@@ -371,8 +328,7 @@ function CanvasInner() {
             if (node.type === "filetree") return "#60a5fa40";
             if (node.type === "attachment") return "#f472b640";
             if (node.type === "portal") return "#22d3ee40";
-            const t = (node.data as { agentType?: string })?.agentType ?? "shell";
-            return { shell: "#6b728050", claude: "#8b5cf650", codex: "#3b82f650", custom: "#14b8a650" }[t] ?? "#6b728050";
+            return `${presetOf((node.data as { agentType?: string })?.agentType).color}50`;
           }}
           maskColor="rgba(0,0,0,0.6)"
           style={{ right: 16, bottom: 16 }}

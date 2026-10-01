@@ -1,24 +1,15 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{Read, Write};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use tauri::{AppHandle, Emitter, State};
-use serde::Serialize;
-use tokio::sync::mpsc;
+use serde::{Deserialize, Serialize};
 
-/// Silence window after which a Running terminal is considered Idle.
-pub const IDLE_THRESHOLD: Duration = Duration::from_millis(1500);
-const STATUS_TICK: Duration = Duration::from_millis(500);
-/// A queued message is injected even into a busy terminal after this long,
-/// so TUI agents that never go idle (constant redraws) don't starve the queue.
-pub const MAX_QUEUE_WAIT: Duration = Duration::from_secs(30);
-/// Force-inject window for sessions with a working idle hook: the Stop hook
-/// is authoritative, so the queue only needs a long safety backstop.
-pub const HOOKED_QUEUE_WAIT: Duration = Duration::from_secs(120);
-/// Receiving a message from A lets the target answer A back (send/ask) for
-/// this long, even without a canvas edge in that direction.
-pub const REPLY_GRANT_TTL: Duration = Duration::from_secs(600);
+use crate::screen::{classify, plan_delivery, ScreenModel, TurnState};
+
+const STATUS_TICK: Duration = Duration::from_millis(200);
 
 #[derive(Serialize, Clone)]
 pub struct PtyOutput {
@@ -43,7 +34,6 @@ pub struct PtyStatusEvent {
 pub struct QueueItem {
     pub from_label: String,
     pub msg: String,
-    pub msg_id: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -53,113 +43,102 @@ pub struct PtyQueueEvent {
     pub items: Vec<QueueItem>,
 }
 
-/// One inter-agent message on the ledger (fase 4 — observabilidade). Ring
-/// buffer global; o front recebe cada registro via evento `narrater_msg`.
+/// One inter-agent message on the ledger (per-edge history on the canvas).
 #[derive(Serialize, Clone)]
 pub struct LedgerEntry {
     pub from: String,
     pub to: String,
     pub from_label: String,
     pub to_label: String,
-    /// "send" | "ask" | "reply" | "broadcast"
+    /// "ask" | "reply" | "raw"
     pub kind: String,
     pub msg: String,
-    pub msg_id: Option<String>,
-    /// Epoch em milissegundos.
+    /// Epoch milliseconds.
     pub ts: u64,
 }
 
 const LEDGER_CAP: usize = 500;
 
-/// Message waiting to be injected into a terminal's stdin.
+/// Prompt waiting to be typed into a terminal (delivered when it's idle).
 pub struct QueuedMsg {
     pub from_label: String,
-    /// Sender node id, when the sender is another agent (None for "sistema").
-    /// Delivery grants the receiver a temporary reply route back to it.
+    /// Sender node id (None for prompts coming from the app itself).
     pub from_id: Option<String>,
     pub msg: String,
-    pub enqueued: Instant,
-    /// Short ask id. When present, delivery frames the message as
-    /// `[narrater from X #id]: ...` so the target can answer via `reply`.
-    pub msg_id: Option<String>,
-    /// Fired when the message is actually written to the target PTY, so an
-    /// `ask` starts capturing output only from that point.
+    /// Fired once the last byte of the prompt was written to the PTY.
     pub delivered_tx: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
-/// One in-flight `ask` capture, keyed by request id in the state map.
-/// Fallback path for shell targets — AI agents answer via `reply`.
-pub struct ResponseListener {
-    pub target_id: String,
-    pub tx: mpsc::Sender<String>,
-}
-
-/// One in-flight explicit-reply `ask`, keyed by short msg id. Resolved by the
-/// target agent calling `narrater reply <id>` / the reply_message MCP tool.
+/// An `ask` in flight: `asker` is blocked waiting for `target`. If `target`
+/// messages `asker` back meanwhile (the ask-back pattern), that resolves it.
 pub struct AskWaiter {
-    /// Only this terminal may answer — the one the ask was delivered to.
-    pub responder_id: String,
-    /// Who asked — destination of the reply on the ledger.
     pub asker_id: String,
+    pub target_id: String,
     pub tx: tokio::sync::oneshot::Sender<String>,
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum RunStatus {
-    Running,
-    Idle,
-}
-
-impl RunStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            RunStatus::Running => "running",
-            RunStatus::Idle => "idle",
-        }
-    }
 }
 
 pub struct PtySession {
     writer: Box<dyn Write + Send>,
     master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
-    pub last_output: Instant,
-    pub status: RunStatus,
-    /// Agent type running in this terminal ("shell", "claude", ...). Decides
-    /// how inbound messages are framed on delivery.
+    child_pid: Option<u32>,
+    /// Headless emulator mirroring the PTY: screen text, paste mode, activity.
+    pub screen: ScreenModel,
+    pub turn: TurnState,
+    /// "shell" or an agent type — shells take bare commands and get their busy
+    /// state from the foreground process group.
     pub agent_type: String,
-    /// True once this session's Stop hook called `narrater notify-idle` at
-    /// least once — from then on, idle comes from the hook (authoritative),
-    /// not from the output-silence timer.
-    pub hook_idle: bool,
-    /// Segredo por terminal (env NARRATER_TOKEN), validado pelo IPC junto ao
-    /// `from` — fecha o spoof de identidade por qualquer processo local.
+    /// A prompt is being typed (multi-step write in progress).
+    delivering: bool,
+    /// Per-terminal secret (env NARRATER_TOKEN) proving identity on the socket.
     pub token: String,
+}
+
+impl PtySession {
+    pub fn is_shell(&self) -> bool {
+        self.agent_type == "shell"
+    }
+
+    /// Shells only: is a job other than the shell itself in the foreground?
+    fn foreground_busy(&self) -> Option<bool> {
+        let leader = self.master.process_group_leader()?;
+        let pid = self.child_pid? as i32;
+        Some(leader != pid)
+    }
+
+    fn compute_turn(&self, now: Instant) -> TurnState {
+        let since = now.saturating_duration_since(self.screen.last_change);
+        let fg = if self.is_shell() { self.foreground_busy() } else { None };
+        classify(&self.screen.footer(), since, self.is_shell(), fg)
+    }
 }
 
 pub struct PtyStateInner {
     pub sessions: HashMap<String, PtySession>,
     pub labels: HashMap<String, String>,
     pub label_to_id: HashMap<String, String>,
-    /// In-flight ask captures, keyed by request id (concurrent asks coexist).
-    pub response_listeners: HashMap<String, ResponseListener>,
-    /// In-flight explicit-reply asks, keyed by short msg id.
+    /// In-flight asks, keyed by a request id.
     pub ask_waiters: HashMap<String, AskWaiter>,
-    /// Directed agent-pipe routes (source node id → target node id), mirrored
-    /// from the canvas edges. Communication is only allowed along these.
+    /// Agent ropes mirrored from the canvas. Undirected: an edge between two
+    /// terminals lets either side `ask` the other.
     pub connections: HashSet<(String, String)>,
-    /// Temporary reply routes (receiver id → sender id, granted on message
-    /// delivery, expire after REPLY_GRANT_TTL). Let an agent answer whoever
-    /// messaged it even when the canvas edge is one-way.
-    pub reply_grants: HashMap<(String, String), Instant>,
-    /// Per-terminal inbound message queue, drained on idle by the monitor.
+    /// Per-terminal prompt queue, drained when the terminal is idle.
     pub inbox: HashMap<String, VecDeque<QueuedMsg>>,
-    /// In-flight canvas requests (MCP → frontend), keyed by request id; the
-    /// frontend resolves them via the canvas_respond command.
+    /// In-flight canvas requests (CLI → frontend), resolved by canvas_respond.
     pub canvas_waiters: HashMap<String, tokio::sync::oneshot::Sender<String>>,
-    /// Ring buffer with the latest inter-agent messages (send/ask/reply/
-    /// broadcast) — per-edge conversation history on the canvas.
+    /// Latest inter-agent messages — per-edge conversation history.
     pub ledger: VecDeque<LedgerEntry>,
+}
+
+impl PtyStateInner {
+    pub fn connected(&self, a: &str, b: &str) -> bool {
+        self.connections.contains(&(a.to_string(), b.to_string()))
+            || self.connections.contains(&(b.to_string(), a.to_string()))
+    }
+
+    pub fn label_of(&self, id: &str) -> String {
+        self.labels.get(id).cloned().unwrap_or_else(|| id.to_string())
+    }
 }
 
 #[derive(Clone)]
@@ -171,10 +150,8 @@ impl Default for PtyState {
             sessions: HashMap::new(),
             labels: HashMap::new(),
             label_to_id: HashMap::new(),
-            response_listeners: HashMap::new(),
             ask_waiters: HashMap::new(),
             connections: HashSet::new(),
-            reply_grants: HashMap::new(),
             inbox: HashMap::new(),
             canvas_waiters: HashMap::new(),
             ledger: VecDeque::new(),
@@ -182,14 +159,64 @@ impl Default for PtyState {
     }
 }
 
-/// Pre-accepts Claude Code's folder-trust dialog for the spawn cwd (and, when
-/// spawning with --dangerously-skip-permissions, its one-time bypass warning)
-/// in ~/.claude.json, so agent terminals boot straight into the prompt.
-fn pre_trust_claude_cwd(bypass_permissions: bool) {
-    let Ok(home) = std::env::var("HOME") else { return };
-    let config_path = std::path::Path::new(&home).join(".claude.json");
-    let Ok(cwd) = std::env::current_dir() else { return };
-    let cwd = cwd.to_string_lossy().to_string();
+/// Role context written as instruction files the agent loads by itself
+/// (see roles::install_role_dir).
+#[derive(Deserialize, Clone)]
+pub struct RoleSpec {
+    /// Directory key under `.narrater/roles/` (role id, or the terminal id
+    /// when the instructions were customized for this terminal).
+    pub key: String,
+    pub name: Option<String>,
+    pub instructions: String,
+    #[serde(default)]
+    pub orchestrator: bool,
+}
+
+/// Session markers of whatever launched NarraTer (a Claude Code terminal, a
+/// Maestri canvas…). Inherited by our terminals they would tie each agent to
+/// the parent session (e.g. Claude disables transcript saving in "child
+/// sessions") or point its CLI at another app's socket.
+const INHERITED_SESSION_VARS: &[&str] = &[
+    "CLAUDECODE",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_PID",
+    "CLAUDE_EFFORT",
+];
+const INHERITED_SESSION_PREFIXES: &[&str] = &["MAESTRI_"];
+
+fn is_inherited_session_var(name: &str) -> bool {
+    INHERITED_SESSION_VARS.contains(&name) || INHERITED_SESSION_PREFIXES.iter().any(|p| name.starts_with(p))
+}
+
+/// Expands `~` and falls back to $HOME when the directory doesn't exist.
+fn resolve_cwd(cwd: Option<&str>) -> PathBuf {
+    let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+    let Some(raw) = cwd.map(str::trim).filter(|s| !s.is_empty()) else { return home };
+    let path = if raw == "~" {
+        home.clone()
+    } else if let Some(rest) = raw.strip_prefix("~/") {
+        home.join(rest)
+    } else {
+        PathBuf::from(raw)
+    };
+    if path.is_dir() { path } else { home }
+}
+
+/// Pre-accepts Claude Code's folder-trust dialog for `dir` (and, when spawning
+/// with --dangerously-skip-permissions, its one-time bypass warning) in
+/// ~/.claude.json, so agent terminals boot straight into the prompt. Written
+/// atomically (temp file + rename): Claude itself rewrites this file, and a
+/// truncated read would wipe the user's settings.
+fn pre_trust_claude_dir(dir: &std::path::Path, bypass_permissions: bool) {
+    let Some(home) = dirs::home_dir() else { return };
+    let config_path = home.join(".claude.json");
+    let dir = dir.to_string_lossy().to_string();
 
     // A corrupt/unreadable existing config is left untouched — never clobber.
     let mut root: serde_json::Value = match std::fs::read_to_string(&config_path) {
@@ -205,7 +232,7 @@ fn pre_trust_claude_cwd(bypass_permissions: bool) {
 
     let projects = obj.entry("projects").or_insert_with(|| serde_json::json!({}));
     if let Some(projects) = projects.as_object_mut() {
-        let project = projects.entry(cwd).or_insert_with(|| serde_json::json!({}));
+        let project = projects.entry(dir).or_insert_with(|| serde_json::json!({}));
         if let Some(project) = project.as_object_mut() {
             if project.get("hasTrustDialogAccepted").and_then(|v| v.as_bool()) != Some(true) {
                 project.insert("hasTrustDialogAccepted".into(), serde_json::json!(true));
@@ -223,7 +250,10 @@ fn pre_trust_claude_cwd(bypass_permissions: bool) {
 
     if changed {
         if let Ok(json) = serde_json::to_string(&root) {
-            let _ = std::fs::write(&config_path, json);
+            let tmp = config_path.with_extension(format!("json.narrater-{}", std::process::id()));
+            if std::fs::write(&tmp, json).is_ok() && std::fs::rename(&tmp, &config_path).is_err() {
+                let _ = std::fs::remove_file(&tmp);
+            }
         }
     }
 }
@@ -243,6 +273,7 @@ fn drain_utf8(buf: &mut Vec<u8>) -> String {
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn pty_spawn(
     id: String,
     command: String,
@@ -251,6 +282,8 @@ pub fn pty_spawn(
     rows: u16,
     label: Option<String>,
     agent_type: Option<String>,
+    cwd: Option<String>,
+    role: Option<RoleSpec>,
     app_handle: AppHandle,
     state: State<'_, PtyState>,
 ) -> Result<String, String> {
@@ -259,9 +292,9 @@ pub fn pty_spawn(
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| e.to_string())?;
 
-    let bypass_permissions = args
-        .as_ref()
-        .is_some_and(|a| a.iter().any(|s| s == "--dangerously-skip-permissions"));
+    let bypass_permissions = args.as_ref().is_some_and(|a| {
+        a.iter().any(|s| s == "--dangerously-skip-permissions")
+    });
 
     // With explicit args, `command` is the program; otherwise fall back to
     // whitespace-splitting the command string (custom agents, no quoting)
@@ -283,31 +316,53 @@ pub fn pty_spawn(
             cmd
         }
     };
-    cmd.env("TERM", "xterm-256color");
-    // Generous MCP tool-call timeout so long ask_agent calls don't get cut
-    cmd.env("MCP_TOOL_TIMEOUT", "300000");
-    cmd.env("COLORTERM", "truecolor");
 
-    if let Ok(home) = std::env::var("HOME") {
-        cmd.env("HOME", &home);
-        if let Ok(current_path) = std::env::var("PATH") {
-            cmd.env("PATH", format!("{}/.local/bin:{}", home, current_path));
+    // Working directory: the project the terminal works on. With a role, the
+    // agent starts inside `.narrater/roles/<key>/` so it loads the role's
+    // CLAUDE.md / AGENTS.md natively — the files point back to the project.
+    let project_dir = resolve_cwd(cwd.as_deref());
+    let agent_type = agent_type.unwrap_or_else(|| "shell".to_string());
+    let spawn_dir = match role.as_ref().filter(|r| agent_type != "shell" && !r.instructions.trim().is_empty()) {
+        Some(r) => crate::roles::install_role_dir(&project_dir, r, &command)
+            .unwrap_or_else(|e| {
+                eprintln!("[NarraTer] {}", e);
+                project_dir.clone()
+            }),
+        None => project_dir.clone(),
+    };
+    cmd.cwd(&spawn_dir);
+
+    for (name, _) in std::env::vars_os() {
+        if name.to_str().is_some_and(is_inherited_session_var) {
+            cmd.env_remove(name);
         }
-    } else if let Ok(path) = std::env::var("PATH") {
-        cmd.env("PATH", path);
+    }
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
+    cmd.env("TERM_PROGRAM", "NarraTer");
+
+    if let Some(home) = dirs::home_dir() {
+        cmd.env("HOME", &home);
+        let bin = home.join(".local/bin");
+        match std::env::var("PATH") {
+            Ok(path) => cmd.env("PATH", format!("{}:{}", bin.display(), path)),
+            Err(_) => cmd.env("PATH", bin.display().to_string()),
+        }
+        cmd.env("NARRATER_CLI", bin.join("narrater").display().to_string());
     }
 
-    let socket_path = format!("/tmp/narrater-{}.sock", std::process::id());
-    cmd.env("NARRATER_SOCKET", &socket_path);
+    cmd.env("NARRATER_SOCKET", crate::ipc::socket_path());
 
-    // Labels address agents in `narrater send`; disambiguate duplicates so
+    // Labels address agents in `narrater ask`; disambiguate duplicates so
     // two "claude" terminals never clobber each other's route. Reserved before
     // spawn so the child sees its own identity in the environment.
     let effective_label = {
         let mut inner = state.0.lock().unwrap();
         let base = label.unwrap_or_else(|| id.clone());
         let candidate = dedup_label(&inner.label_to_id, &id, &base);
-        inner.labels.insert(id.clone(), candidate.clone());
+        if let Some(old) = inner.labels.insert(id.clone(), candidate.clone()) {
+            inner.label_to_id.remove(&old);
+        }
         inner.label_to_id.insert(candidate.clone(), id.clone());
         candidate
     };
@@ -316,23 +371,13 @@ pub fn pty_spawn(
     let token = uuid::Uuid::new_v4().simple().to_string();
     cmd.env("NARRATER_TOKEN", &token);
 
-    let agent_type = agent_type.unwrap_or_else(|| "shell".to_string());
-    // Claude gets the Stop hook → `narrater notify-idle` (authoritative idle
-    // instead of the silence timer). --settings adds to the user's settings.
-    if agent_type == "claude" {
+    if command == "claude" || command.ends_with("/claude") {
         // No interactive dialogs on boot: the user creating the terminal in
         // NarraTer is the trust decision.
-        pre_trust_claude_cwd(bypass_permissions);
-        if let Some(hooks) = crate::ipc::claude_hooks_path() {
-            if hooks.exists() {
-                cmd.arg("--settings");
-                cmd.arg(hooks);
-            }
-        }
+        pre_trust_claude_dir(&spawn_dir, bypass_permissions);
     }
 
-    let spawn_result = pair.slave.spawn_command(cmd);
-    let child = match spawn_result {
+    let child = match pair.slave.spawn_command(cmd) {
         Ok(c) => c,
         Err(e) => {
             let mut inner = state.0.lock().unwrap();
@@ -350,11 +395,12 @@ pub fn pty_spawn(
         inner.sessions.insert(id.clone(), PtySession {
             writer: Box::new(writer),
             master: pair.master,
+            child_pid: child.process_id(),
             child,
-            last_output: Instant::now(),
-            status: RunStatus::Running,
+            screen: ScreenModel::new(rows, cols),
+            turn: TurnState::Working,
             agent_type,
-            hook_idle: false,
+            delivering: false,
             token,
         });
     }
@@ -364,17 +410,15 @@ pub fn pty_spawn(
     let state_arc = Arc::clone(&state.0);
 
     std::thread::spawn(move || {
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; 8192];
         let mut carry: Vec<u8> = Vec::new();
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => {
                     let child = {
                         let mut inner = state_arc.lock().unwrap();
-                        inner.response_listeners.retain(|_, l| l.target_id != id_clone);
-                        // Dropping the sender wakes pending asks with a clean
-                        // "agent exited without replying" error.
-                        inner.ask_waiters.retain(|_, w| w.responder_id != id_clone);
+                        // Dropping the senders wakes pending asks with a clean error
+                        inner.ask_waiters.retain(|_, w| w.target_id != id_clone && w.asker_id != id_clone);
                         inner.inbox.remove(&id_clone);
                         if let Some(label) = inner.labels.remove(&id_clone) {
                             inner.label_to_id.remove(&label);
@@ -389,44 +433,13 @@ pub fn pty_spawn(
                     break;
                 }
                 Ok(n) => {
+                    if let Some(s) = state_arc.lock().unwrap().sessions.get_mut(&id_clone) {
+                        s.screen.feed(&buf[..n]);
+                    }
                     carry.extend_from_slice(&buf[..n]);
                     let data = drain_utf8(&mut carry);
-                    if data.is_empty() {
-                        continue;
-                    }
-                    let _ = app_clone.emit("pty_output", PtyOutput { id: id_clone.clone(), data: data.clone() });
-
-                    let (senders, became_running) = {
-                        let mut inner = state_arc.lock().unwrap();
-                        let mut became_running = false;
-                        if let Some(session) = inner.sessions.get_mut(&id_clone) {
-                            session.last_output = Instant::now();
-                            // Hooked sessions go Running only on message
-                            // injection or a user-submitted line — trailing
-                            // TUI output right after the Stop hook marked
-                            // Idle must not flip them back (nothing would
-                            // ever mark Idle again: no turn, no Stop hook).
-                            if session.status == RunStatus::Idle && !session.hook_idle {
-                                session.status = RunStatus::Running;
-                                became_running = true;
-                            }
-                        }
-                        let senders: Vec<mpsc::Sender<String>> = inner
-                            .response_listeners
-                            .values()
-                            .filter(|l| l.target_id == id_clone)
-                            .map(|l| l.tx.clone())
-                            .collect();
-                        (senders, became_running)
-                    };
-                    if became_running {
-                        let _ = app_clone.emit("pty_status", PtyStatusEvent {
-                            id: id_clone.clone(),
-                            status: RunStatus::Running.as_str(),
-                        });
-                    }
-                    for tx in senders {
-                        let _ = tx.try_send(data.clone());
+                    if !data.is_empty() {
+                        let _ = app_clone.emit("pty_output", PtyOutput { id: id_clone.clone(), data });
                     }
                 }
             }
@@ -437,46 +450,21 @@ pub fn pty_spawn(
 }
 
 #[tauri::command]
-pub fn pty_write(
-    id: String,
-    data: String,
-    app_handle: AppHandle,
-    state: State<'_, PtyState>,
-) -> Result<(), String> {
-    let became_running = {
-        let mut inner = state.0.lock().unwrap();
-        let Some(session) = inner.sessions.get_mut(&id) else { return Ok(()) };
-        session.writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
-        session.writer.flush().map_err(|e| e.to_string())?;
-        // Hooked sessions don't go Running on output (see the reader thread);
-        // a user-submitted line starts a turn, so mark it here.
-        if session.hook_idle
-            && session.status == RunStatus::Idle
-            && (data.contains('\r') || data.contains('\n'))
-        {
-            session.status = RunStatus::Running;
-            session.last_output = Instant::now();
-            true
-        } else {
-            false
-        }
-    };
-    if became_running {
-        let _ = app_handle.emit("pty_status", PtyStatusEvent {
-            id,
-            status: RunStatus::Running.as_str(),
-        });
-    }
-    Ok(())
+pub fn pty_write(id: String, data: String, state: State<'_, PtyState>) -> Result<(), String> {
+    let mut inner = state.0.lock().unwrap();
+    let Some(session) = inner.sessions.get_mut(&id) else { return Ok(()) };
+    session.writer.write_all(data.as_bytes()).map_err(|e| e.to_string())?;
+    session.writer.flush().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn pty_resize(id: String, cols: u16, rows: u16, state: State<'_, PtyState>) -> Result<(), String> {
-    let inner = state.0.lock().unwrap();
-    if let Some(session) = inner.sessions.get(&id) {
+    let mut inner = state.0.lock().unwrap();
+    if let Some(session) = inner.sessions.get_mut(&id) {
         session.master
             .resize(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
             .map_err(|e| e.to_string())?;
+        session.screen.resize(rows, cols);
     }
     Ok(())
 }
@@ -513,20 +501,11 @@ pub fn connections_sync(connections: Vec<(String, String)>, state: State<'_, Pty
     Ok(())
 }
 
-/// Queues a system notification for an AI terminal — delivered idle-gated and
-/// auto-submitted as `[narrater from system]: <text>`. Never use on shell
-/// targets: shell delivery executes the text as a command.
+/// Current turn state of each live session (the frontend re-syncs on load).
 #[tauri::command]
-pub fn pty_notify(id: String, text: String, app_handle: AppHandle, state: State<'_, PtyState>) -> Result<(), String> {
-    enqueue_message(&state.0, &app_handle, &id, QueuedMsg {
-        from_label: "system".to_string(),
-        from_id: None,
-        msg: text,
-        enqueued: Instant::now(),
-        msg_id: None,
-        delivered_tx: None,
-    });
-    Ok(())
+pub fn pty_statuses(state: State<'_, PtyState>) -> HashMap<String, &'static str> {
+    let inner = state.0.lock().unwrap();
+    inner.sessions.iter().map(|(id, s)| (id.clone(), s.turn.as_str())).collect()
 }
 
 pub fn now_ms() -> u64 {
@@ -555,18 +534,14 @@ pub(crate) fn queue_snapshot(inner: &PtyStateInner, id: &str) -> Vec<QueueItem> 
         .get(id)
         .map(|q| {
             q.iter()
-                .map(|m| QueueItem {
-                    from_label: m.from_label.clone(),
-                    msg: m.msg.clone(),
-                    msg_id: m.msg_id.clone(),
-                })
+                .map(|m| QueueItem { from_label: m.from_label.clone(), msg: m.msg.clone() })
                 .collect()
         })
         .unwrap_or_default()
 }
 
 /// Conversation history between two nodes (both directions), for the panel
-/// opened by clicking an agent-pipe edge.
+/// opened by clicking an agent edge.
 #[tauri::command]
 pub fn narrater_ledger(a: String, b: String, state: State<'_, PtyState>) -> Vec<LedgerEntry> {
     let inner = state.0.lock().unwrap();
@@ -578,7 +553,7 @@ pub fn narrater_ledger(a: String, b: String, state: State<'_, PtyState>) -> Vec<
         .collect()
 }
 
-/// Cancels a queued message (index into terminal `id`'s queue). If it was an
+/// Cancels a queued prompt (index into terminal `id`'s queue). If it was an
 /// ask, dropping the delivered_tx wakes the caller with a delivery error.
 #[tauri::command]
 pub fn pty_queue_cancel(
@@ -604,7 +579,7 @@ pub fn pty_queue_cancel(
     Ok(())
 }
 
-/// Enqueues a message for idle-gated delivery into `target_id`'s stdin.
+/// Enqueues a prompt for idle-gated delivery into `target_id`.
 /// Returns the queue position (0 = next to be delivered).
 pub fn enqueue_message(
     state_arc: &Arc<Mutex<PtyStateInner>>,
@@ -615,18 +590,6 @@ pub fn enqueue_message(
     let (pending, items) = {
         let mut inner = state_arc.lock().unwrap();
         let queue = inner.inbox.entry(target_id.to_string()).or_default();
-        // Collapse retries: an identical fire-and-forget message from the
-        // same sender that is still awaiting delivery is not queued twice
-        // (senders re-send when delivery is slow). Asks are never collapsed —
-        // each has its own #id and reply rendezvous.
-        if msg.msg_id.is_none() {
-            if let Some(pos) = queue
-                .iter()
-                .position(|m| m.msg_id.is_none() && m.from_id == msg.from_id && m.msg == msg.msg)
-            {
-                return pos;
-            }
-        }
         queue.push_back(msg);
         let pending = queue.len();
         (pending, queue_snapshot(&inner, target_id))
@@ -635,132 +598,114 @@ pub fn enqueue_message(
     pending - 1
 }
 
-/// Background task: flips Running sessions to Idle after IDLE_THRESHOLD of
-/// output silence, notifies the frontend on each transition, and drains the
-/// per-terminal inbox — a queued message is injected when its target is Idle
-/// (or after MAX_QUEUE_WAIT, so never-idle TUIs don't starve the queue).
+/// Withdraws a still-undelivered prompt (an ask that gave up waiting).
+pub fn withdraw_message(
+    state_arc: &Arc<Mutex<PtyStateInner>>,
+    app: &AppHandle,
+    target_id: &str,
+    pred: impl Fn(&QueuedMsg) -> bool,
+) {
+    let items = {
+        let mut inner = state_arc.lock().unwrap();
+        if let Some(queue) = inner.inbox.get_mut(target_id) {
+            queue.retain(|m| !pred(m));
+            if queue.is_empty() {
+                inner.inbox.remove(target_id);
+            }
+        }
+        queue_snapshot(&inner, target_id)
+    };
+    let _ = app.emit("pty_queue", PtyQueueEvent { id: target_id.to_string(), pending: items.len(), items });
+}
+
+/// `[narrater from X]: msg` — the prompt as an agent sees it. Shells get the
+/// bare command (a frame would break it).
+fn frame_message(qmsg: &QueuedMsg, is_shell: bool) -> String {
+    if is_shell || qmsg.from_id.is_none() {
+        qmsg.msg.clone()
+    } else {
+        format!("[narrater from {}]: {}", qmsg.from_label, qmsg.msg)
+    }
+}
+
+/// Background task: refreshes every session's screen model, derives its turn
+/// state (notifying the frontend on each transition) and types the next
+/// queued prompt into terminals that are idle.
 pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner>>) {
     let mut interval = tokio::time::interval(STATUS_TICK);
     loop {
         interval.tick().await;
+        let now = Instant::now();
 
-        let newly_idle: Vec<String> = {
-            let mut inner = state.lock().unwrap();
-            inner
-                .sessions
-                .iter_mut()
-                // Sessions with a working Stop hook go idle only via
-                // `narrater notify-idle` — the silence timer would flag
-                // "idle" during output pauses in the middle of a long turn.
-                .filter(|(_, s)| {
-                    !s.hook_idle
-                        && s.status == RunStatus::Running
-                        && s.last_output.elapsed() >= IDLE_THRESHOLD
-                })
-                .map(|(id, s)| {
-                    s.status = RunStatus::Idle;
-                    id.clone()
-                })
-                .collect()
-        };
-        for id in newly_idle {
-            let _ = app.emit("pty_status", PtyStatusEvent { id, status: RunStatus::Idle.as_str() });
-        }
+        let mut transitions: Vec<(String, TurnState)> = Vec::new();
+        let mut deliveries: Vec<(String, QueuedMsg, Vec<QueueItem>, bool, bool)> = Vec::new();
+        {
+            let mut guard = state.lock().unwrap();
+            let inner = &mut *guard;
+            for (id, s) in inner.sessions.iter_mut() {
+                s.screen.refresh(now);
+                let turn = if s.delivering { TurnState::Working } else { s.compute_turn(now) };
+                if turn != s.turn {
+                    s.turn = turn;
+                    transitions.push((id.clone(), turn));
+                }
+            }
 
-        // Deliver at most one queued message per terminal per tick
-        let deliveries: Vec<(String, QueuedMsg, Vec<QueueItem>, String)> = {
-            let mut inner = state.lock().unwrap();
+            // At most one prompt per terminal per tick, only into idle ones
             let ids: Vec<String> = inner.inbox.keys().cloned().collect();
-            let mut out = Vec::new();
             for id in ids {
-                let Some(session) = inner.sessions.get(&id) else {
+                let Some(session) = inner.sessions.get_mut(&id) else {
                     inner.inbox.remove(&id);
                     continue;
                 };
-                // With an authoritative idle hook the force-inject backstop
-                // can be much longer — it only covers a broken hook.
-                let force_wait = if session.hook_idle { HOOKED_QUEUE_WAIT } else { MAX_QUEUE_WAIT };
-                let ready = match session.status {
-                    RunStatus::Idle => true,
-                    RunStatus::Running => inner
-                        .inbox
-                        .get(&id)
-                        .and_then(|q| q.front())
-                        .is_some_and(|m| m.enqueued.elapsed() >= force_wait),
-                };
-                if !ready {
+                if session.turn != TurnState::Idle || session.delivering || !session.screen.has_output {
                     continue;
                 }
-                if let Some(queue) = inner.inbox.get_mut(&id) {
-                    if let Some(msg) = queue.pop_front() {
-                        if queue.is_empty() {
-                            inner.inbox.remove(&id);
-                        }
-                        // Mark Running right away so the whole queue isn't
-                        // flushed before the injected command produces output
-                        let mut agent_type = "shell".to_string();
-                        if let Some(s) = inner.sessions.get_mut(&id) {
-                            s.status = RunStatus::Running;
-                            s.last_output = Instant::now();
-                            agent_type = s.agent_type.clone();
-                        }
-                        // Receiving a message from A authorizes replying to A
-                        // for REPLY_GRANT_TTL, even without a return edge.
-                        if let Some(from_id) = msg.from_id.clone() {
-                            inner.reply_grants.insert((id.clone(), from_id), Instant::now());
-                            inner.reply_grants.retain(|_, t| t.elapsed() < REPLY_GRANT_TTL);
-                        }
-                        let items = queue_snapshot(&inner, &id);
-                        out.push((id.clone(), msg, items, agent_type));
-                    }
+                let Some(queue) = inner.inbox.get_mut(&id) else { continue };
+                let Some(msg) = queue.pop_front() else { continue };
+                if queue.is_empty() {
+                    inner.inbox.remove(&id);
                 }
+                // Working right away: the screen hasn't reacted yet, and the
+                // settle window restarts from the delivery
+                session.delivering = true;
+                session.turn = TurnState::Working;
+                session.screen.last_change = now;
+                transitions.push((id.clone(), TurnState::Working));
+                let is_shell = session.is_shell();
+                let bracketed = session.screen.bracketed_paste();
+                let items = queue_snapshot(inner, &id);
+                deliveries.push((id, msg, items, is_shell, bracketed));
             }
-            out
-        };
+        }
 
-        for (id, mut qmsg, items, agent_type) in deliveries {
-            // \r submits the line (terminals send Enter as carriage return —
-            // \n is not enough for raw-mode TUIs). Shells get the bare command
-            // (the sender frame would break it) preceded by kill-line (^U) to
-            // clear any half-typed input; AI agents get the sender frame.
-            match agent_type.as_str() {
-                "shell" => {
-                    write_to_pty(&state, &id, &format!("\x15{}\r", qmsg.msg));
+        for (id, turn) in transitions {
+            let _ = app.emit("pty_status", PtyStatusEvent { id, status: turn.as_str() });
+        }
+
+        for (id, mut qmsg, items, is_shell, bracketed) in deliveries {
+            let steps = plan_delivery(&frame_message(&qmsg, is_shell), bracketed, is_shell);
+            let state_clone = Arc::clone(&state);
+            let delivered_tx = qmsg.delivered_tx.take();
+            let id_clone = id.clone();
+            tokio::spawn(async move {
+                for step in steps {
+                    if step.delay_ms > 0 {
+                        tokio::time::sleep(Duration::from_millis(step.delay_ms)).await;
+                    }
+                    write_to_pty(&state_clone, &id_clone, &step.data);
                 }
-                // Claude/codex support bracketed paste: the frame goes as an
-                // explicit paste (ESC[200~ … ESC[201~) and the \r right after
-                // is a real Enter — deterministic, without the 300ms sleep or
-                // racing the TUI's paste-detection window.
-                "claude" | "codex" => {
-                    let framed = frame_message(&qmsg);
-                    write_to_pty(&state, &id, &format!("\x1b[200~{}\x1b[201~\r", framed));
+                if let Some(s) = state_clone.lock().unwrap().sessions.get_mut(&id_clone) {
+                    s.delivering = false;
+                    s.screen.last_change = Instant::now();
                 }
-                // Unknown TUI (custom): keeps the two-phase burst — text
-                // first, bare \r after the paste window.
-                _ => {
-                    let framed = frame_message(&qmsg);
-                    write_to_pty(&state, &id, &framed);
-                    let state_clone = Arc::clone(&state);
-                    let id_clone = id.clone();
-                    tokio::spawn(async move {
-                        tokio::time::sleep(Duration::from_millis(300)).await;
-                        write_to_pty(&state_clone, &id_clone, "\r");
-                    });
+                if let Some(tx) = delivered_tx {
+                    let _ = tx.send(());
                 }
-            }
-            if let Some(tx) = qmsg.delivered_tx.take() {
-                let _ = tx.send(());
-            }
-            let _ = app.emit("pty_status", PtyStatusEvent { id: id.clone(), status: RunStatus::Running.as_str() });
+            });
             let _ = app.emit("pty_queue", PtyQueueEvent { id, pending: items.len(), items });
         }
     }
-}
-
-/// `[narrater from X]: msg` or, with a msg_id (ask), `[narrater from X #id]: msg`.
-fn frame_message(qmsg: &QueuedMsg) -> String {
-    let id_part = qmsg.msg_id.as_deref().map(|i| format!(" #{}", i)).unwrap_or_default();
-    format!("[narrater from {}{}]: {}", qmsg.from_label, id_part, qmsg.msg)
 }
 
 /// Deduplicates a label with a -2, -3… suffix (unless the owner is already `id`).
@@ -779,6 +724,8 @@ pub fn write_to_pty(state_arc: &Arc<Mutex<PtyStateInner>>, id: &str, data: &str)
     if let Some(session) = inner.sessions.get_mut(id) {
         let _ = session.writer.write_all(data.as_bytes());
         let _ = session.writer.flush();
+        // Raw keystrokes restart the settle window like a delivery does
+        session.screen.last_change = Instant::now();
         true
     } else {
         false
@@ -789,24 +736,20 @@ pub fn write_to_pty(state_arc: &Arc<Mutex<PtyStateInner>>, id: &str, data: &str)
 mod tests {
     use super::*;
 
-    fn qmsg(from_label: &str, msg: &str, msg_id: Option<&str>) -> QueuedMsg {
+    fn qmsg(from: Option<&str>, msg: &str) -> QueuedMsg {
         QueuedMsg {
-            from_label: from_label.to_string(),
-            from_id: None,
+            from_label: from.unwrap_or("app").to_string(),
+            from_id: from.map(String::from),
             msg: msg.to_string(),
-            enqueued: Instant::now(),
-            msg_id: msg_id.map(String::from),
             delivered_tx: None,
         }
     }
 
     #[test]
-    fn frame_without_and_with_id() {
-        assert_eq!(frame_message(&qmsg("planner", "hi", None)), "[narrater from planner]: hi");
-        assert_eq!(
-            frame_message(&qmsg("planner", "status?", Some("a3f2"))),
-            "[narrater from planner #a3f2]: status?"
-        );
+    fn frames_agent_prompts_but_not_shell_commands() {
+        assert_eq!(frame_message(&qmsg(Some("planner"), "hi"), false), "[narrater from planner]: hi");
+        assert_eq!(frame_message(&qmsg(Some("planner"), "ls"), true), "ls");
+        assert_eq!(frame_message(&qmsg(None, "scheduled"), false), "scheduled");
     }
 
     #[test]
@@ -820,5 +763,41 @@ mod tests {
         assert_eq!(dedup_label(&map, "t2", "claude"), "claude-2");
         map.insert("claude-2".to_string(), "t2".to_string());
         assert_eq!(dedup_label(&map, "t3", "claude"), "claude-3");
+    }
+
+    #[test]
+    fn connections_are_undirected() {
+        let inner = PtyStateInner {
+            sessions: HashMap::new(),
+            labels: HashMap::new(),
+            label_to_id: HashMap::new(),
+            ask_waiters: HashMap::new(),
+            connections: [("a".to_string(), "b".to_string())].into_iter().collect(),
+            inbox: HashMap::new(),
+            canvas_waiters: HashMap::new(),
+            ledger: VecDeque::new(),
+        };
+        assert!(inner.connected("a", "b"));
+        assert!(inner.connected("b", "a"));
+        assert!(!inner.connected("a", "c"));
+    }
+
+    #[test]
+    fn parent_session_markers_are_not_inherited() {
+        assert!(is_inherited_session_var("CLAUDE_CODE_CHILD_SESSION"));
+        assert!(is_inherited_session_var("MAESTRI_SOCKET"));
+        // Configuration stays (provider, model, API keys…)
+        assert!(!is_inherited_session_var("CLAUDE_CODE_USE_BEDROCK"));
+        assert!(!is_inherited_session_var("ANTHROPIC_API_KEY"));
+        assert!(!is_inherited_session_var("PATH"));
+    }
+
+    #[test]
+    fn resolve_cwd_expands_home_and_falls_back() {
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(resolve_cwd(None), home);
+        assert_eq!(resolve_cwd(Some("~")), home);
+        assert_eq!(resolve_cwd(Some("/definitely/not/here")), home);
+        assert_eq!(resolve_cwd(Some("/tmp")), PathBuf::from("/tmp"));
     }
 }

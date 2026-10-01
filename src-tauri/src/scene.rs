@@ -23,6 +23,9 @@ pub struct SceneNode {
     pub role_color: Option<String>,
     #[serde(default)]
     pub skip_permissions: Option<bool>,
+    /// Terminal working directory (the project the agent works on)
+    #[serde(default)]
+    pub cwd: Option<String>,
     // filetree.rootPath / attachment.path
     #[serde(default)]
     pub path: Option<String>,

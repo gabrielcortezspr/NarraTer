@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useReactFlow } from "@xyflow/react";
-import { Bot, Code2, FileText, Globe, Image, Save, Search, StickyNote, Terminal, TerminalSquare, Type, Wrench } from "lucide-react";
+import { FileText, Globe, Image, Save, Search, StickyNote, TerminalSquare, Type } from "lucide-react";
+import { presetOf } from "@/lib/agents";
 import { useCanvasStore } from "@/stores/canvas";
 import type { AppNode, TerminalNodeData } from "@/stores/canvas";
 import { useToolStore } from "@/stores/tool";
@@ -22,8 +23,8 @@ interface PaletteItem {
 function nodeIcon(node: AppNode): React.ReactNode {
   switch (node.type) {
     case "terminal": {
-      const t = (node.data as TerminalNodeData).agentType;
-      return t === "claude" ? <Bot size={13} /> : t === "codex" ? <Code2 size={13} /> : t === "custom" ? <Wrench size={13} /> : <Terminal size={13} />;
+      const { Icon } = presetOf((node.data as TerminalNodeData).agentType);
+      return <Icon size={13} />;
     }
     case "note": return <StickyNote size={13} />;
     case "text": return <Type size={13} />;

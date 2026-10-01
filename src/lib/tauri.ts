@@ -1,6 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { AgentType } from "@/lib/agents";
 
-export type AgentType = "shell" | "claude" | "codex" | "custom";
+export type { AgentType };
+
+/** Role context the backend writes as CLAUDE.md / AGENTS.md for the agent. */
+export interface RoleSpec {
+  /** Directory key under `.narrater/roles/` (role id, or terminal id when customized). */
+  key: string;
+  name?: string;
+  instructions: string;
+  orchestrator?: boolean;
+}
 
 export interface PtySpawnOptions {
   id: string;
@@ -10,7 +20,9 @@ export interface PtySpawnOptions {
   rows: number;
   label?: string;
   agentType?: AgentType;
-  env?: Record<string, string>;
+  /** Project directory the terminal works on (defaults to $HOME). */
+  cwd?: string;
+  role?: RoleSpec;
 }
 
 export interface SceneNode {
@@ -31,6 +43,7 @@ export interface SceneNode {
   role_name?: string;
   role_color?: string;
   skip_permissions?: boolean;
+  cwd?: string;
   // filetree.rootPath / attachment.path
   path?: string;
   // portal
@@ -57,7 +70,6 @@ export interface SceneData {
 export interface QueueItem {
   from_label: string;
   msg: string;
-  msg_id?: string | null;
 }
 
 /** Inter-agent message ledger record (narrater_msg event). */
@@ -66,9 +78,8 @@ export interface LedgerEntry {
   to: string;
   from_label: string;
   to_label: string;
-  kind: "send" | "ask" | "reply" | "broadcast";
+  kind: "ask" | "reply" | "raw";
   msg: string;
-  msg_id?: string | null;
   ts: number;
 }
 
@@ -95,12 +106,11 @@ export const ptyQueueCancel = (id: string, index: number) =>
 export const narraterLedger = (a: string, b: string) =>
   invoke<LedgerEntry[]>("narrater_ledger", { a, b });
 
-// Queues a system notification for an AI terminal (idle-gated, auto-submitted
-// as "[narrater system]: ..."). Never call for shell targets.
-export const ptyNotify = (id: string, text: string) =>
-  invoke<void>("pty_notify", { id, text });
+/** Turn state of every live session ("running" | "idle" | "attention"). */
+export const ptyStatuses = () =>
+  invoke<Record<string, "running" | "idle" | "attention">>("pty_statuses");
 
-// Mirrors the canvas agent-pipe edges to the backend routing table
+// Mirrors the canvas agent ropes to the backend routing table (undirected)
 export const connectionsSync = (connections: Array<[string, string]>) =>
   invoke<void>("connections_sync", { connections });
 
@@ -154,62 +164,9 @@ export interface Role {
   name: string;
   color: string;
   instructions: string;
-  /** Delegate-only: never executes tasks itself (claude spawns lose the execution tools). */
+  /** Delegate-only: never executes tasks itself (claude spawns also lose the file-editing tools). */
   orchestrator?: boolean;
 }
 
 export const loadRoles = () => invoke<Role[]>("load_roles");
 export const saveRoles = (roles: Role[]) => invoke<void>("save_roles", { roles });
-
-export interface SpawnSpec {
-  command: string;
-  args?: string[];
-}
-
-const NARRATER_MCP_CONFIG = '{"mcpServers":{"narrater":{"command":"narrater-mcp"}}}';
-
-export function getSpawnSpec(
-  agentType: AgentType,
-  customCommand?: string,
-  systemPrompt?: string,
-  skipPermissions?: boolean,
-  orchestrator?: boolean,
-): SpawnSpec {
-  const shell = "/bin/bash";
-  switch (agentType) {
-    case "shell":
-      return { command: shell };
-    case "claude": {
-      // Narrater exposed as native MCP tools, pre-approved (plus the CLI as
-      // fallback); identity/role/protocol go in the system prompt
-      const args = [
-        "--mcp-config", NARRATER_MCP_CONFIG,
-        "--allowedTools", "mcp__narrater", "Bash(narrater)", "Bash(narrater:*)",
-      ];
-      if (orchestrator) {
-        // Delegate-only role: no execution tools — deny rules also cover
-        // subagents, so the leader can't route around them via Task. It keeps
-        // read tools (for context) and the narrater MCP tools (its real job).
-        args.push("--disallowedTools", "Bash", "Edit", "Write", "NotebookEdit");
-      }
-      if (skipPermissions) {
-        args.push("--dangerously-skip-permissions");
-      }
-      if (systemPrompt?.trim()) {
-        args.push("--append-system-prompt", systemPrompt);
-      }
-      return { command: "claude", args };
-    }
-    case "codex": {
-      // Parity with claude: narrater as MCP server via config override
-      // (-c takes dotted TOML keys; narrater-mcp is on the PATH)
-      const args = ["-c", "mcp_servers.narrater.command=narrater-mcp"];
-      if (skipPermissions) {
-        args.push("--dangerously-bypass-approvals-and-sandbox");
-      }
-      return { command: "codex", args };
-    }
-    case "custom":
-      return { command: customCommand ?? shell };
-  }
-}

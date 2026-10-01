@@ -10,10 +10,9 @@ import { useCanvasStore } from "@/stores/canvas";
 // message for the pair (lastActivity), with scroll pinned to the end like a chat.
 
 const KIND_STYLE: Record<string, { color: string; label: string }> = {
-  send: { color: "#a78bfa", label: "send" },
   ask: { color: "#60a5fa", label: "ask" },
   reply: { color: "#4ade80", label: "reply" },
-  broadcast: { color: "#fbbf24", label: "broadcast" },
+  raw: { color: "#fbbf24", label: "raw" },
 };
 
 function timeOf(ts: number): string {
@@ -69,11 +68,11 @@ export default function EdgeHistoryPanel() {
           <div className="text-[10px] text-[#555] text-center pt-8">
             No messages between these agents yet.
             <br />
-            (the history records send, ask, reply and broadcast)
+            (the history records asks, their replies and raw input)
           </div>
         )}
         {entries.map((e, i) => {
-          const kind = KIND_STYLE[e.kind] ?? KIND_STYLE.send;
+          const kind = KIND_STYLE[e.kind] ?? KIND_STYLE.ask;
           return (
             <div key={`${e.ts}-${i}`} className="rounded-lg bg-[#1a1a1a] border border-[#242424] px-2.5 py-1.5">
               <div className="flex items-center gap-1.5 mb-0.5">
@@ -84,7 +83,6 @@ export default function EdgeHistoryPanel() {
                   style={{ color: kind.color, background: `${kind.color}18`, border: `1px solid ${kind.color}30` }}
                 >
                   {kind.label}
-                  {e.msg_id ? ` #${e.msg_id}` : ""}
                 </span>
                 <span className="text-[8px] text-[#444] ml-auto shrink-0">{timeOf(e.ts)}</span>
               </div>

@@ -33,7 +33,7 @@ export default function App() {
     let cancelled = false;
     const unlisteners: Array<() => void> = [];
 
-    listen<{ id: string; status: "running" | "idle" }>("pty_status", (event) => {
+    listen<{ id: string; status: "running" | "idle" | "attention" }>("pty_status", (event) => {
       useTerminalsStore.getState().setStatus(event.payload.id, event.payload.status);
     }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
@@ -57,7 +57,7 @@ export default function App() {
       useLedgerStore.getState().bump(from, to, ts);
     }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
-    // Agents manipulating the canvas via MCP (canvas_request → store → respond)
+    // Agents using the canvas through the narrater CLI (canvas_request → store → respond)
     initCanvasBridge().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
     return () => {

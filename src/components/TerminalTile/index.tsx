@@ -1,7 +1,8 @@
 import { memo, useEffect, useRef, useCallback, useState } from "react";
 import { Handle, Position, NodeResizer, useStore } from "@xyflow/react";
-import { Bot, Code2, Terminal, Wrench, X, GripVertical, FolderOpen, Clock, Plug, RotateCcw } from "lucide-react";
-import { attachTerminal, detachTerminal, ensureTerminal, fitTerminal, respawnTerminal } from "@/lib/terminalManager";
+import { X, GripVertical, FolderOpen, Clock, Plug, RotateCcw } from "lucide-react";
+import { attachTerminal, detachTerminal, ensureTerminal, fitTerminal, respawnTerminal, spawnOptsFor } from "@/lib/terminalManager";
+import { presetOf } from "@/lib/agents";
 import { ptyWrite } from "@/lib/tauri";
 import { useCanvasStore } from "@/stores/canvas";
 import { useTerminalsStore } from "@/stores/terminals";
@@ -14,31 +15,9 @@ import { toast } from "@/stores/toasts";
 import { EDITORS } from "@/lib/editors";
 import type { TerminalNodeData } from "@/stores/canvas";
 import type { Node, NodeProps } from "@xyflow/react";
-import type { AgentType } from "@/lib/tauri";
 import "@xterm/xterm/css/xterm.css";
 
 type TerminalNode = Node<TerminalNodeData, "terminal">;
-
-const AGENT_COLORS: Record<AgentType, string> = {
-  shell: "#6b7280",
-  claude: "#8b5cf6",
-  codex: "#3b82f6",
-  custom: "#14b8a6",
-};
-
-const AGENT_ICONS: Record<AgentType, React.ReactNode> = {
-  shell: <Terminal size={12} />,
-  claude: <Bot size={12} />,
-  codex: <Code2 size={12} />,
-  custom: <Wrench size={12} />,
-};
-
-const AGENT_LABELS: Record<AgentType, string> = {
-  shell: "Shell",
-  claude: "Claude",
-  codex: "Codex",
-  custom: "Custom",
-};
 
 const TERMINAL_BG = "#0e0e0e";
 
@@ -52,13 +31,15 @@ const STATUS_DOT: Record<SessionStatus, { color: string; label: string }> = {
   spawning: { color: "#fbbf24", label: "Starting…" },
   running: { color: "#4ade80", label: "Running" },
   idle: { color: "#6b7280", label: "Idle" },
+  attention: { color: "#f59e0b", label: "Waiting for input" },
   exited: { color: "#f87171", label: "Exited" },
 };
 
 function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   const termDivRef = useRef<HTMLDivElement>(null);
   const scheduleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const cwdRef = useRef<string>("~");
+  const cwdRef = useRef<string>(data.cwd || "~");
+  cwdRef.current = data.cwd || "~";
   // Only re-renders when crossing the threshold, not on every zoom tick
   const lod = useStore((s) => s.transform[2] < LOD_ZOOM);
   const removeNode = useCanvasStore((s) => s.removeNode);
@@ -66,7 +47,8 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
     s.edges.filter((e) => (e.source === id || e.target === id) && e.type === "agent-pipe").length
   );
   const agentType = data.agentType ?? "shell";
-  const accentColor = AGENT_COLORS[agentType];
+  const preset = presetOf(agentType);
+  const accentColor = preset.color;
   const sessionStatus = useTerminalsStore((s) => s.sessions[id]?.status ?? "spawning");
   const exitCode = useTerminalsStore((s) => s.sessions[id]?.exitCode);
   const statusDot = STATUS_DOT[sessionStatus];
@@ -81,24 +63,9 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
     const parent = termDivRef.current;
     if (!parent) return;
 
-    const { edges, nodes } = useCanvasStore.getState();
-    const labelFor = (nodeId: string) => {
-      const node = nodes.find((n) => n.id === nodeId);
-      return (node?.data as TerminalNodeData | undefined)?.label ?? nodeId;
-    };
-    ensureTerminal(id, {
-      agentType,
-      command: data.command,
-      label: data.label,
-      roleId: data.roleId,
-      roleName: data.roleName,
-      instructions: data.instructions,
-      skipPermissions: data.skipPermissions,
-      pipes: {
-        outgoing: edges.filter((e) => e.source === id && e.type === "agent-pipe").map((e) => labelFor(e.target)),
-        incoming: edges.filter((e) => e.target === id && e.type === "agent-pipe").map((e) => labelFor(e.source)),
-      },
-    });
+    // Normally already started by the canvas store; this covers a tile
+    // that mounts first (same opts, idempotent).
+    ensureTerminal(id, spawnOptsFor(data));
     attachTerminal(id, parent);
 
     const observer = new ResizeObserver(() => fitTerminal(id));
@@ -120,7 +87,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
       // re-bills) the turn in progress, and an exited session gets nothing.
       // A skipped tick just waits for the next interval.
       if (useTerminalsStore.getState().sessions[id]?.status !== "idle") return;
-      ptyWrite(id, cmd + "\n").catch(console.error);
+      ptyWrite(id, cmd + "\r").catch(console.error);
     }, ms);
     return () => {
       if (scheduleTimerRef.current) clearInterval(scheduleTimerRef.current);
@@ -192,8 +159,8 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
         />
 
         <Badge color={accentColor} rounded="md" className="text-[10px]">
-          {AGENT_ICONS[agentType]}
-          {AGENT_LABELS[agentType]}
+          <preset.Icon size={12} />
+          {preset.label}
         </Badge>
 
         {/* Role badge */}
@@ -224,12 +191,11 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
                 </div>
                 {queueItems.map((item, i) => (
                   <div
-                    key={`${i}-${item.msg_id ?? item.msg.slice(0, 12)}`}
+                    key={`${i}-${item.msg.slice(0, 12)}`}
                     className="flex items-start gap-2 px-3 py-1.5 text-[10px] hover:bg-[#222]"
                   >
                     <div className="flex-1 min-w-0">
                       <span className="text-[#fbbf24] font-medium">{item.from_label}</span>
-                      {item.msg_id && <span className="text-[#666]"> #{item.msg_id}</span>}
                       <div className="truncate text-[#999]" title={item.msg}>{item.msg}</div>
                     </div>
                     <button
@@ -313,7 +279,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
           style={{ background: TERMINAL_BG }}
         >
           <span style={{ color: accentColor }}>
-            {agentType === "shell" ? <Terminal size={56} /> : agentType === "claude" ? <Bot size={56} /> : agentType === "codex" ? <Code2 size={56} /> : <Wrench size={56} />}
+            <preset.Icon size={56} />
           </span>
           <span className="text-3xl font-medium text-ink truncate max-w-[90%]">{data.label}</span>
           <span className="flex items-center gap-2 text-xl" style={{ color: statusDot.color }}>

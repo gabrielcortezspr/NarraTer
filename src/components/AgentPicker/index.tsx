@@ -1,58 +1,25 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Terminal, Bot, Code2, Wrench, X, ChevronDown, Clock, Users, ShieldOff } from "lucide-react";
+import { X, ChevronDown, Clock, Users, ShieldOff, FolderOpen } from "lucide-react";
 import { useRolesStore } from "@/stores/roles";
-import type { AgentType } from "@/lib/tauri";
+import { AGENT_ORDER, AGENT_PRESETS, type AgentType } from "@/lib/agents";
 
-interface AgentOption {
-  type: AgentType;
-  icon: React.ReactNode;
-  label: string;
-  description: string;
-  color: string;
-  borderColor: string;
+// Last working directory used, so a team lands in the same project by default
+const CWD_KEY = "narrater.lastCwd";
+function lastCwd(): string {
+  try {
+    return localStorage.getItem(CWD_KEY) ?? "";
+  } catch {
+    return "";
+  }
 }
-
-const AGENTS: AgentOption[] = [
-  {
-    type: "shell",
-    icon: <Terminal size={20} />,
-    label: "Shell",
-    description: "bash / zsh / fish — default terminal",
-    color: "text-gray-400",
-    borderColor: "border-gray-600 hover:border-gray-400",
-  },
-  {
-    type: "claude",
-    icon: <Bot size={20} />,
-    label: "Claude Code",
-    description: "Anthropic's AI agent",
-    color: "text-purple-400",
-    borderColor: "border-purple-700 hover:border-purple-400",
-  },
-  {
-    type: "codex",
-    icon: <Code2 size={20} />,
-    label: "Codex",
-    description: "OpenAI's AI agent",
-    color: "text-blue-400",
-    borderColor: "border-blue-700 hover:border-blue-400",
-  },
-  {
-    type: "custom",
-    icon: <Wrench size={20} />,
-    label: "Custom",
-    description: "Custom command",
-    color: "text-teal-400",
-    borderColor: "border-teal-700 hover:border-teal-400",
-  },
-];
-
-/** Agents that support bypassing their permission/approval prompts. */
-const SKIP_PERMISSIONS_SUPPORT: Partial<Record<AgentType, string>> = {
-  claude: "claude --dangerously-skip-permissions",
-  codex: "codex --dangerously-bypass-approvals-and-sandbox",
-};
+function rememberCwd(cwd: string): void {
+  try {
+    localStorage.setItem(CWD_KEY, cwd);
+  } catch {
+    // storage unavailable — the field just won't be prefilled next time
+  }
+}
 
 export interface AgentPickerResult {
   agentType: AgentType;
@@ -64,6 +31,7 @@ export interface AgentPickerResult {
   roleName?: string;
   roleColor?: string;
   skipPermissions?: boolean;
+  cwd?: string;
 }
 
 interface Props {
@@ -82,6 +50,7 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [scheduleCommand, setScheduleCommand] = useState("");
   const [scheduleInterval, setScheduleInterval] = useState("60");
+  const [cwd, setCwd] = useState(lastCwd);
 
   useEffect(() => {
     if (!loaded) load();
@@ -99,7 +68,10 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
   };
 
   const selectedRole = roles.find((r) => r.id === selectedRoleId);
-  const skipPermissionsFlag = SKIP_PERMISSIONS_SUPPORT[selected];
+  const preset = AGENT_PRESETS[selected];
+  const skipPermissionsFlag = preset.skipPermissionsArgs
+    ? `${preset.command} ${preset.skipPermissionsArgs.join(" ")}`
+    : undefined;
 
   const handleConfirm = () => {
     const intervalSecs = scheduleCommand.trim() ? parseInt(scheduleInterval) || 60 : undefined;
@@ -113,7 +85,9 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
       roleName: selectedRole?.name,
       roleColor: selectedRole?.color,
       skipPermissions: skipPermissionsFlag ? skipPermissions : undefined,
+      cwd: cwd.trim() || undefined,
     });
+    rememberCwd(cwd.trim());
     // reset
     setSelected("shell");
     setCustomCommand("");
@@ -197,21 +171,38 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
 
             {/* Agent type grid */}
             <div className="grid grid-cols-2 gap-2 mb-4">
-              {AGENTS.map((agent) => (
-                <button
-                  key={agent.type}
-                  onClick={() => setSelected(agent.type)}
-                  className={`flex flex-col items-start gap-1.5 p-3 rounded-lg border transition-all text-left
-                    ${selected === agent.type
-                      ? `${agent.borderColor} bg-[#222] shadow-md`
-                      : "border-[#2a2a2a] hover:border-[#3a3a3a] hover:bg-[#1f1f1f]"
-                    }`}
-                >
-                  <span className={agent.color}>{agent.icon}</span>
-                  <span className="text-white text-sm font-medium">{agent.label}</span>
-                  <span className="text-[#6b7280] text-xs leading-tight">{agent.description}</span>
-                </button>
-              ))}
+              {AGENT_ORDER.map((type) => {
+                const agent = AGENT_PRESETS[type];
+                const active = selected === type;
+                return (
+                  <button
+                    key={type}
+                    onClick={() => setSelected(type)}
+                    className={`flex flex-col items-start gap-1.5 p-3 rounded-lg border transition-all text-left
+                      ${active ? "bg-[#222] shadow-md" : "border-[#2a2a2a] hover:border-[#3a3a3a] hover:bg-[#1f1f1f]"}`}
+                    style={active ? { borderColor: agent.color } : undefined}
+                  >
+                    <span style={{ color: agent.color }}><agent.Icon size={20} /></span>
+                    <span className="text-white text-sm font-medium">{agent.label}</span>
+                    <span className="text-[#6b7280] text-xs leading-tight">{agent.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Working directory */}
+            <div className="mb-4">
+              <label className="flex items-center gap-1.5 text-[#9ca3af] text-xs mb-1.5">
+                <FolderOpen size={11} /> Working directory
+              </label>
+              <input
+                type="text"
+                value={cwd}
+                onChange={(e) => setCwd(e.target.value)}
+                placeholder="~ (home)"
+                className="w-full bg-[#111] border border-[#333] text-white text-xs rounded-lg px-3 py-2
+                  focus:outline-none focus:border-[#8b5cf6] font-mono placeholder-[#444]"
+              />
             </div>
 
             {/* Custom command */}
@@ -229,7 +220,7 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
                     value={customCommand}
                     onChange={(e) => setCustomCommand(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleConfirm()}
-                    placeholder="/usr/bin/python3"
+                    placeholder="aider  ·  qwen  ·  agy  ·  python3"
                     className="w-full bg-[#111] border border-[#333] text-white text-sm rounded-lg px-3 py-2
                       focus:outline-none focus:border-[#8b5cf6] font-mono placeholder-[#444]"
                     autoFocus
@@ -238,7 +229,7 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
               )}
             </AnimatePresence>
 
-            {/* Skip permissions (claude / codex) */}
+            {/* Skip permissions (agents that have such a flag) */}
             <AnimatePresence>
               {skipPermissionsFlag && (
                 <motion.div
@@ -294,7 +285,7 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
                   className="mb-4 space-y-3"
                 >
                   <div>
-                    <label className="block text-[#9ca3af] text-xs mb-1.5">Initial instructions</label>
+                    <label className="block text-[#9ca3af] text-xs mb-1.5">Role instructions</label>
                     <textarea
                       value={instructions}
                       onChange={(e) => setInstructions(e.target.value)}
@@ -304,7 +295,9 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
                         focus:outline-none focus:border-[#8b5cf6] placeholder-[#444] resize-none"
                     />
                     <p className="text-[#444] text-[10px] mt-1">
-                      {selectedRole ? `Filled from role "${selectedRole.name}" — editable` : "Sent as the first input to the PTY"}
+                      {selectedRole
+                        ? `Filled from role "${selectedRole.name}" — editable`
+                        : "Written as the agent's CLAUDE.md / AGENTS.md (not used for shells)"}
                     </p>
                   </div>
 

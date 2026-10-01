@@ -224,7 +224,7 @@ function RoleEditCard({ draft, onChange, onSave, onCancel, isNew }: EditProps) {
         />
         <span className="text-xs text-[#888] leading-relaxed">
           <span className="text-white">Delegate-only (orchestrator)</span> — never executes tasks
-          itself: claude agents spawn without Bash/Edit/Write and must delegate to connected agents.
+          itself and delegates to connected agents (Claude Code also spawns without its file-editing tools).
         </span>
       </label>
       <div className="flex gap-2 justify-end">
