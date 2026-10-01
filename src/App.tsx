@@ -12,6 +12,7 @@ import Toaster from "@/components/Toaster";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { initCanvasBridge } from "@/lib/canvasBridge";
 import { onPortalState } from "@/lib/portalBus";
+import { initRoutines } from "@/stores/routines";
 import type { LedgerEntry, QueueItem } from "@/lib/tauri";
 
 export default function App() {
@@ -68,6 +69,9 @@ export default function App() {
         if (Object.keys(patch).length) useCanvasStore.getState().updateNodeData(id, patch);
       })
     );
+
+    // Routines: backend scheduler → panel + fire toasts
+    initRoutines().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
     // Agents using the canvas through the narrater CLI (canvas_request → store → respond)
     initCanvasBridge().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));

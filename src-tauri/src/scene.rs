@@ -2,6 +2,9 @@ use dirs::config_dir;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use tauri::State;
+
+use crate::routines::{self, RoutinesState};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SceneNode {
@@ -110,7 +113,8 @@ pub fn list_scenes() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub fn delete_scene(name: String) -> Result<(), String> {
+pub fn delete_scene(name: String, routines_state: State<'_, RoutinesState>) -> Result<(), String> {
+    routines::delete_scene(&name, &routines_state);
     let path = scenes_dir().join(format!("{}.json", name));
     if path.exists() {
         fs::remove_file(&path).map_err(|e| e.to_string())?;
@@ -119,7 +123,8 @@ pub fn delete_scene(name: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn rename_scene(old_name: String, new_name: String) -> Result<(), String> {
+pub fn rename_scene(old_name: String, new_name: String, routines_state: State<'_, RoutinesState>) -> Result<(), String> {
+    routines::rename_scene(&old_name, &new_name, &routines_state);
     let dir = scenes_dir();
     let old_path = dir.join(format!("{}.json", old_name));
     let new_path = dir.join(format!("{}.json", new_name));

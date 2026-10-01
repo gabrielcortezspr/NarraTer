@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { applyNodeChanges, applyEdgeChanges } from "@xyflow/react";
 import type { Node, Edge, NodeChange, EdgeChange, XYPosition } from "@xyflow/react";
-import { loadScene, saveScene, connectionsSync, portalsSync } from "@/lib/tauri";
+import { loadScene, saveScene, connectionsSync, portalsSync, maestrosSync, routinesLoad, routineUiCreate } from "@/lib/tauri";
 import { disposeTerminal, replaceTerminal, startTerminal, spawnOptsFor } from "@/lib/terminalManager";
 import type { AgentType } from "@/lib/agents";
 
@@ -433,10 +433,13 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       set({ nodes, edges, hydrated: true });
       syncConnections(edges);
       startTerminals(nodes);
+      await routinesLoad(name).catch(console.error);
+      await migrateScheduledPrompts();
     } catch {
       // No saved scene yet — start empty
       set({ nodes: [], edges: [], hydrated: true });
       syncConnections([]);
+      await routinesLoad(name).catch(console.error);
     }
   },
 
@@ -489,6 +492,26 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   },
 }));
 
+/**
+ * The old per-tile "scheduled prompt" was a frontend timer; it's a routine
+ * now (backend scheduler, idle-gated, visible in the Routines panel). Scenes
+ * saved with one get it converted once.
+ */
+async function migrateScheduledPrompts(): Promise<void> {
+  const { nodes, updateNodeData } = useCanvasStore.getState();
+  for (const n of nodes) {
+    if (n.type !== "terminal") continue;
+    const d = n.data as TerminalNodeData;
+    if (!d.scheduleCommand?.trim() || !d.scheduleIntervalSecs) continue;
+    try {
+      await routineUiCreate("Scheduled prompt", d.scheduleCommand.trim(), Math.max(10, d.scheduleIntervalSecs), n.id, d.label);
+      updateNodeData(n.id, { scheduleCommand: undefined, scheduleIntervalSecs: undefined });
+    } catch (e) {
+      console.error("scheduled prompt migration failed:", e);
+    }
+  }
+}
+
 // Mirror portals (name, URL) and their terminal links into the backend, which
 // drives the browser tabs: agents reach a portal only when it's wired to them.
 let lastPortalSync = "";
@@ -509,6 +532,21 @@ export function syncPortals(): Promise<void> {
   lastPortalSync = key;
   return portalsSync(portals, links).catch(console.error);
 }
+// Terminals in Maestro mode → backend (routine commands check it there)
+let lastMaestros = "";
+function syncMaestros(): void {
+  const ids = useCanvasStore
+    .getState()
+    .nodes.filter((n) => n.type === "terminal" && (n.data as TerminalNodeData).maestro)
+    .map((n) => n.id)
+    .sort();
+  const key = ids.join(",");
+  if (key === lastMaestros) return;
+  lastMaestros = key;
+  maestrosSync(ids).catch(console.error);
+}
+
 useCanvasStore.subscribe(() => {
   syncPortals();
+  syncMaestros();
 });

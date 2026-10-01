@@ -181,6 +181,37 @@ export const portalHistory = (id: string, delta: number) => invoke<void>("portal
 export const portalInput = (id: string, method: string, params: Record<string, unknown>) =>
   invoke<void>("portal_input", { id, method, params });
 
+// ---- Routines (backend scheduler, per scene) ----
+
+export interface RoutineView {
+  id: string;
+  short_id: string;
+  name: string;
+  command: string;
+  /** "every 30m", "daily 09:00", "weekly mon,fri@09:00", "once …" */
+  schedule: string;
+  /** Terminal node id; null for reminders. */
+  target_id: string | null;
+  target_label: string;
+  status: "enabled" | "paused" | "finished";
+  next_fire: string | null;
+  fired: number;
+  skipped: number;
+  last_result: string | null;
+}
+
+/** Loads the scene's routines into the scheduler (call when a scene opens). */
+export const routinesLoad = (scene: string) => invoke<RoutineView[]>("routines_load", { scene });
+export const routinesList = () => invoke<RoutineView[]>("routines_list");
+export const routineUiCreate = (name: string, command: string, everySecs: number, terminalId: string, terminalLabel: string) =>
+  invoke<void>("routine_ui_create", { name, command, everySecs, terminalId, terminalLabel });
+export const routineSetEnabled = (id: string, enabled: boolean) => invoke<void>("routine_set_enabled", { id, enabled });
+export const routineDelete = (id: string) => invoke<void>("routine_delete", { id });
+export const routineRun = (id: string) => invoke<string>("routine_run", { id });
+
+/** Terminals in Maestro mode (gates Maestro-only CLI commands in the backend). */
+export const maestrosSync = (ids: string[]) => invoke<void>("maestros_sync", { ids });
+
 /** Desktop notification (notify-send). */
 export const systemNotify = (title: string, body: string) =>
   invoke<void>("system_notify", { title, body });

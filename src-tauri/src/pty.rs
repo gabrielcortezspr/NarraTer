@@ -92,6 +92,9 @@ pub struct PtySession {
     delivering: bool,
     /// Per-terminal secret (env NARRATER_TOKEN) proving identity on the socket.
     pub token: String,
+    /// The project the terminal works on (its cwd, or the one its role
+    /// directory points to) — where routine pre-run scripts run.
+    pub project_dir: PathBuf,
 }
 
 impl PtySession {
@@ -128,6 +131,8 @@ pub struct PtyStateInner {
     pub canvas_waiters: HashMap<String, tokio::sync::oneshot::Sender<String>>,
     /// Latest inter-agent messages — per-edge conversation history.
     pub ledger: VecDeque<LedgerEntry>,
+    /// Terminals in Maestro mode (mirrored from the canvas) — may manage routines.
+    pub maestros: HashSet<String>,
 }
 
 impl PtyStateInner {
@@ -155,6 +160,7 @@ impl Default for PtyState {
             inbox: HashMap::new(),
             canvas_waiters: HashMap::new(),
             ledger: VecDeque::new(),
+            maestros: HashSet::new(),
         })))
     }
 }
@@ -413,6 +419,7 @@ pub fn pty_spawn(
             agent_type,
             delivering: false,
             token: token.clone(),
+            project_dir: project_dir.clone(),
         });
     }
 
@@ -515,6 +522,13 @@ pub fn pty_update_label(id: String, label: String, state: State<'_, PtyState>) -
 pub fn connections_sync(connections: Vec<(String, String)>, state: State<'_, PtyState>) -> Result<(), String> {
     let mut inner = state.0.lock().unwrap();
     inner.connections = connections.into_iter().collect();
+    Ok(())
+}
+
+/// Terminals in Maestro mode — commands only a Maestro may run check it.
+#[tauri::command]
+pub fn maestros_sync(ids: Vec<String>, state: State<'_, PtyState>) -> Result<(), String> {
+    state.0.lock().unwrap().maestros = ids.into_iter().collect();
     Ok(())
 }
 
@@ -793,6 +807,7 @@ mod tests {
             inbox: HashMap::new(),
             canvas_waiters: HashMap::new(),
             ledger: VecDeque::new(),
+            maestros: HashSet::new(),
         };
         assert!(inner.connected("a", "b"));
         assert!(inner.connected("b", "a"));

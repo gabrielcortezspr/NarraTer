@@ -37,7 +37,8 @@ import { useWorkspacesStore } from "@/stores/workspaces";
 import { useToolStore, PLACEMENT_TOOLS } from "@/stores/tool";
 import { saveNow } from "@/hooks/useAutoSave";
 import { useSketchStore } from "@/stores/sketch";
-import { pickFile } from "@/lib/tauri";
+import { pickFile, routineUiCreate } from "@/lib/tauri";
+import { toast } from "@/stores/toasts";
 import { presetOf } from "@/lib/agents";
 import { printToTerminal } from "@/lib/terminalManager";
 import type { AgentPickerResult } from "@/components/AgentPicker";
@@ -234,7 +235,14 @@ function CanvasInner() {
 
   const handleAgentPicked = useCallback(
     (result: AgentPickerResult) => {
-      addTerminalNode(result, viewportCenter());
+      const { scheduleCommand, scheduleIntervalSecs, ...opts } = result;
+      const id = addTerminalNode(opts, viewportCenter());
+      // The dialog's scheduled prompt is a routine into the new terminal
+      if (scheduleCommand && scheduleIntervalSecs) {
+        const label = (useCanvasStore.getState().nodes.find((n) => n.id === id)?.data as TerminalNodeData).label;
+        routineUiCreate("Scheduled prompt", scheduleCommand, Math.max(10, scheduleIntervalSecs), id, label)
+          .catch((e) => toast.error(`Could not schedule the prompt: ${e}`));
+      }
       setPickerOpen(false);
     },
     [addTerminalNode, viewportCenter]

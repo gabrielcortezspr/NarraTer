@@ -4,6 +4,7 @@ mod fsops;
 mod ipc;
 mod pty;
 mod roles;
+mod routines;
 mod scene;
 pub mod screen;
 
@@ -15,11 +16,14 @@ pub fn run() {
     let pty_state_for_ipc = pty_state.clone();
     let browser_state = browser::BrowserState::default();
     let browser_for_ipc = browser_state.clone();
+    let routines_state = routines::RoutinesState::default();
+    let routines_for_tasks = routines_state.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(pty_state)
         .manage(browser_state)
+        .manage(routines_state)
         .setup(move |app| {
             let state_arc = std::sync::Arc::clone(&pty_state_for_ipc.0);
             let app_handle = tauri::Manager::app_handle(app).clone();
@@ -27,6 +31,12 @@ pub fn run() {
                 app_handle.clone(),
                 std::sync::Arc::clone(&state_arc),
                 browser_for_ipc,
+                routines_for_tasks.clone(),
+            ));
+            tauri::async_runtime::spawn(routines::start_scheduler(
+                app_handle.clone(),
+                routines_for_tasks,
+                std::sync::Arc::clone(&state_arc),
             ));
             tauri::async_runtime::spawn(pty::start_status_monitor(app_handle, state_arc));
             Ok(())
@@ -39,6 +49,13 @@ pub fn run() {
             pty::pty_update_label,
             pty::connections_sync,
             pty::pty_statuses,
+            pty::maestros_sync,
+            routines::routines_load,
+            routines::routines_list,
+            routines::routine_ui_create,
+            routines::routine_set_enabled,
+            routines::routine_delete,
+            routines::routine_run,
             pty::pty_queue_cancel,
             pty::narrater_ledger,
             scene::load_scene,

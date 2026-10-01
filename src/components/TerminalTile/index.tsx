@@ -3,9 +3,9 @@ import { Handle, Position, NodeResizer, useStore } from "@xyflow/react";
 import { X, GripVertical, FolderOpen, Clock, Plug, RotateCcw, Crown } from "lucide-react";
 import { attachTerminal, detachTerminal, ensureTerminal, fitTerminal, respawnTerminal, spawnOptsFor } from "@/lib/terminalManager";
 import { presetOf } from "@/lib/agents";
-import { ptyWrite } from "@/lib/tauri";
 import { useCanvasStore } from "@/stores/canvas";
 import { useTerminalsStore } from "@/stores/terminals";
+import { useRoutinesStore } from "@/stores/routines";
 import type { SessionStatus } from "@/stores/terminals";
 import { openInEditor, ptyQueueCancel } from "@/lib/tauri";
 import type { QueueItem } from "@/lib/tauri";
@@ -37,7 +37,6 @@ const STATUS_DOT: Record<SessionStatus, { color: string; label: string }> = {
 
 function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   const termDivRef = useRef<HTMLDivElement>(null);
-  const scheduleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const cwdRef = useRef<string>(data.cwd || "~");
   cwdRef.current = data.cwd || "~";
   // Only re-renders when crossing the threshold, not on every zoom tick
@@ -55,6 +54,8 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   const statusDot = STATUS_DOT[sessionStatus];
   const queueItems = useTerminalsStore((s) => s.queues[id] ?? NO_QUEUE);
   const queuePending = queueItems.length;
+  const routines = useRoutinesStore((s) => s.routines);
+  const myRoutines = routines.filter((r) => r.target_id === id && r.status === "enabled");
   const [showEditorMenu, setShowEditorMenu] = useState(false);
   const [showQueueMenu, setShowQueueMenu] = useState(false);
 
@@ -78,23 +79,6 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, data.sessionGen]); // opts are read per session — a swap bumps sessionGen
-
-  // Scheduled prompts
-  useEffect(() => {
-    if (!data.scheduleCommand?.trim() || !data.scheduleIntervalSecs) return;
-    const cmd = data.scheduleCommand.trim();
-    const ms = data.scheduleIntervalSecs * 1000;
-    scheduleTimerRef.current = setInterval(() => {
-      // Idle-gated like the message queue: injecting mid-turn derails (and
-      // re-bills) the turn in progress, and an exited session gets nothing.
-      // A skipped tick just waits for the next interval.
-      if (useTerminalsStore.getState().sessions[id]?.status !== "idle") return;
-      ptyWrite(id, cmd + "\r").catch(console.error);
-    }, ms);
-    return () => {
-      if (scheduleTimerRef.current) clearInterval(scheduleTimerRef.current);
-    };
-  }, [id, data.scheduleCommand, data.scheduleIntervalSecs]);
 
   const handleClose = useCallback(
     (e: React.MouseEvent) => {
@@ -240,14 +224,14 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
           </Badge>
         )}
 
-        {/* Scheduled prompt indicator */}
-        {data.scheduleCommand?.trim() && (
+        {/* Routines firing into this terminal (Routines panel in the sidebar) */}
+        {myRoutines.length > 0 && (
           <span
-            title={`Scheduled: "${data.scheduleCommand}" every ${data.scheduleIntervalSecs}s`}
-            className="flex items-center gap-0.5 text-[9px] text-[#fbbf24] opacity-70"
+            title={myRoutines.map((r) => `${r.name} — ${r.schedule}${r.next_fire ? ` · next ${r.next_fire}` : ""}`).join("\n")}
+            className="flex items-center gap-0.5 text-[9px] text-[#fbbf24] opacity-70 shrink-0"
           >
             <Clock size={9} />
-            {data.scheduleIntervalSecs}s
+            {myRoutines.length}
           </span>
         )}
 

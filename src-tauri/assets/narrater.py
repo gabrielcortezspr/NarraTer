@@ -39,6 +39,13 @@ Usage:
   narrater role assign "Recruit" "Role" | --none   (Maestro only) Reassign a teammate's role (restarts it)
   narrater role delete "Name" [--force]            (Maestro only) Delete a role; --force unassigns it first
   narrater notify "message"                        (Maestro only) Send the user a desktop notification
+  narrater routine list | show "Name"              (Maestro only) Scheduled routines of this scene
+  narrater routine create "Name" --command "..." <schedule> [options]
+                                                   (Maestro only) Schedule a prompt/command (default target: you)
+  narrater routine edit "Name" [flags]             (Maestro only) Change only the fields you pass
+  narrater routine enable|disable|run|delete "Name" (Maestro only) Resume, pause, fire now, remove
+                                                   Schedules: --every 30m | --daily 09:00 | --weekly mon,fri@09:00 | --once "2026-06-20 15:00"
+                                                   Options: --terminal "Name" | --reminder | --count N | --until DATE | --pre-run "..." | --no-notify | --disabled
   narrater debug                                   Diagnose connection issues
   narrater help [command]                          Show this help, or one command in detail
 
@@ -196,6 +203,43 @@ with the new role (connections kept, chat history lost).""",
 
 (Maestro only) Sends the user a desktop notification. Only when the user asked
 to be notified — otherwise assume they're following along on the canvas.""",
+    "routine": """Usage:
+  narrater routine list
+  narrater routine show "Name" [--id PREFIX]
+  narrater routine create "Name" --command "..." <schedule> [options]
+  narrater routine edit "Name" [--id PREFIX] [--name "New"] [--command ...] [schedule] [options]
+  narrater routine enable|disable|run|delete "Name" [--id PREFIX]
+
+(Maestro only) Routines fire a command — a shell command or a prompt for an
+agent — into a terminal of this scene on a schedule, or show a desktop
+reminder. Delivery waits until the terminal is idle, like `ask`.
+
+Schedule (exactly one):
+  --every 30m                 interval: 45s, 30m, 2h, 1h30m (a bare number = minutes)
+  --daily 09:00               every day at a 24-hour time
+  --weekly mon,wed,fri@09:00  chosen weekdays at a time
+  --once "2026-06-20 15:00"   a single time (YYYY-MM-DD HH:MM)
+
+Target: omit to fire into your own terminal; --terminal "Name" for another
+terminal of the scene; --reminder for a desktop notification instead.
+
+Options:
+  --count N            stop after N fires        --until 2026-07-01   stop after that day
+  --pre-run "script"   runs first (sh); must exit 0 or the fire is skipped. Its
+                       stdout replaces {{output}} in --command. Env:
+                       $NARRATER_SCENE_NAME $NARRATER_SCENE_DIR
+                       $NARRATER_ROUTINE_NAME $NARRATER_TERMINAL_NAME
+  --no-skip-if-busy    queue the fire even if the terminal is mid-task
+                       (default: a fire is skipped while it's busy)
+  --no-notify          no toast when it fires    --disabled   create it paused
+
+edit changes only the fields you pass (--name renames; a new schedule resets
+the fire counters; --skip-if-busy / --notify turn those back on). `run` fires
+once now. `delete` is destructive — only on an explicit user request. Two
+routines with the same name? Add --id with the prefix from `routine list`.
+
+  narrater routine create "Daily digest" --command "Summarize today's commits:\n\n{{output}}" --daily 18:00 --pre-run "git log --since=midnight --oneline"
+  narrater routine create "Standup" --command "Time for standup" --weekly mon,tue,wed,thu,fri@09:00 --reminder""",
     "debug": """Usage:
   narrater debug
 
@@ -451,6 +495,52 @@ def cmd_role(args):
         fail(HELP["role"])
 
 
+ROUTINE_VALUE_FLAGS = ("--id", "--command", "--every", "--daily", "--weekly", "--once", "--terminal",
+                       "--count", "--until", "--pre-run")
+ROUTINE_BOOL_FLAGS = ("--reminder", "--no-skip-if-busy", "--skip-if-busy", "--no-notify", "--notify", "--disabled")
+
+
+def cmd_routine(args):
+    if not args:
+        fail(HELP["routine"])
+    verb, rest = args[0], args[1:]
+    if verb not in ("list", "show", "create", "edit", "enable", "disable", "run", "delete"):
+        fail(HELP["routine"])
+    params = {"verb": verb}
+    new_name = pop_flag(rest, "--name")
+    if new_name is not None:
+        if verb != "edit":
+            fail("Error: --name renames a routine in `routine edit`; the name is the first argument")
+        params["new_name"] = new_name
+    for flag in ROUTINE_VALUE_FLAGS:
+        value = pop_flag(rest, flag)
+        if value is not None:
+            params[flag[2:].replace("-", "_")] = value
+    for flag in ROUTINE_BOOL_FLAGS:
+        if pop_flag(rest, flag, has_value=False):
+            params[flag[2:].replace("-", "_")] = True
+    if "command" in params:
+        params["command"] = decode(params["command"])
+    if "count" in params:
+        try:
+            params["count"] = int(params["count"])
+        except ValueError:
+            fail("Error: --count takes a number")
+    unknown = [a for a in rest if a.startswith("--")]
+    if unknown:
+        fail(f"Error: unknown flag {unknown[0]} — run `narrater help routine`")
+    if verb == "list":
+        if rest:
+            fail("Usage: narrater routine list")
+    elif len(rest) != 1:
+        fail(f'Usage: narrater routine {verb} "Name" …   (run `narrater help routine`)')
+    else:
+        params["name"] = rest[0]
+    payload = base_payload("routine")
+    payload["params"] = params
+    emit(request(payload))
+
+
 def cmd_debug():
     print("=== NarraTer CLI Diagnostics ===\n")
     print("--- Environment ---")
@@ -532,6 +622,8 @@ def main():
         if not rest:
             fail('Usage: narrater notify "message"')
         canvas("notify", {"message": decode(" ".join(rest))})
+    elif cmd == "routine":
+        cmd_routine(rest)
     elif cmd == "debug":
         cmd_debug()
     else:

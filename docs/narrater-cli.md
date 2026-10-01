@@ -30,6 +30,7 @@ Gemini CLI, OpenCode…) knows how to use it. The command set mirrors Maestri's
 | `narrater preset list` | Maestro: agent presets for `--preset` |
 | `narrater role list \| show \| create \| write \| edit \| assign \| delete` | Maestro: manage role presets; `assign` restarts the teammate with the role |
 | `narrater notify "message"` | Maestro: desktop notification (notify-send) |
+| `narrater routine list \| show \| create \| edit \| enable \| disable \| run \| delete` | Maestro: scheduled prompts/commands into a terminal of the scene, or reminders (`narrater help routine`) |
 | `narrater debug` | Environment + socket diagnostics |
 | `narrater help [command]` | Help |
 
@@ -68,6 +69,25 @@ over the DevTools Protocol (a minimal client in `browser/cdp.rs`).
   mirrors portals and links to the backend with `portals_sync`). Portals only
   wire to agents.
 - Without Chrome, the tile and the CLI say so plainly; nothing else breaks.
+
+## Routines
+
+Scheduled commands — a shell command or an agent prompt — fired into a
+terminal of the scene, or desktop reminders (`src-tauri/src/routines/`). The
+**scheduler runs in the backend** (1 s tick), so it keeps time whether or not
+the window is focused or the tile is on screen; a fire goes through the same
+idle-gated queue as `ask`, and by default is *skipped* while the target is
+busy. Schedules: `--every` (≥ 10 s), `--daily`, `--weekly`, `--once`;
+options `--count`, `--until`, `--pre-run` (its stdout fills `{{output}}`),
+`--no-skip-if-busy`, `--no-notify`, `--disabled`.
+
+Routines belong to the scene: `~/.config/narrater/routines/<scene>.json`,
+loaded when the scene opens (renames and deletions follow). Recurring
+routines don't replay fires missed while the app was closed; a missed
+one-shot fires on load. The sidebar's **Routines** panel lists them (fire
+now, pause/resume, delete) and the tile shows a clock badge for routines
+aimed at it. Creating and editing is Maestro-only, like Maestri. The old
+per-tile "scheduled prompt" is now a routine (scenes are migrated on load).
 
 ## Flow
 

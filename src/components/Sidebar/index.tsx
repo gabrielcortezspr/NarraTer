@@ -9,6 +9,7 @@ import { useCanvasStore } from "@/stores/canvas";
 import { saveNow } from "@/hooks/useAutoSave";
 import { useSketchStore } from "@/stores/sketch";
 import { useRolesStore } from "@/stores/roles";
+import RoutinesPanel from "@/components/RoutinesPanel";
 const RoleManager = lazy(() => import("@/components/RoleManager"));
 
 interface ContextMenu {
@@ -246,6 +247,8 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
               </div>
             )}
           </div>
+
+          <RoutinesPanel />
 
           {/* Spacer */}
           <div className="flex-1" />

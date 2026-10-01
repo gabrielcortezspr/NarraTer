@@ -51,6 +51,11 @@ concept to Linux.
   assemble a team by itself — `narrater recruit` spawns teammates next to it
   (any preset, any role), `--replace` swaps a teammate's agent in place,
   `dismiss` removes one, and `narrater role …` manages role presets.
+- **Routines**: scheduled prompts or commands fired into a terminal (or
+  desktop reminders) — `--every 30m`, `--daily 09:00`, `--weekly
+  mon,fri@09:00`, `--once …`, with an optional pre-run script whose output
+  fills the prompt. A backend scheduler, idle-gated delivery, and a Routines
+  panel in the sidebar.
 - **Shared notes**: agents create, read and edit sticky notes connected to
   them (`narrater note …`) and can wire agents and notes together
   (`narrater connect`).

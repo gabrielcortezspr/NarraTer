@@ -427,10 +427,11 @@ demais skills reaproveitam. Ordem sugerida:
    `text/html/evaluate/wait`, `screenshot`, `logs`, `resize`, `ua`; skill
    `narrater-portal`). Pendente: popups (`window.open` → portal "#2"),
    iframes cross-origin no snapshot e o modo de design do Maestri.
-3. **maestri-routines → `narrater routine …`.** Agendamentos (`--every`,
-   `--daily`, `--weekly`, `--once`, `--pre-run` com `{{output}}`, alvo e
-   lembrete), entregues pela mesma fila com espera por ocioso. Substituem o
-   "scheduled prompt" do tile.
+3. ✅ **maestri-routines → `narrater routine …`** (feito: agendador no
+   backend, `--every/--daily/--weekly/--once`, `--terminal`/`--reminder`,
+   `--count`, `--until`, `--pre-run` com `{{output}}`, skip-if-busy,
+   `--no-notify`, `--disabled`, `--id` para duplicatas; painel na sidebar;
+   o "scheduled prompt" antigo migra para rotina; skill `narrater-routines`).
 4. **maestri-workspace → workspaces e floors.** Cena com diretório raiz e
    "andares" com clone git isolado por branch, para agentes trabalharem sem
    tocar no checkout principal.

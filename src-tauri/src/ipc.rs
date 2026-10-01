@@ -13,6 +13,7 @@ use crate::pty::{
     PtyStateInner, QueuedMsg,
 };
 use crate::browser::BrowserState;
+use crate::routines::RoutinesState;
 use crate::screen::TurnState;
 
 /// `ask` blocks until the target finishes — the caller's own tool timeout is
@@ -34,6 +35,7 @@ const SKILLS: &[(&str, &str)] = &[
     ("narrater", include_str!("../assets/SKILL.md")),
     ("narrater-manager", include_str!("../assets/SKILL-manager.md")),
     ("narrater-portal", include_str!("../assets/SKILL-portal.md")),
+    ("narrater-routines", include_str!("../assets/SKILL-routines.md")),
 ];
 /// Skill directories read by the agent CLIs: Claude Code, and the open Agent
 /// Skills location shared by Codex, Gemini CLI, OpenCode and others.
@@ -47,7 +49,7 @@ struct IpcRequest {
     /// Terminal secret (env NARRATER_TOKEN) proving the `from` identity.
     #[serde(default)]
     token: Option<String>,
-    /// "ping" | "whoami" | "ask" | "batch" | "raw" | "check" | "canvas" | "portal"
+    /// "ping" | "whoami" | "ask" | "batch" | "raw" | "check" | "canvas" | "portal" | "routine"
     #[serde(default)]
     mode: Option<String>,
     /// Target agent name (label) or node id.
@@ -60,7 +62,8 @@ struct IpcRequest {
     batch: Option<serde_json::Map<String, serde_json::Value>>,
     #[serde(default)]
     timeout_secs: Option<u64>,
-    /// mode "canvas": action handled by the frontend (list, note_*, connect).
+    /// mode "canvas": action handled by the frontend (list, note_*, connect);
+    /// mode "routine": the parsed flags.
     #[serde(default)]
     action: Option<String>,
     #[serde(default)]
@@ -80,7 +83,12 @@ pub fn socket_path() -> String {
     .clone()
 }
 
-pub async fn start_ipc_server(app: AppHandle, state: Arc<Mutex<PtyStateInner>>, browser: BrowserState) {
+pub async fn start_ipc_server(
+    app: AppHandle,
+    state: Arc<Mutex<PtyStateInner>>,
+    browser: BrowserState,
+    routines: RoutinesState,
+) {
     install_cli();
     install_skills();
     remove_legacy_files();
@@ -104,7 +112,7 @@ pub async fn start_ipc_server(app: AppHandle, state: Arc<Mutex<PtyStateInner>>, 
     loop {
         match listener.accept().await {
             Ok((stream, _)) => {
-                tokio::spawn(handle_connection(stream, app.clone(), Arc::clone(&state), browser.clone()));
+                tokio::spawn(handle_connection(stream, app.clone(), Arc::clone(&state), browser.clone(), routines.clone()));
             }
             Err(e) => eprintln!("[NarraTer IPC] Accept error: {}", e),
         }
@@ -116,6 +124,7 @@ async fn handle_connection(
     app: AppHandle,
     state: Arc<Mutex<PtyStateInner>>,
     browser: BrowserState,
+    routines: RoutinesState,
 ) {
     let mut buf = Vec::new();
     if stream.read_to_end(&mut buf).await.is_err() {
@@ -149,6 +158,10 @@ async fn handle_connection(
             Some("raw") => handle_raw(&req, &app, &state).await,
             Some("check") => handle_check(&req, &state),
             Some("canvas") => handle_canvas(&req, &app, &state).await,
+            Some("routine") => {
+                let params = req.params.clone().unwrap_or(serde_json::Value::Null);
+                with_newline(routines.run_cli(&app, &state, &req.from, &params).await)
+            }
             Some("portal") => {
                 let verb = req.msg.as_deref().unwrap_or("");
                 let args = req.args.clone().unwrap_or_default();
@@ -580,6 +593,7 @@ mod tests {
             inbox: HashMap::new(),
             canvas_waiters: HashMap::new(),
             ledger: VecDeque::new(),
+            maestros: HashSet::new(),
         }
     }
 
