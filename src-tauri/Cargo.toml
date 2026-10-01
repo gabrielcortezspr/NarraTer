@@ -28,6 +28,9 @@ uuid = { version = "1", features = ["v4"] }
 tauri-plugin-dialog = "2"
 base64 = "0.22"
 vt100 = "0.16"
+tokio-tungstenite = "0.29.0"
+futures-util = "0.3.34"
+libc = "0.2.189"
 
 [profile.release]
 panic = "abort"

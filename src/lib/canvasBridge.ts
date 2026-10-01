@@ -1,11 +1,11 @@
 import { listen } from "@tauri-apps/api/event";
-import { useCanvasStore } from "@/stores/canvas";
+import { syncPortals, useCanvasStore } from "@/stores/canvas";
 import { useTerminalsStore } from "@/stores/terminals";
-import { canvasRespond } from "@/lib/tauri";
+import { canvasRespond, portalOpen } from "@/lib/tauri";
 import { presetOf } from "@/lib/agents";
-import { findByName, labelOf, reachOf, str, uniqueName, type CanvasRequest } from "@/lib/canvasReach";
+import { findByName, freeSpot, labelOf, reachOf, str, uniqueName, type CanvasRequest } from "@/lib/canvasReach";
 import { handleManager, MANAGER_ACTIONS } from "@/lib/managerCommands";
-import type { AppEdge, AppNode, NoteNodeData, TerminalNodeData } from "@/stores/canvas";
+import type { AppEdge, AppNode, NoteNodeData, PortalNodeData, TerminalNodeData } from "@/stores/canvas";
 
 // Agent → canvas bridge for the `narrater` CLI: the backend emits
 // `canvas_request` for list / note … / connect (and the Maestro commands in
@@ -45,7 +45,7 @@ function agentLine(n: AppNode): string {
 function listFor(nodes: AppNode[], edges: AppEdge[], from: string): string {
   const me = nodes.find((n) => n.id === from);
   const maestro = (me?.data as TerminalNodeData | undefined)?.maestro === true;
-  const { agents, notes } = reachOf(nodes, edges, from);
+  const { agents, notes, portals } = reachOf(nodes, edges, from);
   const out: string[] = [];
   if (me) {
     const d = me.data as TerminalNodeData;
@@ -65,6 +65,13 @@ function listFor(nodes: AppNode[], edges: AppEdge[], from: string): string {
       theirs.notes.filter((e) => e.depth === 0).forEach((e) => out.push(`      ↳ note: ${labelOf(e.node)}`));
     }
   });
+  if (portals.length) {
+    out.push("", "Portals:");
+    portals.forEach((p) => {
+      const d = p.data as PortalNodeData;
+      out.push(`  - ${labelOf(p)} · ${d.url || "(blank)"}${d.title ? ` · ${d.title}` : ""}`);
+    });
+  }
   out.push("", "Notes:");
   if (notes.length === 0) out.push("  (none — `narrater note create` makes one)");
   notes.forEach(({ node, depth }) => out.push(`${"  ".repeat(depth + 1)}- ${labelOf(node)}`));
@@ -111,8 +118,47 @@ function setNoteContent(note: AppNode, content: string): string {
   return renamed;
 }
 
+const PORTAL_SIZE = { width: 720, height: 520 };
+
+/** Viewport "WxH" → numbers (between 100 and 4000 px). */
+function parseSize(raw: string): { width: number; height: number } | string | undefined {
+  if (!raw) return undefined;
+  const m = /^(\d+)x(\d+)$/i.exec(raw.trim());
+  const ok = (n: number) => n >= 100 && n <= 4000;
+  if (!m || !ok(+m[1]) || !ok(+m[2])) return `Error: --size takes WxH between 100 and 4000, e.g. 390x844`;
+  return { width: +m[1], height: +m[2] };
+}
+
+function normalizeUrl(raw: string): string {
+  const t = raw.trim();
+  if (!t || t.includes("://") || t.startsWith("about:")) return t;
+  return /^(localhost|127\.)/.test(t) ? `http://${t}` : `https://${t}`;
+}
+
+async function portalCreate(req: CanvasRequest, params: Record<string, unknown>): Promise<string> {
+  const store = useCanvasStore.getState();
+  const me = store.nodes.find((n) => n.id === req.from);
+  if (me?.type !== "terminal") return "Error: unknown terminal";
+  const url = normalizeUrl(str(params.url));
+  if (!url) return 'Usage: narrater portal create URL ["Name"] [--size WxH]';
+  const size = parseSize(str(params.size));
+  if (typeof size === "string") return size;
+  const label = uniqueName(store.nodes, "portal", str(params.name).trim() || "Portal");
+  const id = store.addPortalNode(freeSpot(store.nodes, me, PORTAL_SIZE), url, label);
+  store.addEdge({ id: `edge-${crypto.randomUUID().slice(0, 8)}`, source: req.from, target: id, type: "default" });
+  // The backend must know the portal (and the link) before the next command
+  await syncPortals();
+  try {
+    await portalOpen(id, url, size?.width, size?.height);
+  } catch (e) {
+    return `ok: portal '${label}' created and connected to you, but the browser failed: ${e}`;
+  }
+  return `ok: portal '${label}' created at ${url}${size ? ` (${size.width}x${size.height})` : ""}, connected to you`;
+}
+
 function edgeTypeFor(a: AppNode, b: AppNode): string {
   if (a.type === "terminal" && b.type === "terminal") return "agent-pipe";
+  if (a.type === "portal" || b.type === "portal") return "default";
   if (a.type === "terminal" || b.type === "terminal") return "agent-note";
   return "default";
 }
@@ -179,15 +225,27 @@ function handleRequest(req: CanvasRequest): string | Promise<string> {
       return `ok: note '${labelOf(note)}' deleted`;
     }
 
+    case "portal_create":
+      return portalCreate(req, params);
+
+    case "portal_close": {
+      const portal = findByName(reach().portals, str(params.name), "portal");
+      if (typeof portal === "string") return portal;
+      store.removeNode(portal.id);
+      return `ok: portal '${labelOf(portal)}' closed`;
+    }
+
     case "connect": {
       const me = nodes.find((n) => n.id === req.from);
-      const { agents, notes } = reach();
-      const candidates = [...(me ? [me] : []), ...agents, ...notes.map((e) => e.node)];
+      const { agents, notes, portals } = reach();
+      const candidates = [...(me ? [me] : []), ...agents, ...notes.map((e) => e.node), ...portals];
       const a = findByName(candidates, str(params.from), "agent or note");
       if (typeof a === "string") return a;
       const b = findByName(candidates, str(params.to), "agent or note");
       if (typeof b === "string") return b;
       if (a.id === b.id) return "Error: can't connect something to itself";
+      const portalMisuse = (x: AppNode, y: AppNode) => x.type === "portal" && y.type !== "terminal";
+      if (portalMisuse(a, b) || portalMisuse(b, a)) return "Error: a portal can only be wired to an agent";
       const exists = edges.some(
         (e) => (e.source === a.id && e.target === b.id) || (e.source === b.id && e.target === a.id)
       );

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { applyNodeChanges, applyEdgeChanges } from "@xyflow/react";
 import type { Node, Edge, NodeChange, EdgeChange, XYPosition } from "@xyflow/react";
-import { loadScene, saveScene, connectionsSync } from "@/lib/tauri";
+import { loadScene, saveScene, connectionsSync, portalsSync } from "@/lib/tauri";
 import { disposeTerminal, replaceTerminal, startTerminal, spawnOptsFor } from "@/lib/terminalManager";
 import type { AgentType } from "@/lib/agents";
 
@@ -45,6 +45,10 @@ export interface AttachmentNodeData extends Record<string, unknown> {
 
 export interface PortalNodeData extends Record<string, unknown> {
   url: string;
+  /** Name agents address it by (`narrater portal … "Name"`). */
+  label: string;
+  /** Page title, live from the browser (not persisted). */
+  title?: string;
 }
 
 export type AppNode =
@@ -94,7 +98,7 @@ interface CanvasStore {
   moveNode: (id: string, position: XYPosition) => void;
   addFileTreeNode: (position?: XYPosition, rootPath?: string) => string;
   addAttachmentNode: (position: XYPosition, path: string) => string;
-  addPortalNode: (position?: XYPosition, url?: string) => string;
+  addPortalNode: (position?: XYPosition, url?: string, label?: string) => string;
   /** Lights the note's "live" badge for a moment (an agent just wrote it). */
   flashNoteLive: (noteId: string) => void;
   removeNode: (id: string) => void;
@@ -139,6 +143,14 @@ function syncConnections(edges: AppEdge[]) {
     .filter((e) => e.type === "agent-pipe")
     .map((e) => [e.source, e.target] as [string, string]);
   connectionsSync(pairs).catch(console.error);
+}
+
+function uniquePortalLabel(nodes: AppNode[]): string {
+  const taken = new Set(nodes.filter((n) => n.type === "portal").map((n) => (n.data as PortalNodeData).label));
+  if (!taken.has("Portal")) return "Portal";
+  let i = 2;
+  while (taken.has(`Portal ${i}`)) i++;
+  return `Portal ${i}`;
 }
 
 export const useCanvasStore = create<CanvasStore>((set, get) => ({
@@ -306,7 +318,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     return id;
   },
 
-  addPortalNode: (position, url) => {
+  addPortalNode: (position, url, label) => {
     get().snapshot();
     const id = `portal-${crypto.randomUUID().slice(0, 8)}`;
     nodeCounter++;
@@ -314,7 +326,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       id,
       type: "portal",
       position: position ?? { x: 200 + nodeCounter * 20, y: 200 + nodeCounter * 20 },
-      data: { url: url ?? "" },
+      data: { url: url ?? "", label: label ?? uniquePortalLabel(get().nodes) },
       style: { width: 720, height: 520 },
     };
     set((s) => ({ nodes: [...s.nodes, newNode] }));
@@ -385,7 +397,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           };
         }
         if (n.node_type === "portal") {
-          return { ...base, type: "portal" as const, data: { url: n.url ?? "" } };
+          return { ...base, type: "portal" as const, data: { url: n.url ?? "", label: n.label ?? "Portal" } };
         }
         return {
           ...base,
@@ -476,3 +488,27 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     await saveScene(name, data);
   },
 }));
+
+// Mirror portals (name, URL) and their terminal links into the backend, which
+// drives the browser tabs: agents reach a portal only when it's wired to them.
+let lastPortalSync = "";
+export function syncPortals(): Promise<void> {
+  const { nodes, edges } = useCanvasStore.getState();
+  const portalIds = new Set(nodes.filter((n) => n.type === "portal").map((n) => n.id));
+  const terminalIds = new Set(nodes.filter((n) => n.type === "terminal").map((n) => n.id));
+  const portals = nodes
+    .filter((n) => n.type === "portal")
+    .map((n) => ({ id: n.id, label: (n.data as PortalNodeData).label, url: (n.data as PortalNodeData).url }));
+  const links: Array<[string, string]> = edges.flatMap((e): Array<[string, string]> =>
+    portalIds.has(e.source) && terminalIds.has(e.target) ? [[e.source, e.target]]
+    : portalIds.has(e.target) && terminalIds.has(e.source) ? [[e.target, e.source]]
+    : []
+  );
+  const key = JSON.stringify([portals, links]);
+  if (key === lastPortalSync) return Promise.resolve();
+  lastPortalSync = key;
+  return portalsSync(portals, links).catch(console.error);
+}
+useCanvasStore.subscribe(() => {
+  syncPortals();
+});

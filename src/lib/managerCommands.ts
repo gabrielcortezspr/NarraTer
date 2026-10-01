@@ -3,7 +3,7 @@ import { useRolesStore } from "@/stores/roles";
 import { toast } from "@/stores/toasts";
 import { fsListDir, systemNotify, type Role } from "@/lib/tauri";
 import { AGENT_ORDER, AGENT_PRESETS, presetOf, type AgentType } from "@/lib/agents";
-import { findByName, labelOf, neighbors, reachOf, str, uniqueName, type CanvasRequest } from "@/lib/canvasReach";
+import { findByName, freeSpot, labelOf, neighbors, reachOf, str, uniqueName, type CanvasRequest } from "@/lib/canvasReach";
 import type { AppNode, TerminalNodeData } from "@/stores/canvas";
 
 // Maestro commands of the `narrater` CLI (Maestri's maestri-manager skill):
@@ -11,7 +11,6 @@ import type { AppNode, TerminalNodeData } from "@/stores/canvas";
 // only work from a terminal in Maestro mode — the user opts in per terminal.
 
 const RECRUIT_SIZE = { width: 520, height: 360 };
-const GAP = 60;
 const ROLE_COLORS = ["#8b5cf6", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#ec4899", "#14b8a6", "#a3e635"];
 
 const NOT_MAESTRO =
@@ -28,33 +27,6 @@ interface Ctx {
   params: Record<string, unknown>;
   me: AppNode;
   meData: TerminalNodeData;
-}
-
-function sizeOf(n: AppNode): { width: number; height: number } {
-  return {
-    width: n.width ?? (n.style?.width as number) ?? RECRUIT_SIZE.width,
-    height: n.height ?? (n.style?.height as number) ?? RECRUIT_SIZE.height,
-  };
-}
-
-/** First spot near `anchor` (right, then below/above, moving outwards) that overlaps nothing. */
-function freeSpot(nodes: AppNode[], anchor: AppNode): { x: number; y: number } {
-  const a = sizeOf(anchor);
-  const boxes = nodes.map((n) => ({ ...n.position, ...sizeOf(n) }));
-  const overlaps = (x: number, y: number) =>
-    boxes.some((b) =>
-      x < b.x + b.width + GAP / 2 && x + RECRUIT_SIZE.width + GAP / 2 > b.x &&
-      y < b.y + b.height + GAP / 2 && y + RECRUIT_SIZE.height + GAP / 2 > b.y);
-  const stepX = RECRUIT_SIZE.width + GAP;
-  const stepY = RECRUIT_SIZE.height + GAP;
-  for (let col = 0; col < 8; col++) {
-    for (const row of [0, 1, -1, 2, -2]) {
-      const x = anchor.position.x + a.width + GAP + col * stepX;
-      const y = anchor.position.y + row * stepY;
-      if (!overlaps(x, y)) return { x, y };
-    }
-  }
-  return { x: anchor.position.x + a.width + GAP, y: anchor.position.y + 3 * stepY };
 }
 
 /** Preset by type key or label ("codex", "Gemini CLI"…), case-insensitive. */
@@ -168,7 +140,7 @@ async function recruit(ctx: Ctx): Promise<string> {
       ...(role ? rolePatch(role) : {}),
       cwd: dir || ctx.meData.cwd,
     },
-    freeSpot(store.nodes, ctx.me),
+    freeSpot(store.nodes, ctx.me, RECRUIT_SIZE),
   );
   store.addEdge({ id: `edge-${crypto.randomUUID().slice(0, 8)}`, source: ctx.req.from, target: id, type: "agent-pipe" });
   const d = useCanvasStore.getState().nodes.find((n) => n.id === id)?.data as TerminalNodeData;

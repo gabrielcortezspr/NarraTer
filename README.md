@@ -34,8 +34,13 @@ concept to Linux.
   working directory (xterm.js frontend, real PTYs in the Rust backend, with
   zoom-aware culling and level-of-detail rendering). Every terminal of a scene
   runs whether or not it's on screen.
-- **Six node types**: terminal, note, text, file tree, attachment and portal
-  (embedded web page).
+- **Six node types**: terminal, note, text, file tree, attachment and portal.
+- **Browser portals**: a portal is a real Chrome tab rendered live on the
+  canvas (headless Chrome over the DevTools Protocol). You browse it like a
+  normal tab; agents wired to it automate it with `narrater portal …` —
+  accessibility-style snapshots with `@e1` refs, clicks, forms, keys,
+  screenshots, console logs, responsive resize and user-agent presets.
+  Requires Google Chrome or Chromium.
 - **Agents from any vendor talk to each other**: connect two terminals and
   either side can `narrater ask` the other. The prompt is typed into the
   target's terminal when it's idle, and `ask` returns what the target's

@@ -28,6 +28,8 @@ export interface NoteEntry {
 
 export interface Reach {
   agents: AppNode[];
+  /** Browser portals wired to the terminal. */
+  portals: AppNode[];
   /** Directly connected notes and the ones chained to them, in tree order. */
   notes: NoteEntry[];
 }
@@ -49,7 +51,14 @@ export function reachOf(nodes: AppNode[], edges: AppEdge[], from: string): Reach
     neighbors(edges, id).forEach((next) => walk(next, depth + 1));
   };
   neighbors(edges, from).forEach((id) => walk(id, 0));
-  return { agents: [...new Map(agents.map((a) => [a.id, a])).values()], notes };
+  const portals = neighbors(edges, from)
+    .map((id) => byId.get(id))
+    .filter((n): n is AppNode => n?.type === "portal");
+  return {
+    agents: [...new Map(agents.map((a) => [a.id, a])).values()],
+    portals: [...new Map(portals.map((p) => [p.id, p])).values()],
+    notes,
+  };
 }
 
 /** Exact name first, then case-insensitive; ambiguity is an error. */
@@ -70,4 +79,33 @@ export function uniqueName(nodes: AppNode[], type: string, base: string, selfId?
   let i = 2;
   while (taken.has(`${base} (${i})`)) i++;
   return `${base} (${i})`;
+}
+
+const GAP = 60;
+
+function sizeOf(n: AppNode): { width: number; height: number } {
+  return {
+    width: n.width ?? (n.style?.width as number) ?? 520,
+    height: n.height ?? (n.style?.height as number) ?? 360,
+  };
+}
+
+/** First spot near `anchor` (right, then below/above, moving outwards) where a node of `size` overlaps nothing. */
+export function freeSpot(nodes: AppNode[], anchor: AppNode, size: { width: number; height: number }): { x: number; y: number } {
+  const a = sizeOf(anchor);
+  const boxes = nodes.map((n) => ({ ...n.position, ...sizeOf(n) }));
+  const overlaps = (x: number, y: number) =>
+    boxes.some((b) =>
+      x < b.x + b.width + GAP / 2 && x + size.width + GAP / 2 > b.x &&
+      y < b.y + b.height + GAP / 2 && y + size.height + GAP / 2 > b.y);
+  const stepX = size.width + GAP;
+  const stepY = size.height + GAP;
+  for (let col = 0; col < 8; col++) {
+    for (const row of [0, 1, -1, 2, -2]) {
+      const x = anchor.position.x + a.width + GAP + col * stepX;
+      const y = anchor.position.y + row * stepY;
+      if (!overlaps(x, y)) return { x, y };
+    }
+  }
+  return { x: anchor.position.x + a.width + GAP, y: anchor.position.y + 3 * stepY };
 }

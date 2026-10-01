@@ -12,6 +12,7 @@ use crate::pty::{
     enqueue_message, now_ms, record_msg, withdraw_message, write_to_pty, AskWaiter, LedgerEntry,
     PtyStateInner, QueuedMsg,
 };
+use crate::browser::BrowserState;
 use crate::screen::TurnState;
 
 /// `ask` blocks until the target finishes — the caller's own tool timeout is
@@ -32,6 +33,7 @@ const CLI_SCRIPT: &str = include_str!("../assets/narrater.py");
 const SKILLS: &[(&str, &str)] = &[
     ("narrater", include_str!("../assets/SKILL.md")),
     ("narrater-manager", include_str!("../assets/SKILL-manager.md")),
+    ("narrater-portal", include_str!("../assets/SKILL-portal.md")),
 ];
 /// Skill directories read by the agent CLIs: Claude Code, and the open Agent
 /// Skills location shared by Codex, Gemini CLI, OpenCode and others.
@@ -45,7 +47,7 @@ struct IpcRequest {
     /// Terminal secret (env NARRATER_TOKEN) proving the `from` identity.
     #[serde(default)]
     token: Option<String>,
-    /// "ping" | "whoami" | "ask" | "batch" | "raw" | "check" | "canvas"
+    /// "ping" | "whoami" | "ask" | "batch" | "raw" | "check" | "canvas" | "portal"
     #[serde(default)]
     mode: Option<String>,
     /// Target agent name (label) or node id.
@@ -63,6 +65,9 @@ struct IpcRequest {
     action: Option<String>,
     #[serde(default)]
     params: Option<serde_json::Value>,
+    /// mode "portal": the verb's arguments after the portal name.
+    #[serde(default)]
+    args: Option<Vec<String>>,
 }
 
 /// Per-process socket inside a private (0700) directory.
@@ -75,7 +80,7 @@ pub fn socket_path() -> String {
     .clone()
 }
 
-pub async fn start_ipc_server(app: AppHandle, state: Arc<Mutex<PtyStateInner>>) {
+pub async fn start_ipc_server(app: AppHandle, state: Arc<Mutex<PtyStateInner>>, browser: BrowserState) {
     install_cli();
     install_skills();
     remove_legacy_files();
@@ -99,7 +104,7 @@ pub async fn start_ipc_server(app: AppHandle, state: Arc<Mutex<PtyStateInner>>) 
     loop {
         match listener.accept().await {
             Ok((stream, _)) => {
-                tokio::spawn(handle_connection(stream, app.clone(), Arc::clone(&state)));
+                tokio::spawn(handle_connection(stream, app.clone(), Arc::clone(&state), browser.clone()));
             }
             Err(e) => eprintln!("[NarraTer IPC] Accept error: {}", e),
         }
@@ -110,6 +115,7 @@ async fn handle_connection(
     mut stream: tokio::net::UnixStream,
     app: AppHandle,
     state: Arc<Mutex<PtyStateInner>>,
+    browser: BrowserState,
 ) {
     let mut buf = Vec::new();
     if stream.read_to_end(&mut buf).await.is_err() {
@@ -143,6 +149,11 @@ async fn handle_connection(
             Some("raw") => handle_raw(&req, &app, &state).await,
             Some("check") => handle_check(&req, &state),
             Some("canvas") => handle_canvas(&req, &app, &state).await,
+            Some("portal") => {
+                let verb = req.msg.as_deref().unwrap_or("");
+                let args = req.args.clone().unwrap_or_default();
+                with_newline(browser.run_cli(&app, &req.from, req.to.as_deref().unwrap_or(""), verb, &args).await)
+            }
             _ => "Error: unknown command — run `narrater help`\n".to_string(),
         },
     };

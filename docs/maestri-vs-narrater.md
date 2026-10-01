@@ -420,11 +420,13 @@ demais skills reaproveitam. Ordem sugerida:
    skill `narrater-manager`; validado com um Claude Maestro montando um time
    sozinho a partir de um pedido em linguagem natural). Fora do escopo por
    ora: `--floor`/`--workspace` (dependem do item 4).
-2. **maestri-portal → `narrater portal …`.** Automação do `PortalTile`:
-   `snapshot` (árvore de acessibilidade com refs `@e1`), `click`, `fill`,
-   `type`, `key`, `navigate`, `screenshot`, `evaluate`, `logs`, `resize`/`ua`.
-   No Tauri, isso exige trocar o iframe por um webview próprio (Tauri 2
-   multi-webview) ou um Chromium controlado via CDP.
+2. ✅ **maestri-portal → `narrater portal …`** (feito: o `<iframe>` deu lugar a
+   uma aba real de Chrome headless via CDP — screencast no tile com mouse,
+   teclado e colar repassados; `create/edit/close`, `snapshot` com refs
+   `@eN`, `click/fill/type/key/hover/focus/select/check/scroll/drag`,
+   `text/html/evaluate/wait`, `screenshot`, `logs`, `resize`, `ua`; skill
+   `narrater-portal`). Pendente: popups (`window.open` → portal "#2"),
+   iframes cross-origin no snapshot e o modo de design do Maestri.
 3. **maestri-routines → `narrater routine …`.** Agendamentos (`--every`,
    `--daily`, `--weekly`, `--once`, `--pre-run` com `{{output}}`, alvo e
    lembrete), entregues pela mesma fila com espera por ocioso. Substituem o

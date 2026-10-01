@@ -156,6 +156,31 @@ export const pickFile = () => invoke<string | null>("pick_file");
 
 export const openUrl = (url: string) => invoke<void>("open_url", { url });
 
+// ---- Browser portals (headless Chrome over CDP) ----
+
+export interface PortalEntry {
+  id: string;
+  label: string;
+  url: string;
+}
+
+/** Mirrors canvas portals and their [portalId, terminalId] links to the backend. */
+export const portalsSync = (portals: PortalEntry[], links: Array<[string, string]>) =>
+  invoke<void>("portals_sync", { portals, links });
+
+export const portalOpen = (id: string, url?: string, width?: number, height?: number) =>
+  invoke<void>("portal_open", { id, url, width, height });
+
+/** Tile on screen: open the tab if needed and start its screencast. */
+export const portalAttach = (id: string, url?: string) => invoke<void>("portal_attach", { id, url });
+export const portalDetach = (id: string) => invoke<void>("portal_detach", { id });
+export const portalNavigate = (id: string, url: string) => invoke<void>("portal_navigate", { id, url });
+/** -1 back, 1 forward, 0 reload. */
+export const portalHistory = (id: string, delta: number) => invoke<void>("portal_history", { id, delta });
+/** Raw CDP input (Input.dispatchMouseEvent / dispatchKeyEvent / insertText), page CSS px. */
+export const portalInput = (id: string, method: string, params: Record<string, unknown>) =>
+  invoke<void>("portal_input", { id, method, params });
+
 /** Desktop notification (notify-send). */
 export const systemNotify = (title: string, body: string) =>
   invoke<void>("system_notify", { title, body });

@@ -258,7 +258,8 @@ function CanvasInner() {
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
         target.isContentEditable ||
-        target.closest?.(".xterm")
+        target.closest?.(".xterm") ||
+        target.closest?.(".portal-surface")
       )
         return;
 

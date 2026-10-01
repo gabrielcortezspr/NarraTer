@@ -22,6 +22,8 @@ Gemini CLI, OpenCode…) knows how to use it. The command set mirrors Maestri's
 | `narrater note edit "Note" "old" "new"` | Replace a unique substring |
 | `narrater note delete "Note"` | Remove (only on explicit user request) |
 | `narrater connect "From" "To"` | Wire two things you can reach |
+| `narrater portal create URL ["Name"] [--size WxH]` | Browser portal next to you, connected to you |
+| `narrater portal <verb> "Portal" …` | snapshot, click, fill, type, key, navigate, screenshot, evaluate, logs, resize, ua… (`narrater help portal`) |
 | `narrater recruit "Name" [--preset P] [--role R] [--command C] [--dir D]` | Maestro: spawn a teammate next to you, connected to you |
 | `narrater recruit ["New"] --preset P --replace "Old"` | Maestro: swap the agent of a teammate in place (node, connections, position kept) |
 | `narrater dismiss "Name"` | Maestro: stop and remove a connected teammate |
@@ -44,6 +46,28 @@ A swap (`--replace`, `role assign`) respawns the process under the **same
 node id**: the backend kills the old process, drops asks waiting on it, and
 its reader thread exits silently (no `pty_exit` for the new session); the
 frontend gives the tile a fresh xterm (`sessionGen`).
+
+## Browser portals
+
+A portal is a real Chrome tab (`src-tauri/src/browser/`): NarraTer launches a
+headless Chrome/Chromium on first use (Google Chrome, Chromium, Brave, Edge on
+PATH, a Playwright Chromium, or `$NARRATER_BROWSER`) with its own profile in
+`~/.local/share/narrater/browser-profile`, and drives one tab per portal node
+over the DevTools Protocol (a minimal client in `browser/cdp.rs`).
+
+- **The tile** paints the tab's screencast (`Page.startScreencast`, JPEG
+  frames via the `portal_frame` event) only while it's on screen, and
+  forwards mouse, wheel, keyboard and paste as `Input.*` events — so the page
+  scales and moves with the canvas like any node.
+- **Agents** use `narrater portal …` on the same tab. `snapshot` runs a
+  script that tags interactive elements with `data-narrater-ref` and lists
+  them as `@eN` refs (shadow DOM included); actions resolve refs, CSS or
+  `x,y`, then use real input events (clicks are mouse presses, typing is
+  `Input.insertText`).
+- **Access**: a portal is reachable by the terminals wired to it (the canvas
+  mirrors portals and links to the backend with `portals_sync`). Portals only
+  wire to agents.
+- Without Chrome, the tile and the CLI say so plainly; nothing else breaks.
 
 ## Flow
 

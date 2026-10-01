@@ -11,6 +11,7 @@ import { toast } from "@/stores/toasts";
 import Toaster from "@/components/Toaster";
 import { useAutoSave } from "@/hooks/useAutoSave";
 import { initCanvasBridge } from "@/lib/canvasBridge";
+import { onPortalState } from "@/lib/portalBus";
 import type { LedgerEntry, QueueItem } from "@/lib/tauri";
 
 export default function App() {
@@ -56,6 +57,17 @@ export default function App() {
       const { from, to, ts } = event.payload;
       useLedgerStore.getState().bump(from, to, ts);
     }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
+
+    // Portal navigations (user or agent, on screen or not) → node URL/title,
+    // so the scene saves where each tab really is
+    unlisteners.push(
+      onPortalState("*", ({ id, url, title }) => {
+        const patch: Record<string, unknown> = {};
+        if (url !== undefined && url !== "about:blank") patch.url = url;
+        if (title !== undefined) patch.title = title;
+        if (Object.keys(patch).length) useCanvasStore.getState().updateNodeData(id, patch);
+      })
+    );
 
     // Agents using the canvas through the narrater CLI (canvas_request → store → respond)
     initCanvasBridge().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));

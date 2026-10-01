@@ -1,3 +1,4 @@
+mod browser;
 mod canvas_bridge;
 mod fsops;
 mod ipc;
@@ -12,16 +13,20 @@ use pty::PtyState;
 pub fn run() {
     let pty_state = PtyState::default();
     let pty_state_for_ipc = pty_state.clone();
+    let browser_state = browser::BrowserState::default();
+    let browser_for_ipc = browser_state.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(pty_state)
+        .manage(browser_state)
         .setup(move |app| {
             let state_arc = std::sync::Arc::clone(&pty_state_for_ipc.0);
             let app_handle = tauri::Manager::app_handle(app).clone();
             tauri::async_runtime::spawn(ipc::start_ipc_server(
                 app_handle.clone(),
                 std::sync::Arc::clone(&state_arc),
+                browser_for_ipc,
             ));
             tauri::async_runtime::spawn(pty::start_status_monitor(app_handle, state_arc));
             Ok(())
@@ -50,6 +55,13 @@ pub fn run() {
             canvas_bridge::canvas_respond,
             roles::load_roles,
             roles::save_roles,
+            browser::portals_sync,
+            browser::portal_open,
+            browser::portal_attach,
+            browser::portal_detach,
+            browser::portal_navigate,
+            browser::portal_history,
+            browser::portal_input,
         ])
         .run(tauri::generate_context!())
         .expect("error while running NarraTer");

@@ -18,6 +18,14 @@ Usage:
   narrater note edit "Note" "old text" "new text"  Replace a substring within a note
   narrater note delete "Note"                      Remove a connected note (only on explicit user request)
   narrater connect "From" "To"                     Wire two things you can reach (agents or notes)
+  narrater portal create URL ["Name"] [--size WxH]  Open a browser portal next to you, connected to you
+  narrater portal snapshot "Portal"                Elements with refs (@e1, @e2…) to use as selectors
+  narrater portal click|hover|focus "Portal" @e3   Act on a ref, CSS selector or x,y
+  narrater portal fill "Portal" @e2 "text"         Clear a field and type into it
+  narrater portal type "Portal" [@e2] "text"       Type into the focused (or given) element
+  narrater portal key "Portal" "Enter"             Press a key (ctrl+a, shift+tab…)
+  narrater portal navigate "Portal" "url"          Go to a URL (also: info, screenshot, text, html, evaluate…)
+                                                   Run `narrater help portal` for every portal command
   narrater recruit "Name" [--preset P] [--role R] [--command C] [--dir PATH]
                                                    (Maestro only) Spawn a teammate, auto-connected to you
   narrater recruit ["New Name"] --preset P --replace "Old"
@@ -101,6 +109,41 @@ names.""",
 Wires two things you can reach (yourself, a connected agent, or a connected
 note). Agent ↔ agent lets both sides `ask` each other; note ↔ agent shares the
 note. Tell the agents about the new connection — they are not notified.""",
+    "portal": """Usage:
+  narrater portal create URL ["Name"] [--size WxH]   new portal next to you, connected to you
+  narrater portal edit "Portal" --url URL            point a portal at a new URL
+  narrater portal close "Portal"                     remove a portal (only on explicit user request)
+
+  narrater portal snapshot "Portal"                  elements with refs (@e1…) + viewport, url, title
+  narrater portal info "Portal"                      url, title, viewport
+  narrater portal screenshot "Portal"                PNG of the viewport; prints its path
+  narrater portal check "Portal"                     peek: same as screenshot
+
+  narrater portal navigate "Portal" "url"
+  narrater portal click "Portal" @e3                 ref, CSS selector or x,y
+  narrater portal fill "Portal" @e2 "text"           clear the field, then type
+  narrater portal type "Portal" [@e2] "text"         append to the focused (or given) element
+  narrater portal key "Portal" "Enter"               Enter, Tab, Escape, Backspace, Arrow*, ctrl+a, shift+tab…
+  narrater portal hover|focus "Portal" @e3
+  narrater portal select "Portal" @e5 "Option"       pick a <select> option by text or value
+  narrater portal check|uncheck "Portal" @e6         set a checkbox
+  narrater portal selectall|clear "Portal" [@e2]     on the focused (or given) field
+  narrater portal scroll "Portal" down 300 [@e5|x,y] up/down/left/right, at the viewport center or a target
+  narrater portal scrollintoview "Portal" @e10
+  narrater portal drag "Portal" @e3 @e7
+  narrater portal text "Portal" @e1                  element text
+  narrater portal html "Portal"                      full page HTML
+  narrater portal evaluate "Portal" "js"             run JavaScript, print the result
+  narrater portal wait "Portal" @e3 [timeoutMs]      wait for an element (default 5000ms)
+  narrater portal logs-start "Portal"                start capturing console output
+  narrater portal logs "Portal"                      read (and clear) captured console output
+  narrater portal resize "Portal" 390 844            set the CSS viewport (responsive QA)
+  narrater portal ua "Portal" [preset]               ios, android, firefox-android, edge-android,
+                                                     chrome, firefox, edge, desktop; omit to read
+
+Workflow: snapshot → act with refs → snapshot again to verify (refs go stale
+when the page changes). Prefer snapshot + refs over screenshot + coordinates.
+Only portals connected to you are reachable (`narrater list`).""",
     "recruit": """Usage:
   narrater recruit "Name" [--preset P] [--role R] [--command C] [--dir PATH]
   narrater recruit ["New Name"] --preset P --replace "Old"
@@ -327,6 +370,36 @@ def cmd_note(args):
         fail(HELP["note"])
 
 
+def cmd_portal(args):
+    if not args:
+        fail(HELP["portal"])
+    verb, rest = args[0], args[1:]
+    if verb == "create":
+        size = pop_flag(rest, "--size")
+        if not rest or len(rest) > 2:
+            fail('Usage: narrater portal create URL ["Name"] [--size WxH]')
+        canvas("portal_create", {"url": rest[0], "name": rest[1] if len(rest) > 1 else "", "size": size or ""})
+        return
+    if verb == "close":
+        if len(rest) != 1:
+            fail('Usage: narrater portal close "Portal"')
+        canvas("portal_close", {"name": rest[0]})
+        return
+    if not rest:
+        fail(f'Usage: narrater portal {verb} "Portal" …   (run `narrater help portal`)')
+    name, rest = rest[0], rest[1:]
+    if verb == "edit":
+        url = pop_flag(rest, "--url")
+        if url is None or rest:
+            fail('Usage: narrater portal edit "Portal" --url URL')
+        verb, rest = "navigate", [url]
+    payload = base_payload("portal")
+    payload["to"] = name
+    payload["msg"] = verb
+    payload["args"] = rest
+    emit(request(payload))
+
+
 def cmd_recruit(args):
     preset = pop_flag(args, "--preset")
     role = pop_flag(args, "--role")
@@ -441,6 +514,8 @@ def main():
         if len(rest) != 2:
             fail('Usage: narrater connect "From" "To"')
         canvas("connect", {"from": rest[0], "to": rest[1]})
+    elif cmd == "portal":
+        cmd_portal(rest)
     elif cmd == "recruit":
         cmd_recruit(rest)
     elif cmd == "dismiss":
