@@ -44,6 +44,7 @@ export interface SceneNode {
   role_color?: string;
   skip_permissions?: boolean;
   cwd?: string;
+  maestro?: boolean;
   // filetree.rootPath / attachment.path
   path?: string;
   // portal
@@ -154,6 +155,10 @@ export const fsReadFileBase64 = (path: string) =>
 export const pickFile = () => invoke<string | null>("pick_file");
 
 export const openUrl = (url: string) => invoke<void>("open_url", { url });
+
+/** Desktop notification (notify-send). */
+export const systemNotify = (title: string, body: string) =>
+  invoke<void>("system_notify", { title, body });
 
 // Resolves a canvas request coming from an agent (canvas_request event)
 export const canvasRespond = (reqId: string, result: string) =>

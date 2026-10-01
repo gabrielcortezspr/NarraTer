@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useCallback, useState } from "react";
 import { Handle, Position, NodeResizer, useStore } from "@xyflow/react";
-import { X, GripVertical, FolderOpen, Clock, Plug, RotateCcw } from "lucide-react";
+import { X, GripVertical, FolderOpen, Clock, Plug, RotateCcw, Crown } from "lucide-react";
 import { attachTerminal, detachTerminal, ensureTerminal, fitTerminal, respawnTerminal, spawnOptsFor } from "@/lib/terminalManager";
 import { presetOf } from "@/lib/agents";
 import { ptyWrite } from "@/lib/tauri";
@@ -43,6 +43,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   // Only re-renders when crossing the threshold, not on every zoom tick
   const lod = useStore((s) => s.transform[2] < LOD_ZOOM);
   const removeNode = useCanvasStore((s) => s.removeNode);
+  const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const pipeCount = useCanvasStore((s) =>
     s.edges.filter((e) => (e.source === id || e.target === id) && e.type === "agent-pipe").length
   );
@@ -75,7 +76,8 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
       observer.disconnect();
       detachTerminal(id);
     };
-  }, [id]); // spawn opts are read once — changes require a respawn
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, data.sessionGen]); // opts are read per session — a swap bumps sessionGen
 
   // Scheduled prompts
   useEffect(() => {
@@ -165,6 +167,24 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
 
         {/* Role badge */}
         {data.roleName && <Badge color={data.roleColor ?? "#888"}>{data.roleName}</Badge>}
+
+        {/* Maestro mode: this agent may recruit/dismiss teammates and manage roles */}
+        {agentType !== "shell" && (
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); updateNodeData(id, { maestro: !data.maestro }); }}
+            title={data.maestro
+              ? "Maestro — can recruit and dismiss teammates and manage roles (click to turn off)"
+              : "Turn on Maestro mode (lets this agent recruit teammates)"}
+            className="nodrag shrink-0 flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full transition-colors"
+            style={data.maestro
+              ? { color: "#fbbf24", background: "#fbbf2418", border: "1px solid #fbbf2440" }
+              : { color: "#555", border: "1px solid transparent" }}
+          >
+            <Crown size={9} />
+            {data.maestro && "Maestro"}
+          </button>
+        )}
 
         <span className="text-[#555] text-xs truncate flex-1">{data.label}</span>
 

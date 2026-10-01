@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { applyNodeChanges, applyEdgeChanges } from "@xyflow/react";
 import type { Node, Edge, NodeChange, EdgeChange, XYPosition } from "@xyflow/react";
 import { loadScene, saveScene, connectionsSync } from "@/lib/tauri";
-import { disposeTerminal, startTerminal, spawnOptsFor } from "@/lib/terminalManager";
+import { disposeTerminal, replaceTerminal, startTerminal, spawnOptsFor } from "@/lib/terminalManager";
 import type { AgentType } from "@/lib/agents";
 
 export interface TerminalNodeData extends Record<string, unknown> {
@@ -18,6 +18,10 @@ export interface TerminalNodeData extends Record<string, unknown> {
   skipPermissions?: boolean;
   /** Project directory the terminal works on. */
   cwd?: string;
+  /** Maestro mode: may recruit/dismiss teammates and manage roles. */
+  maestro?: boolean;
+  /** Bumped when the process is swapped in place — the tile re-attaches. */
+  sessionGen?: number;
 }
 
 export interface NoteNodeData extends Record<string, unknown> {
@@ -63,6 +67,9 @@ export interface AddTerminalOpts {
   roleColor?: string;
   skipPermissions?: boolean;
   cwd?: string;
+  maestro?: boolean;
+  /** Terminal name; defaults to the role or agent type. */
+  label?: string;
 }
 
 interface CanvasStore {
@@ -80,6 +87,8 @@ interface CanvasStore {
   addEdge: (edge: AppEdge) => void;
   addTerminalNode: (opts: AddTerminalOpts, position?: XYPosition) => string;
   updateNodeData: (id: string, patch: Record<string, unknown>) => void;
+  /** Restarts a terminal with a new agent/role/directory, keeping the node. */
+  replaceTerminalAgent: (id: string, patch: Partial<TerminalNodeData>) => void;
   addNoteNode: (position?: XYPosition, initial?: Partial<NoteNodeData>) => string;
   addTextNode: (position?: XYPosition, initialText?: string) => string;
   moveNode: (id: string, position: XYPosition) => void;
@@ -194,7 +203,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     const id = `terminal-${crypto.randomUUID().slice(0, 8)}`;
     nodeCounter++;
     const { agentType, command, roleName } = opts;
-    const label = roleName ?? (agentType === "custom" ? (command ?? "Terminal") : agentType);
+    const label = opts.label ?? roleName ?? (agentType === "custom" ? (command ?? "Terminal") : agentType);
     const newNode: AppNode = {
       id,
       type: "terminal",
@@ -217,6 +226,17 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         n.id === id ? ({ ...n, data: { ...n.data, ...patch } } as AppNode) : n
       ),
     }));
+  },
+
+  replaceTerminalAgent: (id, patch) => {
+    const node = get().nodes.find((n) => n.id === id);
+    if (node?.type !== "terminal") return;
+    const prev = node.data as TerminalNodeData;
+    const data: TerminalNodeData = { ...prev, ...patch, sessionGen: (prev.sessionGen ?? 0) + 1 };
+    set((s) => ({
+      nodes: s.nodes.map((n) => (n.id === id ? ({ ...n, data } as AppNode) : n)),
+    }));
+    replaceTerminal(id, spawnOptsFor(data));
   },
 
   addNoteNode: (position, initial) => {
@@ -382,6 +402,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
             roleColor: n.role_color,
             skipPermissions: n.skip_permissions,
             cwd: n.cwd,
+            maestro: n.maestro,
           },
         };
       });
@@ -440,6 +461,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           role_color: tdata?.roleColor,
           skip_permissions: tdata?.skipPermissions,
           cwd: tdata?.cwd,
+          maestro: tdata?.maestro,
         };
       }),
       edges: edges.map((e) => ({

@@ -46,6 +46,7 @@ pub fn run() {
             fsops::fs_read_file_base64,
             fsops::pick_file,
             fsops::open_url,
+            fsops::system_notify,
             canvas_bridge::canvas_respond,
             roles::load_roles,
             roles::save_roles,

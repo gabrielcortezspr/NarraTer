@@ -3,72 +3,18 @@ import { useCanvasStore } from "@/stores/canvas";
 import { useTerminalsStore } from "@/stores/terminals";
 import { canvasRespond } from "@/lib/tauri";
 import { presetOf } from "@/lib/agents";
+import { findByName, labelOf, reachOf, str, uniqueName, type CanvasRequest } from "@/lib/canvasReach";
+import { handleManager, MANAGER_ACTIONS } from "@/lib/managerCommands";
 import type { AppEdge, AppNode, NoteNodeData, TerminalNodeData } from "@/stores/canvas";
 
-// Agent → canvas bridge for the `narrater` CLI (list, note …, connect): the
-// backend emits `canvas_request`; we apply the action on the store (single
-// source of truth — auto-save persists it) and answer via canvas_respond.
-// Like Maestri, an agent only reaches what is connected to it: agents wired
-// to its terminal, and notes wired to it (or chained to such a note).
-export interface CanvasRequest {
-  req_id: string;
-  from: string;
-  from_label: string;
-  action: string;
-  params: Record<string, unknown> | null;
-}
+// Agent → canvas bridge for the `narrater` CLI: the backend emits
+// `canvas_request` for list / note … / connect (and the Maestro commands in
+// managerCommands.ts); we apply the action on the store (single source of
+// truth — auto-save persists it) and answer via canvas_respond.
+export type { CanvasRequest };
 
 const NOTE_WIDTH = 280;
 const NAME_MAX = 40;
-
-const labelOf = (n: AppNode) => ((n.data as { label?: string }).label ?? n.id).trim();
-const str = (v: unknown) => (typeof v === "string" ? v : "");
-
-function neighbors(edges: AppEdge[], id: string): string[] {
-  return edges.flatMap((e) => (e.source === id ? [e.target] : e.target === id ? [e.source] : []));
-}
-
-interface NoteEntry {
-  node: AppNode;
-  depth: number;
-}
-
-interface Reach {
-  agents: AppNode[];
-  /** Directly connected notes and the ones chained to them, in tree order. */
-  notes: NoteEntry[];
-}
-
-function reachOf(nodes: AppNode[], edges: AppEdge[], from: string): Reach {
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  const agents = edges
-    .filter((e) => e.type === "agent-pipe" && (e.source === from || e.target === from))
-    .map((e) => byId.get(e.source === from ? e.target : e.source))
-    .filter((n): n is AppNode => n?.type === "terminal");
-
-  const notes: NoteEntry[] = [];
-  const seen = new Set<string>();
-  const walk = (id: string, depth: number) => {
-    const node = byId.get(id);
-    if (!node || node.type !== "note" || seen.has(id)) return;
-    seen.add(id);
-    notes.push({ node, depth });
-    neighbors(edges, id).forEach((next) => walk(next, depth + 1));
-  };
-  neighbors(edges, from).forEach((id) => walk(id, 0));
-  return { agents: [...new Map(agents.map((a) => [a.id, a])).values()], notes };
-}
-
-/** Exact name first, then case-insensitive; ambiguity is an error. */
-function findByName(candidates: AppNode[], name: string, kind: string): AppNode | string {
-  const wanted = name.trim();
-  if (!wanted) return `Error: no ${kind} name given`;
-  const exact = candidates.filter((n) => labelOf(n) === wanted);
-  const hits = exact.length ? exact : candidates.filter((n) => labelOf(n).toLowerCase() === wanted.toLowerCase());
-  if (hits.length === 1) return hits[0];
-  if (hits.length > 1) return `Error: '${wanted}' matches ${hits.length} ${kind}s — rename one on the canvas`;
-  return `Error: no connected ${kind} named '${wanted}' — run \`narrater list\` for the exact names`;
-}
 
 /** A note's automatic name: its first line, without markdown heading marks. */
 function autoName(content: string): string {
@@ -78,13 +24,8 @@ function autoName(content: string): string {
   return clean.length > NAME_MAX ? `${clean.slice(0, NAME_MAX - 1)}…` : clean;
 }
 
-function uniqueNoteName(nodes: AppNode[], base: string, selfId?: string): string {
-  const taken = new Set(nodes.filter((n) => n.type === "note" && n.id !== selfId).map(labelOf));
-  if (!taken.has(base)) return base;
-  let i = 2;
-  while (taken.has(`${base} (${i})`)) i++;
-  return `${base} (${i})`;
-}
+const uniqueNoteName = (nodes: AppNode[], base: string, selfId?: string) =>
+  uniqueName(nodes, "note", base, selfId);
 
 const STATUS_TEXT: Record<string, string> = {
   spawning: "starting",
@@ -103,15 +44,27 @@ function agentLine(n: AppNode): string {
 
 function listFor(nodes: AppNode[], edges: AppEdge[], from: string): string {
   const me = nodes.find((n) => n.id === from);
+  const maestro = (me?.data as TerminalNodeData | undefined)?.maestro === true;
   const { agents, notes } = reachOf(nodes, edges, from);
   const out: string[] = [];
   if (me) {
     const d = me.data as TerminalNodeData;
-    out.push(`You: ${labelOf(me)} (${presetOf(d.agentType).label})${d.roleName ? ` · role: ${d.roleName}` : ""}`);
+    out.push(
+      `You: ${labelOf(me)} (${presetOf(d.agentType).label})` +
+        `${d.roleName ? ` · role: ${d.roleName}` : ""}${maestro ? " · Maestro" : ""}`
+    );
   }
   out.push("", "Agents:");
   if (agents.length === 0) out.push("  (none connected — ask the user to connect agents on the canvas)");
-  agents.forEach((a) => out.push(`  - ${agentLine(a)}`));
+  agents.forEach((a) => {
+    out.push(`  - ${agentLine(a)}`);
+    // A Maestro also sees each teammate's own wiring (before a --replace or a rewire)
+    if (maestro) {
+      const theirs = reachOf(nodes, edges, a.id);
+      theirs.agents.filter((x) => x.id !== from).forEach((x) => out.push(`      ↳ agent: ${labelOf(x)}`));
+      theirs.notes.filter((e) => e.depth === 0).forEach((e) => out.push(`      ↳ note: ${labelOf(e.node)}`));
+    }
+  });
   out.push("", "Notes:");
   if (notes.length === 0) out.push("  (none — `narrater note create` makes one)");
   notes.forEach(({ node, depth }) => out.push(`${"  ".repeat(depth + 1)}- ${labelOf(node)}`));
@@ -164,7 +117,8 @@ function edgeTypeFor(a: AppNode, b: AppNode): string {
   return "default";
 }
 
-function handleRequest(req: CanvasRequest): string {
+function handleRequest(req: CanvasRequest): string | Promise<string> {
+  if (MANAGER_ACTIONS.has(req.action)) return handleManager(req);
   const store = useCanvasStore.getState();
   const { nodes, edges } = store;
   const params = req.params ?? {};
@@ -255,13 +209,11 @@ function handleRequest(req: CanvasRequest): string {
 export function initCanvasBridge(): Promise<() => void> {
   return listen<CanvasRequest>("canvas_request", (event) => {
     const req = event.payload;
-    let result: string;
-    try {
-      result = handleRequest(req);
-    } catch (e) {
-      result = `Error: ${e}`;
-    }
     // Always respond — including errors — so the agent never hits the timeout
-    canvasRespond(req.req_id, result).catch(console.error);
+    Promise.resolve()
+      .then(() => handleRequest(req))
+      .catch((e) => `Error: ${e}`)
+      .then((result) => canvasRespond(req.req_id, result))
+      .catch(console.error);
   });
 }

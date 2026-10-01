@@ -42,6 +42,10 @@ concept to Linux.
   screen shows once its turn is over — the target needs no plugin, hook or
   special protocol, so Claude can ask Codex, Gemini can ask a shell, and so on.
   See [docs/narrater-cli.md](docs/narrater-cli.md).
+- **Maestro mode**: turn it on for an agent (crown in its header) and it can
+  assemble a team by itself — `narrater recruit` spawns teammates next to it
+  (any preset, any role), `--replace` swaps a teammate's agent in place,
+  `dismiss` removes one, and `narrater role …` manages role presets.
 - **Shared notes**: agents create, read and edit sticky notes connected to
   them (`narrater note …`) and can wire agents and notes together
   (`narrater connect`).

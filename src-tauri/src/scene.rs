@@ -26,6 +26,9 @@ pub struct SceneNode {
     /// Terminal working directory (the project the agent works on)
     #[serde(default)]
     pub cwd: Option<String>,
+    /// Maestro mode: the terminal may recruit/dismiss teammates and manage roles
+    #[serde(default)]
+    pub maestro: Option<bool>,
     // filetree.rootPath / attachment.path
     #[serde(default)]
     pub path: Option<String>,

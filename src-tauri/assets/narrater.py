@@ -18,6 +18,19 @@ Usage:
   narrater note edit "Note" "old text" "new text"  Replace a substring within a note
   narrater note delete "Note"                      Remove a connected note (only on explicit user request)
   narrater connect "From" "To"                     Wire two things you can reach (agents or notes)
+  narrater recruit "Name" [--preset P] [--role R] [--command C] [--dir PATH]
+                                                   (Maestro only) Spawn a teammate, auto-connected to you
+  narrater recruit ["New Name"] --preset P --replace "Old"
+                                                   (Maestro only) Swap which agent runs on a teammate, in place
+  narrater dismiss "Name"                          (Maestro only) Stop and remove a connected teammate
+  narrater preset list                             (Maestro only) List agent presets for --preset
+  narrater role list | show "Name"                 (Maestro only) List roles / print a role's full prompt
+  narrater role create "Name" "Prompt"             (Maestro only) Add a role preset
+  narrater role write "Name" "Prompt"              (Maestro only) Replace a role's prompt
+  narrater role edit "Name" "old" "new"            (Maestro only) Replace a substring within a role's prompt
+  narrater role assign "Recruit" "Role" | --none   (Maestro only) Reassign a teammate's role (restarts it)
+  narrater role delete "Name" [--force]            (Maestro only) Delete a role; --force unassigns it first
+  narrater notify "message"                        (Maestro only) Send the user a desktop notification
   narrater debug                                   Diagnose connection issues
   narrater help [command]                          Show this help, or one command in detail
 
@@ -88,6 +101,58 @@ names.""",
 Wires two things you can reach (yourself, a connected agent, or a connected
 note). Agent ↔ agent lets both sides `ask` each other; note ↔ agent shares the
 note. Tell the agents about the new connection — they are not notified.""",
+    "recruit": """Usage:
+  narrater recruit "Name" [--preset P] [--role R] [--command C] [--dir PATH]
+  narrater recruit ["New Name"] --preset P --replace "Old"
+
+(Maestro only) Spawns a new terminal on the canvas next to you, names it and
+connects it to you. Returns when the terminal exists; the agent may still be
+booting, and your first `narrater ask` simply waits until it is ready.
+
+Run `narrater list` first: if a connected teammate already has a fitting role,
+ask it instead of recruiting a duplicate.
+
+  Name       a short codename you invent (not the role name); the canvas
+             appends (2), (3)… on a collision
+  --preset   an agent preset (`narrater preset list`); default: a copy of you
+  --role     an existing role (`narrater role list`); the recruit boots with
+             its prompt as CLAUDE.md / AGENTS.md
+  --command  override the program; matching a preset's program uses that preset
+  --dir      working directory (must exist); default: yours
+
+--replace swaps the agent running on an existing teammate in place: the node,
+its connections and position survive; only the process restarts (chat history
+is lost — brief it again). Needs --preset or --command; --role and --dir
+optional; the positional name renames it.""",
+    "dismiss": """Usage:
+  narrater dismiss "Name"
+
+(Maestro only) Stops a connected teammate's process and removes its terminal.
+Notes wired only to it become unreachable from the CLI — to swap its agent,
+use `narrater recruit --replace` instead.""",
+    "role": """Usage:
+  narrater role list
+  narrater role show "Name"
+  narrater role create "Name" "Prompt"
+  narrater role write "Name" "Prompt"
+  narrater role edit "Name" "old text" "new text"
+  narrater role assign "Recruit" "Role" | narrater role assign "Recruit" --none
+  narrater role delete "Name" [--force]
+
+(Maestro only) Role presets are the instructions a recruit boots with
+(<your_assigned_role> in its CLAUDE.md / AGENTS.md). Be specific: name and
+prompt should leave no doubt about the recruit's scope, and tell it to run
+`narrater list` before asking anyone anything. `assign` restarts the recruit
+with the new role (connections kept, chat history lost).""",
+    "preset": """Usage:
+  narrater preset list
+
+(Maestro only) Lists the agent presets you can pass to `recruit --preset`.""",
+    "notify": """Usage:
+  narrater notify "message"
+
+(Maestro only) Sends the user a desktop notification. Only when the user asked
+to be notified — otherwise assume they're following along on the canvas.""",
     "debug": """Usage:
   narrater debug
 
@@ -262,6 +327,57 @@ def cmd_note(args):
         fail(HELP["note"])
 
 
+def cmd_recruit(args):
+    preset = pop_flag(args, "--preset")
+    role = pop_flag(args, "--role")
+    command = pop_flag(args, "--command")
+    directory = pop_flag(args, "--dir")
+    replace = pop_flag(args, "--replace")
+    if len(args) > 1:
+        fail(HELP["recruit"])
+    if not args and replace is None:
+        fail('Usage: narrater recruit "Name" [--preset P] [--role R]   (invent a short codename)')
+    canvas("recruit", {
+        "name": args[0] if args else "",
+        "preset": preset or "",
+        "role": role or "",
+        "command": command or "",
+        "dir": directory or "",
+        "replace": replace or "",
+    })
+
+
+def cmd_role(args):
+    if not args:
+        fail(HELP["role"])
+    sub, rest = args[0], args[1:]
+    if sub == "list" and not rest:
+        canvas("role_list", {})
+    elif sub == "show" and len(rest) == 1:
+        canvas("role_show", {"name": rest[0]})
+    elif sub in ("create", "write") and len(rest) == 2:
+        canvas("role_" + sub, {"name": rest[0], "prompt": decode(rest[1])})
+    elif sub == "edit" and len(rest) == 3:
+        canvas("role_edit", {"name": rest[0], "old": decode(rest[1]), "new": decode(rest[2])})
+    elif sub == "assign":
+        none = pop_flag(rest, "--none", has_value=False)
+        if none and len(rest) == 1:
+            canvas("role_assign", {"recruit": rest[0], "none": True})
+        elif not none and len(rest) == 2:
+            canvas("role_assign", {"recruit": rest[0], "name": rest[1]})
+        else:
+            fail('Usage: narrater role assign "Recruit" "Role" | narrater role assign "Recruit" --none')
+    elif sub == "delete":
+        force = pop_flag(rest, "--force", has_value=False)
+        if len(rest) != 1:
+            fail('Usage: narrater role delete "Name" [--force]')
+        canvas("role_delete", {"name": rest[0], "force": bool(force)})
+    elif "--scope" in rest:
+        fail("Error: NarraTer roles are global — drop --scope")
+    else:
+        fail(HELP["role"])
+
+
 def cmd_debug():
     print("=== NarraTer CLI Diagnostics ===\n")
     print("--- Environment ---")
@@ -325,6 +441,22 @@ def main():
         if len(rest) != 2:
             fail('Usage: narrater connect "From" "To"')
         canvas("connect", {"from": rest[0], "to": rest[1]})
+    elif cmd == "recruit":
+        cmd_recruit(rest)
+    elif cmd == "dismiss":
+        if len(rest) != 1:
+            fail('Usage: narrater dismiss "Name"')
+        canvas("dismiss", {"name": rest[0]})
+    elif cmd == "preset":
+        if rest != ["list"]:
+            fail("Usage: narrater preset list")
+        canvas("preset_list", {})
+    elif cmd == "role":
+        cmd_role(rest)
+    elif cmd == "notify":
+        if not rest:
+            fail('Usage: narrater notify "message"')
+        canvas("notify", {"message": decode(" ".join(rest))})
     elif cmd == "debug":
         cmd_debug()
     else:

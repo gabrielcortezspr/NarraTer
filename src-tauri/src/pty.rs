@@ -392,6 +392,17 @@ pub fn pty_spawn(
 
     {
         let mut inner = state.0.lock().unwrap();
+        // Same id already running = the node swaps its agent in place
+        // (`narrater recruit --replace`, `role assign`). Its connections and
+        // label stay; the old process goes, and so do asks waiting on it —
+        // they'd otherwise end up reading the new agent's screen.
+        if let Some(mut old) = inner.sessions.remove(&id) {
+            let _ = old.child.kill();
+            std::thread::spawn(move || {
+                let _ = old.child.wait();
+            });
+            inner.ask_waiters.retain(|_, w| w.target_id != id);
+        }
         inner.sessions.insert(id.clone(), PtySession {
             writer: Box::new(writer),
             master: pair.master,
@@ -401,7 +412,7 @@ pub fn pty_spawn(
             turn: TurnState::Working,
             agent_type,
             delivering: false,
-            token,
+            token: token.clone(),
         });
     }
 
@@ -417,6 +428,12 @@ pub fn pty_spawn(
                 Ok(0) | Err(_) => {
                     let child = {
                         let mut inner = state_arc.lock().unwrap();
+                        // Superseded by a respawn under the same id: the new
+                        // session owns the id now — nothing to clean, no exit
+                        // event (the frontend would mark the new one dead).
+                        if !inner.sessions.get(&id_clone).is_some_and(|s| s.token == token) {
+                            break;
+                        }
                         // Dropping the senders wakes pending asks with a clean error
                         inner.ask_waiters.retain(|_, w| w.target_id != id_clone && w.asker_id != id_clone);
                         inner.inbox.remove(&id_clone);

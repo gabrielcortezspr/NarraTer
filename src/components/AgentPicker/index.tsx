@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, ChevronDown, Clock, Users, ShieldOff, FolderOpen } from "lucide-react";
+import { X, ChevronDown, Clock, Users, ShieldOff, FolderOpen, Crown } from "lucide-react";
 import { useRolesStore } from "@/stores/roles";
 import { AGENT_ORDER, AGENT_PRESETS, type AgentType } from "@/lib/agents";
 
@@ -32,6 +32,7 @@ export interface AgentPickerResult {
   roleColor?: string;
   skipPermissions?: boolean;
   cwd?: string;
+  maestro?: boolean;
 }
 
 interface Props {
@@ -51,6 +52,7 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
   const [scheduleCommand, setScheduleCommand] = useState("");
   const [scheduleInterval, setScheduleInterval] = useState("60");
   const [cwd, setCwd] = useState(lastCwd);
+  const [maestro, setMaestro] = useState(false);
 
   useEffect(() => {
     if (!loaded) load();
@@ -86,6 +88,7 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
       roleColor: selectedRole?.color,
       skipPermissions: skipPermissionsFlag ? skipPermissions : undefined,
       cwd: cwd.trim() || undefined,
+      maestro: selected !== "shell" && maestro ? true : undefined,
     });
     rememberCwd(cwd.trim());
     // reset
@@ -94,6 +97,7 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
     setSelectedRoleId("");
     setInstructions("");
     setSkipPermissions(false);
+    setMaestro(false);
     setShowAdvanced(false);
     setScheduleCommand("");
     setScheduleInterval("60");
@@ -228,6 +232,31 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Maestro mode (agents only) */}
+            {selected !== "shell" && (
+              <label
+                className={`flex items-start gap-2.5 p-3 mb-4 rounded-lg border cursor-pointer transition-all ${
+                  maestro ? "border-amber-500/50 bg-amber-950/10" : "border-[#2a2a2a] hover:border-[#3a3a3a]"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={maestro}
+                  onChange={(e) => setMaestro(e.target.checked)}
+                  className="mt-0.5 accent-amber-400"
+                />
+                <div className="flex-1">
+                  <span className={`flex items-center gap-1.5 text-xs font-medium ${maestro ? "text-amber-300" : "text-[#9ca3af]"}`}>
+                    <Crown size={12} /> Maestro mode
+                  </span>
+                  <p className="text-[#6b7280] text-[10px] mt-1 leading-snug">
+                    Lets this agent recruit and dismiss teammates on the canvas, manage roles and
+                    send you desktop notifications (<code className="font-mono text-[#888]">narrater recruit</code>).
+                  </p>
+                </div>
+              </label>
+            )}
 
             {/* Skip permissions (agents that have such a flag) */}
             <AnimatePresence>

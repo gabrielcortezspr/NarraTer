@@ -295,6 +295,23 @@ export function respawnTerminal(id: string): void {
   spawnInto(id, mt);
 }
 
+/**
+ * Swaps the program running in terminal `id` (new agent, role or directory)
+ * while the node keeps its id — so its connections, position and label
+ * survive. The backend replaces the old process when the same id respawns;
+ * a fresh xterm takes over the screen (the tile re-attaches on sessionGen).
+ */
+export function replaceTerminal(id: string, opts: SpawnOpts): void {
+  const mt = terminals.get(id);
+  if (mt) {
+    terminals.delete(id);
+    mt.unlisteners.forEach((fn) => fn());
+    mt.term.dispose();
+    mt.container.remove();
+  }
+  startTerminal(id, opts);
+}
+
 /** Kills the process and frees the xterm — node removed or scene switch. */
 export function disposeTerminal(id: string): void {
   const mt = terminals.get(id);

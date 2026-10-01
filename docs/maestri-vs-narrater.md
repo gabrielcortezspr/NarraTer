@@ -414,10 +414,12 @@ shell → Claude, ask-back, `note create/read/edit`, a permissão de notas,
 A base acima (identidade, conexões, socket, tela e `ask` agnóstico) é o que as
 demais skills reaproveitam. Ordem sugerida:
 
-1. **maestri-manager → `narrater recruit/dismiss/role`.** Um agente cria
-   colegas no canvas já conectados a ele (`--preset`, `--role`, `--dir`),
-   troca o agente de um nó mantendo as conexões (`--replace`) e gerencia
-   roles pela CLI. Os roles por arquivo já são a base do `--role`.
+1. ✅ **maestri-manager → `narrater recruit/dismiss/role`** (feito: modo
+   Maestro por terminal, `recruit` com `--preset/--role/--command/--dir`,
+   `--replace` no mesmo nó, `dismiss`, `preset list`, `role …`, `notify`,
+   skill `narrater-manager`; validado com um Claude Maestro montando um time
+   sozinho a partir de um pedido em linguagem natural). Fora do escopo por
+   ora: `--floor`/`--workspace` (dependem do item 4).
 2. **maestri-portal → `narrater portal …`.** Automação do `PortalTile`:
    `snapshot` (árvore de acessibilidade com refs `@e1`), `click`, `fill`,
    `type`, `key`, `navigate`, `screenshot`, `evaluate`, `logs`, `resize`/`ua`.

@@ -112,3 +112,13 @@ pub fn open_url(url: String) -> Result<(), String> {
         .map(|_| ())
         .map_err(|e| format!("xdg-open failed: {}", e))
 }
+
+/// Desktop notification (`narrater notify`), via libnotify's notify-send.
+#[tauri::command]
+pub fn system_notify(title: String, body: String) -> Result<(), String> {
+    std::process::Command::new("notify-send")
+        .args(["--app-name=NarraTer", "--", &title, &body])
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("notify-send failed: {}", e))
+}

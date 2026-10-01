@@ -28,7 +28,11 @@ const RAW_MAX_WAIT: Duration = Duration::from_secs(10);
 const LEDGER_REPLY_CAP: usize = 4000;
 
 const CLI_SCRIPT: &str = include_str!("../assets/narrater.py");
-const SKILL_MD: &str = include_str!("../assets/SKILL.md");
+/// Skills installed for the agents: (directory name, SKILL.md content).
+const SKILLS: &[(&str, &str)] = &[
+    ("narrater", include_str!("../assets/SKILL.md")),
+    ("narrater-manager", include_str!("../assets/SKILL-manager.md")),
+];
 /// Skill directories read by the agent CLIs: Claude Code, and the open Agent
 /// Skills location shared by Codex, Gemini CLI, OpenCode and others.
 const SKILL_BASES: &[&str] = &[".claude/skills", ".agents/skills"];
@@ -521,7 +525,9 @@ fn install_cli() {
 fn install_skills() {
     let Some(home) = dirs::home_dir() else { return };
     for base in SKILL_BASES {
-        write_file(&home.join(base).join("narrater/SKILL.md"), SKILL_MD, 0o644);
+        for (name, content) in SKILLS {
+            write_file(&home.join(base).join(name).join("SKILL.md"), content, 0o644);
+        }
     }
 }
 

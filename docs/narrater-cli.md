@@ -22,8 +22,28 @@ Gemini CLI, OpenCode…) knows how to use it. The command set mirrors Maestri's
 | `narrater note edit "Note" "old" "new"` | Replace a unique substring |
 | `narrater note delete "Note"` | Remove (only on explicit user request) |
 | `narrater connect "From" "To"` | Wire two things you can reach |
+| `narrater recruit "Name" [--preset P] [--role R] [--command C] [--dir D]` | Maestro: spawn a teammate next to you, connected to you |
+| `narrater recruit ["New"] --preset P --replace "Old"` | Maestro: swap the agent of a teammate in place (node, connections, position kept) |
+| `narrater dismiss "Name"` | Maestro: stop and remove a connected teammate |
+| `narrater preset list` | Maestro: agent presets for `--preset` |
+| `narrater role list \| show \| create \| write \| edit \| assign \| delete` | Maestro: manage role presets; `assign` restarts the teammate with the role |
+| `narrater notify "message"` | Maestro: desktop notification (notify-send) |
 | `narrater debug` | Environment + socket diagnostics |
 | `narrater help [command]` | Help |
+
+## Maestro mode
+
+Management commands only work from a terminal in **Maestro mode** — the user
+turns it on per terminal (the crown in the tile header, or the option in the
+New Terminal dialog). It mirrors Maestri: the user decides which agent may
+spawn others. A Maestro's `narrater list` also shows each teammate's own
+connections. The `narrater-manager` skill teaches the workflow (reuse before
+recruiting, codenames, roles, `--batch` delegation).
+
+A swap (`--replace`, `role assign`) respawns the process under the **same
+node id**: the backend kills the old process, drops asks waiting on it, and
+its reader thread exits silently (no `pty_exit` for the new session); the
+frontend gives the tile a fresh xterm (`sessionGen`).
 
 ## Flow
 
