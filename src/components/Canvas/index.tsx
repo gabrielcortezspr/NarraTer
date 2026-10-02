@@ -26,6 +26,8 @@ import AgentNoteEdge from "@/components/AgentNoteEdge";
 import AgentPipeEdge from "@/components/AgentPipeEdge";
 import CommandPalette from "@/components/CommandPalette";
 import EdgeHistoryPanel from "@/components/EdgeHistoryPanel";
+import ChatPanel from "@/components/ChatPanel";
+import { useChatStore } from "@/stores/chat";
 import EmptyState from "@/components/EmptyState";
 
 const AgentPicker = lazy(() => import("@/components/AgentPicker"));
@@ -176,6 +178,7 @@ function CanvasInner() {
   // Clicking an agent-pipe edge opens that conversation's history
   const onEdgeClick = useCallback((_: React.MouseEvent, edge: AppEdge) => {
     if (edge.type === "agent-pipe") {
+      useChatStore.getState().close();
       useLedgerStore.getState().setOpenEdge({ source: edge.source, target: edge.target });
     }
   }, []);
@@ -363,6 +366,9 @@ function CanvasInner() {
 
       {/* Conversation history for the clicked agent-pipe edge */}
       <EdgeHistoryPanel />
+
+      {/* NarraTer Chat with the agent whose chat button was clicked */}
+      <ChatPanel />
 
       {/* Welcome screen when the canvas is empty */}
       <EmptyState onTerminal={openTerminalPicker} />

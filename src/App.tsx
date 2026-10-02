@@ -14,6 +14,7 @@ import { initCanvasBridge } from "@/lib/canvasBridge";
 import { onPortalState } from "@/lib/portalBus";
 import { initRoutines } from "@/stores/routines";
 import { initWorkspaceEvents } from "@/stores/workspaces";
+import { initChat } from "@/stores/chat";
 import type { LedgerEntry, QueueItem } from "@/lib/tauri";
 
 export default function App() {
@@ -70,6 +71,9 @@ export default function App() {
         if (Object.keys(patch).length) useCanvasStore.getState().updateNodeData(id, patch);
       })
     );
+
+    // NarraTer Chat: agent replies → panel + unread badges
+    initChat().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
     // Workspace layout changes made by agents → sidebar
     initWorkspaceEvents().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));

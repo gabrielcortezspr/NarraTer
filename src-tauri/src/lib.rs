@@ -1,5 +1,6 @@
 mod browser;
 mod canvas_bridge;
+mod chat;
 mod floors;
 mod fsops;
 mod ipc;
@@ -20,12 +21,15 @@ pub fn run() {
     let browser_for_ipc = browser_state.clone();
     let routines_state = routines::RoutinesState::default();
     let routines_for_tasks = routines_state.clone();
+    let chat_state = chat::ChatState::default();
+    let chat_for_ipc = chat_state.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(pty_state)
         .manage(browser_state)
         .manage(routines_state)
+        .manage(chat_state)
         .setup(move |app| {
             let state_arc = std::sync::Arc::clone(&pty_state_for_ipc.0);
             let app_handle = tauri::Manager::app_handle(app).clone();
@@ -34,6 +38,7 @@ pub fn run() {
                 std::sync::Arc::clone(&state_arc),
                 browser_for_ipc,
                 routines_for_tasks.clone(),
+                chat_for_ipc,
             ));
             tauri::async_runtime::spawn(routines::start_scheduler(
                 app_handle.clone(),
@@ -76,6 +81,11 @@ pub fn run() {
             fsops::pick_file,
             fsops::open_url,
             fsops::system_notify,
+            fsops::open_path,
+            chat::chat_send,
+            chat::chat_history,
+            chat::chat_threads,
+            chat::chat_clear,
             canvas_bridge::canvas_respond,
             roles::load_roles,
             roles::save_roles,

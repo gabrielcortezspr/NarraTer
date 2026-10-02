@@ -445,7 +445,19 @@ demais skills reaproveitam. Ordem sugerida:
    texto; `snapshot` do `uiautomator` com refs; `click/type/key/scroll/swipe/
    drag/button/launch/terminate/navigate/screenshot/info`; verbos de browser
    recusados; skill `narrater-portal-devices`). Limite: a tela vem por
-   polling (~4 fps), sem scrcpy. Falta só o **maestri-chat**.
+   polling (~4 fps), sem scrcpy.
+6. ✅ **maestri-chat → NarraTer Chat** (feito: painel por agente com 7
+   threads por cor, cabeçalho de chat entregue no terminal, `narrater say`
+   com `--progress/--file/--attach`, imagens inline e deduplicação,
+   `narrater recall` com `--turns/--last/--from/--to/--all/--json`, `list` e
+   `attachment`; indicador de trabalho e badge de não lidas; skill
+   `narrater-chat`). Validado com um Claude real, que carregou a skill, fez
+   `recall` da thread nova, mandou progresso e respondeu via `say`.
+
+Com isso, todas as skills do Maestri têm equivalente no NarraTer. O que
+segue diferente: uma cena aberta por vez (sem `recruit --workspace`), tela
+Android por polling e acesso remoto/celular do Maestri Chat, que ficou de
+fora.
 
 ---
 

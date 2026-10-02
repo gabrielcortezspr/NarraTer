@@ -122,3 +122,17 @@ pub fn system_notify(title: String, body: String) -> Result<(), String> {
         .map(|_| ())
         .map_err(|e| format!("notify-send failed: {}", e))
 }
+
+/// Opens a local file with the desktop's default app (chat attachments).
+#[tauri::command]
+pub fn open_path(path: String) -> Result<(), String> {
+    let p = std::path::PathBuf::from(&path);
+    if !p.is_absolute() || !p.exists() {
+        return Err(format!("{} doesn't exist", path));
+    }
+    std::process::Command::new("xdg-open")
+        .arg(&p)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("xdg-open failed: {}", e))
+}

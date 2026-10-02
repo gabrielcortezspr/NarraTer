@@ -18,6 +18,11 @@ Usage:
   narrater note edit "Note" "old text" "new text"  Replace a substring within a note
   narrater note delete "Note"                      Remove a connected note (only on explicit user request)
   narrater connect "From" "To"                     Wire two things you can reach (agents or notes)
+  narrater say "text" | <<'EOF' | --file PATH | --attach PATH | --progress "text"
+                                                   (NarraTer Chat only) Reply to the user's chat message
+  narrater recall [thread] [--turns N | --last day|week|month | --from DATE [--to DATE] | --all] [--json]
+                                                   (NarraTer Chat only) What a chat thread remembers
+  narrater recall list | recall attachment ID      (NarraTer Chat only) The seven threads; fetch an attachment
   narrater portal create URL ["Name"] [--size WxH]  Open a browser portal next to you, connected to you
   narrater portal snapshot "Portal"                Elements with refs (@e1, @e2…) to use as selectors
   narrater portal click|hover|focus "Portal" @e3   Act on a ref, CSS selector or x,y
@@ -125,6 +130,32 @@ names.""",
 Wires two things you can reach (yourself, a connected agent, or a connected
 note). Agent ↔ agent lets both sides `ask` each other; note ↔ agent shares the
 note. Tell the agents about the new connection — they are not notified.""",
+    "say": """Usage:
+  narrater say <<'EOF'
+  your answer
+  EOF
+  narrater say 'short answer'
+  narrater say --file /abs/path.md|.png      UTF-8 text becomes the message; an image is attached
+  narrater say --attach /abs/file.pdf 'text' attach files (repeatable, final reply only)
+  narrater say --progress 'Running tests...' interim update; your turn continues
+
+(NarraTer Chat only) Answers a message that arrived with the NarraTer Chat
+header. Every say is a bubble the user sees; the last one closes your turn —
+send as many as the answer needs, and don't repeat the answer in the terminal.
+The heredoc takes any text as-is (quoting breaks on apostrophes, $, backticks).
+To show an image with prose, put ![Description](/absolute/path.png) on its own
+line. An identical reply sent right after the previous one counts once.""",
+    "recall": """Usage:
+  narrater recall [thread] [--turns N | --last day|week|month | --from YYYY-MM-DD [--to YYYY-MM-DD] | --all] [--json]
+  narrater recall list
+  narrater recall attachment ID
+
+(NarraTer Chat only) Prints what you and the user already said in a thread
+(default: the current thread's last 10 turns; N between 1 and 500). Run it on
+the first chat message, when the thread color changes, and after a restart or
+a context compaction. Threads: blue, purple, pink, red, orange, yellow, green.
+Dates are local; --to includes that whole day. Attachments have stable ids:
+`recall attachment ID` prints a path you can open.""",
     "portal": """Usage:
   narrater portal create URL ["Name"] [--size WxH]   new portal next to you, connected to you
   narrater portal edit "Portal" --url URL            point a portal at a new URL
@@ -572,6 +603,60 @@ ROUTINE_VALUE_FLAGS = ("--id", "--command", "--every", "--daily", "--weekly", "-
 ROUTINE_BOOL_FLAGS = ("--reminder", "--no-skip-if-busy", "--skip-if-busy", "--no-notify", "--notify", "--disabled")
 
 
+def cmd_say(args):
+    params = {"verb": "say"}
+    attach = []
+    while "--attach" in args:
+        value = pop_flag(args, "--attach")
+        attach.append(os.path.abspath(os.path.expanduser(value)))
+    if attach:
+        params["attach"] = attach
+    if pop_flag(args, "--progress", has_value=False):
+        params["progress"] = True
+    if "--file" in args:
+        i = args.index("--file")
+        if i + 1 >= len(args):
+            fail("Error: --file needs a path")
+        params["file"] = os.path.abspath(os.path.expanduser(args[i + 1]))
+        del args[i:i + 2]
+    text = " ".join(args)
+    if not text and "file" not in params and not sys.stdin.isatty():
+        text = sys.stdin.read()
+    params["text"] = text
+    payload = base_payload("chat")
+    payload["params"] = params
+    emit(request(payload))
+
+
+def cmd_recall(args):
+    params = {"verb": "recall"}
+    for flag in ("--last", "--from", "--to"):
+        value = pop_flag(args, flag)
+        if value is not None:
+            params[flag[2:]] = value
+    turns = pop_flag(args, "--turns")
+    if turns is not None:
+        try:
+            params["turns"] = int(turns)
+        except ValueError:
+            fail("Error: --turns takes a number")
+    if pop_flag(args, "--all", has_value=False):
+        params["all"] = True
+    if pop_flag(args, "--json", has_value=False):
+        params["json"] = True
+    if args[:1] == ["attachment"]:
+        if len(args) != 2:
+            fail("Usage: narrater recall attachment ID")
+        params["thread"], params["id"] = "attachment", args[1]
+    elif len(args) == 1:
+        params["thread"] = args[0]
+    elif args:
+        fail(HELP["recall"])
+    payload = base_payload("chat")
+    payload["params"] = params
+    emit(request(payload))
+
+
 def cmd_workspace(args):
     if not args:
         fail(HELP["workspace"])
@@ -749,6 +834,10 @@ def main():
         cmd_routine(rest)
     elif cmd == "workspace":
         cmd_workspace(rest)
+    elif cmd == "say":
+        cmd_say(rest)
+    elif cmd == "recall":
+        cmd_recall(rest)
     elif cmd == "floor":
         cmd_floor(rest)
     elif cmd == "debug":

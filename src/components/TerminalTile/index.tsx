@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useCallback, useState } from "react";
 import { Handle, Position, NodeResizer, useStore } from "@xyflow/react";
-import { X, GripVertical, FolderOpen, Clock, Plug, RotateCcw, Crown } from "lucide-react";
+import { X, GripVertical, FolderOpen, Clock, Plug, RotateCcw, Crown, MessageSquare } from "lucide-react";
+import { useChatStore } from "@/stores/chat";
 import { attachTerminal, detachTerminal, ensureTerminal, fitTerminal, respawnTerminal, spawnOptsFor } from "@/lib/terminalManager";
 import { presetOf } from "@/lib/agents";
 import { useCanvasStore } from "@/stores/canvas";
@@ -43,6 +44,8 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   const lod = useStore((s) => s.transform[2] < LOD_ZOOM);
   const removeNode = useCanvasStore((s) => s.removeNode);
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
+  const chatUnread = useChatStore((s) => s.unread[id] ?? 0);
+  const chatOpen = useChatStore((s) => s.openTerminal === id);
   const pipeCount = useCanvasStore((s) =>
     s.edges.filter((e) => (e.source === id || e.target === id) && e.type === "agent-pipe").length
   );
@@ -233,6 +236,29 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
             <Clock size={9} />
             {myRoutines.length}
           </span>
+        )}
+
+        {/* NarraTer Chat (agents answer with `narrater say`) */}
+        {agentType !== "shell" && (
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              const chat = useChatStore.getState();
+              if (chatOpen) chat.close();
+              else chat.open(id);
+            }}
+            title={chatUnread ? `${chatUnread} new chat repl${chatUnread === 1 ? "y" : "ies"}` : "Chat with this agent"}
+            className="relative nodrag shrink-0 p-0.5 rounded transition-colors"
+            style={{ color: chatOpen ? "#8b5cf6" : chatUnread ? "#c4b5fd" : "#555" }}
+          >
+            <MessageSquare size={12} />
+            {chatUnread > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[12px] h-3 px-0.5 rounded-full bg-[#8b5cf6] text-[8px] leading-3 text-white text-center">
+                {chatUnread}
+              </span>
+            )}
+          </button>
         )}
 
         {/* Open in editor */}

@@ -33,6 +33,8 @@ Gemini CLI, OpenCode…) knows how to use it. The command set mirrors Maestri's
 | `narrater routine list \| show \| create \| edit \| enable \| disable \| run \| delete` | Maestro: scheduled prompts/commands into a terminal of the scene, or reminders (`narrater help routine`) |
 | `narrater workspace list \| create \| rename \| move` | Maestro: workspaces (scenes with a directory), sidebar groups/folders, `--from` clones |
 | `narrater floor list \| create` | Maestro: floors of this workspace — a git worktree on its own branch when possible |
+| `narrater say "text" \| <<'EOF' \| --file P \| --attach P \| --progress "…"` | NarraTer Chat: reply to the user's chat message (each say is a bubble) |
+| `narrater recall [thread] [--turns N \| --last … \| --from D [--to D] \| --all] [--json]` | NarraTer Chat: replay a thread; `recall list`, `recall attachment ID` |
 | `narrater debug` | Environment + socket diagnostics |
 | `narrater help [command]` | Help |
 
@@ -92,6 +94,30 @@ SDK (`$ANDROID_HOME`, `$ANDROID_SDK_ROOT` or `~/Android/Sdk`).
   after their texts), `click/tap`, `type` (ASCII), `key`, `scroll`, `swipe`,
   `drag`, `button`, `home`, `lock`, `launch`, `terminate`, `navigate`,
   `screenshot`, `info`. Browser-only verbs are refused, not ignored.
+
+## NarraTer Chat
+
+Talk to an agent without its terminal (`src-tauri/src/chat.rs`,
+`src/components/ChatPanel/`): the chat button on an agent's tile opens a
+panel with **seven threads by color**. A message is stored, then typed into
+the agent's terminal — idle-gated like `ask` — with a header:
+
+```
+---
+Below is a message from the user through NarraTer Chat.
+Reply only via `narrater say`. If the narrater-chat skill isn't already loaded, load it first.
+thread: blue
+---
+<the user's words>
+```
+
+The agent answers with `narrater say` (each say is a bubble; `--progress` for
+interim updates; `--file` sends a text file or an image; `--attach` files;
+`![…](/abs.png)` lines become inline images; an identical reply within 10 s
+counts once) and catches up with `narrater recall` after a restart or a
+compaction. The panel shows a working indicator while the agent's turn is
+open, and the tile an unread badge. Chats are stored per terminal in
+`~/.config/narrater/chat/<terminal id>.json`, attachments copied next to them.
 
 ## Routines
 

@@ -270,6 +270,39 @@ export const floorPrepare = (opts: {
 export const floorStatus = (worktree: string) => invoke<{ dirty: boolean; branch: string | null }>("floor_status", { worktree });
 export const floorRemove = (worktree: string, force: boolean) => invoke<void>("floor_remove", { worktree, force });
 
+// ---- NarraTer Chat ----
+
+export const CHAT_THREADS = ["blue", "purple", "pink", "red", "orange", "yellow", "green"] as const;
+export type ChatThread = (typeof CHAT_THREADS)[number];
+
+export interface ChatAttachment {
+  id: string;
+  name: string;
+  path: string;
+  image: boolean;
+}
+
+export interface ChatEntry {
+  id: string;
+  ts: number;
+  role: "user" | "agent";
+  /** `narrater say --progress` — an interim update */
+  progress: boolean;
+  text: string;
+  attachments: ChatAttachment[];
+}
+
+/** Sends a chat message (stored, then typed into the agent's terminal when it's idle). */
+export const chatSend = (terminalId: string, thread: ChatThread, text: string, attachments: string[]) =>
+  invoke<void>("chat_send", { terminalId, thread, text, attachments });
+export const chatHistory = (terminalId: string, thread: ChatThread) =>
+  invoke<ChatEntry[]>("chat_history", { terminalId, thread });
+export const chatThreads = (terminalId: string) =>
+  invoke<Array<{ thread: ChatThread; count: number; last_ts: number | null }>>("chat_threads", { terminalId });
+export const chatClear = (terminalId: string, thread: ChatThread) => invoke<void>("chat_clear", { terminalId, thread });
+/** Opens a local file with the desktop's default app. */
+export const openPath = (path: string) => invoke<void>("open_path", { path });
+
 /** Desktop notification (notify-send). */
 export const systemNotify = (title: string, body: string) =>
   invoke<void>("system_notify", { title, body });

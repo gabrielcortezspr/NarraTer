@@ -61,6 +61,10 @@ concept to Linux.
   mon,fri@09:00`, `--once …`, with an optional pre-run script whose output
   fills the prompt. A backend scheduler, idle-gated delivery, and a Routines
   panel in the sidebar.
+- **Chat with your agents**: the chat button on an agent opens a panel with
+  seven color threads, attachments and inline images; the agent replies with
+  `narrater say`, sends progress updates, and replays a thread with
+  `narrater recall` after a restart.
 - **Shared notes**: agents create, read and edit sticky notes connected to
   them (`narrater note …`) and can wire agents and notes together
   (`narrater connect`).

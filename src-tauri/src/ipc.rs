@@ -13,6 +13,7 @@ use crate::pty::{
     PtyStateInner, QueuedMsg,
 };
 use crate::browser::BrowserState;
+use crate::chat::ChatState;
 use crate::routines::RoutinesState;
 use crate::screen::TurnState;
 
@@ -38,6 +39,7 @@ const SKILLS: &[(&str, &str)] = &[
     ("narrater-portal-devices", include_str!("../assets/SKILL-portal-devices.md")),
     ("narrater-routines", include_str!("../assets/SKILL-routines.md")),
     ("narrater-workspace", include_str!("../assets/SKILL-workspace.md")),
+    ("narrater-chat", include_str!("../assets/SKILL-chat.md")),
 ];
 /// Skill directories read by the agent CLIs: Claude Code, and the open Agent
 /// Skills location shared by Codex, Gemini CLI, OpenCode and others.
@@ -51,7 +53,7 @@ struct IpcRequest {
     /// Terminal secret (env NARRATER_TOKEN) proving the `from` identity.
     #[serde(default)]
     token: Option<String>,
-    /// "ping" | "whoami" | "ask" | "batch" | "raw" | "check" | "canvas" | "portal" | "routine" | "workspace"
+    /// "ping" | "whoami" | "ask" | "batch" | "raw" | "check" | "canvas" | "portal" | "routine" | "workspace" | "chat"
     #[serde(default)]
     mode: Option<String>,
     /// Target agent name (label) or node id.
@@ -90,6 +92,7 @@ pub async fn start_ipc_server(
     state: Arc<Mutex<PtyStateInner>>,
     browser: BrowserState,
     routines: RoutinesState,
+    chat: ChatState,
 ) {
     install_cli();
     install_skills();
@@ -114,7 +117,14 @@ pub async fn start_ipc_server(
     loop {
         match listener.accept().await {
             Ok((stream, _)) => {
-                tokio::spawn(handle_connection(stream, app.clone(), Arc::clone(&state), browser.clone(), routines.clone()));
+                tokio::spawn(handle_connection(
+                    stream,
+                    app.clone(),
+                    Arc::clone(&state),
+                    browser.clone(),
+                    routines.clone(),
+                    chat.clone(),
+                ));
             }
             Err(e) => eprintln!("[NarraTer IPC] Accept error: {}", e),
         }
@@ -127,6 +137,7 @@ async fn handle_connection(
     state: Arc<Mutex<PtyStateInner>>,
     browser: BrowserState,
     routines: RoutinesState,
+    chat: ChatState,
 ) {
     let mut buf = Vec::new();
     if stream.read_to_end(&mut buf).await.is_err() {
@@ -160,6 +171,10 @@ async fn handle_connection(
             Some("raw") => handle_raw(&req, &app, &state).await,
             Some("check") => handle_check(&req, &state),
             Some("canvas") => handle_canvas(&req, &app, &state).await,
+            Some("chat") => {
+                let params = req.params.clone().unwrap_or(serde_json::Value::Null);
+                with_newline(crate::chat::run_cli(&chat, &app, &req.from, &params))
+            }
             Some("workspace") => {
                 let params = req.params.clone().unwrap_or(serde_json::Value::Null);
                 with_newline(crate::workspaces::run_cli(&app, &state, &req.from, routines.current_scene(), &params))
