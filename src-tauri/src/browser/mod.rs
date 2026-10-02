@@ -5,7 +5,9 @@
 //!
 //! Chrome starts on first use with NarraTer's own profile (never the user's).
 
+pub mod android;
 pub mod cdp;
+pub mod device;
 pub mod page;
 
 use std::collections::{HashMap, HashSet};
@@ -35,6 +37,9 @@ pub struct PortalEntry {
     pub id: String,
     pub label: String,
     pub url: String,
+    /// Device portal: the AVD name or adb serial it shows (None: a browser tab)
+    #[serde(default)]
+    pub device: Option<String>,
 }
 
 pub struct Portal {
@@ -64,8 +69,9 @@ pub struct BrowserInner {
     links: HashSet<(String, String)>,
 }
 
+/// Browser tabs (CDP) and device portals (adb) — both are portal nodes.
 #[derive(Clone, Default)]
-pub struct BrowserState(pub Arc<tokio::sync::Mutex<BrowserInner>>);
+pub struct BrowserState(pub Arc<tokio::sync::Mutex<BrowserInner>>, pub Arc<device::Devices>);
 
 #[derive(Serialize, Clone)]
 struct FrameEvent {
@@ -679,12 +685,24 @@ impl BrowserState {
     /// `narrater portal <verb> "Portal" …` from terminal `from`. The portal
     /// must be connected to that terminal on the canvas.
     pub async fn run_cli(&self, app: &AppHandle, from: &str, name: &str, verb: &str, args: &[String]) -> String {
+        if verb == "devices" {
+            return self.1.list_text().await;
+        }
         let mut inner = self.0.lock().await;
         let id = match resolve_portal(&inner, from, name) {
             Ok(id) => id,
             Err(e) => return e,
         };
         let label = inner.registry.get(&id).map(|e| e.label.clone()).unwrap_or_default();
+        if let Some(dev) = inner.registry.get(&id).and_then(|e| e.device.clone()) {
+            // Device portal: the browser lock isn't needed (a boot can take minutes)
+            drop(inner);
+            let result = match self.1.portal(&id, &dev).await {
+                Ok(p) => device::run_verb(&p, &label, verb, args).await,
+                Err(e) => Err(e),
+            };
+            return result.unwrap_or_else(|e| format!("Error: {}", e));
+        }
         if verb == "ua" {
             return match ua(&mut inner, app, &id, args).await {
                 Ok(s) => s,
@@ -763,26 +781,46 @@ pub async fn portals_sync(
     for id in gone {
         inner.close(&id).await;
     }
+    let device_nodes: HashSet<String> =
+        inner.registry.values().filter(|e| e.device.is_some()).map(|e| e.id.clone()).collect();
+    drop(inner);
+    state.1.retain(&device_nodes).await;
     Ok(())
 }
 
 /// Opens a portal's tab now (created by an agent with --size).
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn portal_open(
     id: String,
     url: Option<String>,
     width: Option<u32>,
     height: Option<u32>,
+    device: Option<String>,
     app: AppHandle,
     state: State<'_, BrowserState>,
 ) -> Result<(), String> {
+    if let Some(dev) = device {
+        return state.1.portal(&id, &dev).await.map(|_| ());
+    }
     let size = width.zip(height);
     state.0.lock().await.portal_at(&app, &id, size, url.as_deref()).await.map(|_| ())
 }
 
 /// The tile is on screen: open the tab if needed and stream it.
 #[tauri::command]
-pub async fn portal_attach(id: String, url: Option<String>, app: AppHandle, state: State<'_, BrowserState>) -> Result<(), String> {
+pub async fn portal_attach(
+    id: String,
+    url: Option<String>,
+    device: Option<String>,
+    app: AppHandle,
+    state: State<'_, BrowserState>,
+) -> Result<(), String> {
+    if let Some(dev) = device {
+        let p = state.1.portal(&id, &dev).await?;
+        device::start_stream(app, id, p);
+        return Ok(());
+    }
     let portal = state.0.lock().await.portal_at(&app, &id, None, url.as_deref()).await?;
     portal.screencast.store(true, Ordering::Relaxed);
     start_screencast(&portal).await
@@ -790,6 +828,10 @@ pub async fn portal_attach(id: String, url: Option<String>, app: AppHandle, stat
 
 #[tauri::command]
 pub async fn portal_detach(id: String, state: State<'_, BrowserState>) -> Result<(), String> {
+    if let Some(p) = state.1.get(&id) {
+        device::stop_stream(&p);
+        return Ok(());
+    }
     let portal = state.0.lock().await.portals.get(&id).cloned();
     if let Some(p) = portal {
         p.screencast.store(false, Ordering::Relaxed);
@@ -833,6 +875,13 @@ pub async fn portal_input(id: String, method: String, params: Value, state: Stat
     Ok(())
 }
 
+/// Taps, swipes, keys and text from a device portal's tile (device pixels).
+#[tauri::command]
+pub async fn device_input(id: String, kind: String, params: Value, state: State<'_, BrowserState>) -> Result<(), String> {
+    let p = state.1.get(&id).ok_or("the device isn't connected yet")?;
+    device::input(&p, &kind, &params).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -856,8 +905,8 @@ mod tests {
     #[test]
     fn portals_resolve_only_when_connected() {
         let mut inner = BrowserInner::default();
-        inner.registry.insert("p1".into(), PortalEntry { id: "p1".into(), label: "Docs".into(), url: String::new() });
-        inner.registry.insert("p2".into(), PortalEntry { id: "p2".into(), label: "Admin".into(), url: String::new() });
+        inner.registry.insert("p1".into(), PortalEntry { id: "p1".into(), label: "Docs".into(), url: String::new(), device: None });
+        inner.registry.insert("p2".into(), PortalEntry { id: "p2".into(), label: "Admin".into(), url: String::new(), device: None });
         inner.links.insert(("p1".into(), "t1".into()));
         assert_eq!(resolve_portal(&inner, "t1", "docs").unwrap(), "p1");
         assert!(resolve_portal(&inner, "t1", "Admin").unwrap_err().contains("no connected portal"));

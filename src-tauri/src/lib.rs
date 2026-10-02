@@ -86,6 +86,7 @@ pub fn run() {
             browser::portal_navigate,
             browser::portal_history,
             browser::portal_input,
+            browser::device_input,
         ])
         .run(tauri::generate_context!())
         .expect("error while running NarraTer");

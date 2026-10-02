@@ -41,6 +41,11 @@ concept to Linux.
   accessibility-style snapshots with `@e1` refs, clicks, forms, keys,
   screenshots, console logs, responsive resize and user-agent presets.
   Requires Google Chrome or Chromium.
+- **Android devices**: a portal can also show an Android emulator or phone
+  (over adb). Booting an AVD from Android Studio is one command
+  (`narrater portal create --simulator Pixel_7`); you tap and swipe in the
+  tile, agents drive it with snapshots of the accessibility tree, taps, text,
+  keys, app launches and screenshots.
 - **Agents from any vendor talk to each other**: connect two terminals and
   either side can `narrater ask` the other. The prompt is typed into the
   target's terminal when it's idle, and `ask` returns what the target's

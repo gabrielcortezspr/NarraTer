@@ -41,6 +41,9 @@ pub struct SceneNode {
     // portal
     #[serde(default)]
     pub url: Option<String>,
+    /// Device portal: AVD name or adb serial
+    #[serde(default)]
+    pub device: Option<String>,
     // filetree
     #[serde(default)]
     pub expanded_paths: Option<Vec<String>>,

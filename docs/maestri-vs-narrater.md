@@ -439,8 +439,13 @@ demais skills reaproveitam. Ordem sugerida:
    `recruit --floor`; barra de andares; remoção só pela UI; skill
    `narrater-workspace`). Diferença que fica: o NarraTer roda uma cena por
    vez, então `recruit --workspace` ainda não existe.
-5. **maestri-portal-devices** (Android via adb) e **maestri-chat** (threads
-   com o usuário fora do terminal, `say`/`recall`): menor prioridade.
+5. ✅ **maestri-portal-devices → portais Android** (feito: `portal devices`,
+   `portal create --simulator` com boot headless do AVD e desligamento quando
+   nenhum portal usa; tela no tile por `screencap` com toque, swipe, teclas e
+   texto; `snapshot` do `uiautomator` com refs; `click/type/key/scroll/swipe/
+   drag/button/launch/terminate/navigate/screenshot/info`; verbos de browser
+   recusados; skill `narrater-portal-devices`). Limite: a tela vem por
+   polling (~4 fps), sem scrcpy. Falta só o **maestri-chat**.
 
 ---
 

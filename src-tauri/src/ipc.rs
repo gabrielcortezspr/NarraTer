@@ -35,6 +35,7 @@ const SKILLS: &[(&str, &str)] = &[
     ("narrater", include_str!("../assets/SKILL.md")),
     ("narrater-manager", include_str!("../assets/SKILL-manager.md")),
     ("narrater-portal", include_str!("../assets/SKILL-portal.md")),
+    ("narrater-portal-devices", include_str!("../assets/SKILL-portal-devices.md")),
     ("narrater-routines", include_str!("../assets/SKILL-routines.md")),
     ("narrater-workspace", include_str!("../assets/SKILL-workspace.md")),
 ];
