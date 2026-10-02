@@ -32,6 +32,9 @@ pub struct SceneNode {
     /// Maestro mode: the terminal may recruit/dismiss teammates and manage roles
     #[serde(default)]
     pub maestro: Option<bool>,
+    /// Floor the node lives on (None = the ground floor)
+    #[serde(default)]
+    pub floor: Option<String>,
     // filetree.rootPath / attachment.path
     #[serde(default)]
     pub path: Option<String>,
@@ -55,13 +58,32 @@ pub struct SceneEdge {
     pub target_handle: Option<String>,
 }
 
+/// A floor: another canvas level of the scene, optionally backed by a git
+/// worktree on its own branch (isolation within a project).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FloorMeta {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub branch: Option<String>,
+    /// The worktree root (what `git worktree remove` takes)
+    #[serde(default)]
+    pub worktree: Option<String>,
+    /// Where terminals of this floor work (the worktree, at the scene's
+    /// subdirectory when the scene root is inside the repo)
+    #[serde(default)]
+    pub dir: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct SceneData {
     pub nodes: Vec<SceneNode>,
     pub edges: Vec<SceneEdge>,
+    #[serde(default)]
+    pub floors: Vec<FloorMeta>,
 }
 
-fn scenes_dir() -> PathBuf {
+pub(crate) fn scenes_dir() -> PathBuf {
     let base = config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("narrater");
@@ -115,6 +137,7 @@ pub fn list_scenes() -> Result<Vec<String>, String> {
 #[tauri::command]
 pub fn delete_scene(name: String, routines_state: State<'_, RoutinesState>) -> Result<(), String> {
     routines::delete_scene(&name, &routines_state);
+    crate::workspaces::forget_scene(&name);
     let path = scenes_dir().join(format!("{}.json", name));
     if path.exists() {
         fs::remove_file(&path).map_err(|e| e.to_string())?;
@@ -125,6 +148,7 @@ pub fn delete_scene(name: String, routines_state: State<'_, RoutinesState>) -> R
 #[tauri::command]
 pub fn rename_scene(old_name: String, new_name: String, routines_state: State<'_, RoutinesState>) -> Result<(), String> {
     routines::rename_scene(&old_name, &new_name, &routines_state);
+    crate::workspaces::rename_scene_meta(&old_name, &new_name);
     let dir = scenes_dir();
     let old_path = dir.join(format!("{}.json", old_name));
     let new_path = dir.join(format!("{}.json", new_name));

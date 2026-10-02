@@ -200,6 +200,11 @@ fn finish(r: &mut Routine) {
 }
 
 impl RoutinesState {
+    /// The scene the app has open (set when it loads its routines).
+    pub fn current_scene(&self) -> Option<String> {
+        self.0.lock().unwrap().scene.clone()
+    }
+
     fn save(&self) {
         let inner = self.0.lock().unwrap();
         let Some(scene) = &inner.scene else { return };

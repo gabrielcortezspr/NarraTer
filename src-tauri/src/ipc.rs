@@ -36,6 +36,7 @@ const SKILLS: &[(&str, &str)] = &[
     ("narrater-manager", include_str!("../assets/SKILL-manager.md")),
     ("narrater-portal", include_str!("../assets/SKILL-portal.md")),
     ("narrater-routines", include_str!("../assets/SKILL-routines.md")),
+    ("narrater-workspace", include_str!("../assets/SKILL-workspace.md")),
 ];
 /// Skill directories read by the agent CLIs: Claude Code, and the open Agent
 /// Skills location shared by Codex, Gemini CLI, OpenCode and others.
@@ -49,7 +50,7 @@ struct IpcRequest {
     /// Terminal secret (env NARRATER_TOKEN) proving the `from` identity.
     #[serde(default)]
     token: Option<String>,
-    /// "ping" | "whoami" | "ask" | "batch" | "raw" | "check" | "canvas" | "portal" | "routine"
+    /// "ping" | "whoami" | "ask" | "batch" | "raw" | "check" | "canvas" | "portal" | "routine" | "workspace"
     #[serde(default)]
     mode: Option<String>,
     /// Target agent name (label) or node id.
@@ -158,6 +159,10 @@ async fn handle_connection(
             Some("raw") => handle_raw(&req, &app, &state).await,
             Some("check") => handle_check(&req, &state),
             Some("canvas") => handle_canvas(&req, &app, &state).await,
+            Some("workspace") => {
+                let params = req.params.clone().unwrap_or(serde_json::Value::Null);
+                with_newline(crate::workspaces::run_cli(&app, &state, &req.from, routines.current_scene(), &params))
+            }
             Some("routine") => {
                 let params = req.params.clone().unwrap_or(serde_json::Value::Null);
                 with_newline(routines.run_cli(&app, &state, &req.from, &params).await)

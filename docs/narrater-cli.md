@@ -31,6 +31,8 @@ Gemini CLI, OpenCode…) knows how to use it. The command set mirrors Maestri's
 | `narrater role list \| show \| create \| write \| edit \| assign \| delete` | Maestro: manage role presets; `assign` restarts the teammate with the role |
 | `narrater notify "message"` | Maestro: desktop notification (notify-send) |
 | `narrater routine list \| show \| create \| edit \| enable \| disable \| run \| delete` | Maestro: scheduled prompts/commands into a terminal of the scene, or reminders (`narrater help routine`) |
+| `narrater workspace list \| create \| rename \| move` | Maestro: workspaces (scenes with a directory), sidebar groups/folders, `--from` clones |
+| `narrater floor list \| create` | Maestro: floors of this workspace — a git worktree on its own branch when possible |
 | `narrater debug` | Environment + socket diagnostics |
 | `narrater help [command]` | Help |
 
@@ -88,6 +90,26 @@ one-shot fires on load. The sidebar's **Routines** panel lists them (fire
 now, pause/resume, delete) and the tile shows a clock badge for routines
 aimed at it. Creating and editing is Maestro-only, like Maestri. The old
 per-tile "scheduled prompt" is now a routine (scenes are migrated on load).
+
+## Workspaces and floors
+
+**Workspaces** are the scenes in the sidebar, each with an optional working
+directory (right-click a scene → *Set directory…*, or
+`narrater workspace create --dir`), filed under groups and folders. The
+layout lives in `~/.config/narrater/workspaces.json` (backend-owned: agents
+refile workspaces without racing the canvas auto-save). New terminals start
+in the floor's or the workspace's directory. `--from` deep-copies a scene
+with fresh ids and paths retargeted onto the new directory.
+
+**Floors** are levels of one scene: every node has a floor (`data.floor`,
+absent = ground), the canvas shows one floor at a time (floor bar, top-left),
+and **every floor's terminals keep running** — so `ask`/`check` span floors.
+When the workspace directory is a git repository, a floor gets a
+`git worktree` on its own branch under `~/.local/share/narrater/floors/`
+(`src-tauri/src/floors.rs`) — the Linux take on Maestri's copy-on-write
+clones. Deleting a floor is UI-only (right-click its chip): the worktree goes,
+its branch and commits stay; a dirty worktree asks before discarding.
+`narrater recruit --floor "F"` staffs a floor from anywhere.
 
 ## Flow
 

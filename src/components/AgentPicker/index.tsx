@@ -37,11 +37,13 @@ export interface AgentPickerResult {
 
 interface Props {
   open: boolean;
+  /** The floor's / scene's working directory, when it has one. */
+  defaultCwd?: string;
   onConfirm: (result: AgentPickerResult) => void;
   onClose: () => void;
 }
 
-export default function AgentPicker({ open, onConfirm, onClose }: Props) {
+export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Props) {
   const { roles, loaded, load } = useRolesStore();
   const [selected, setSelected] = useState<AgentType>("shell");
   const [customCommand, setCustomCommand] = useState("");
@@ -51,7 +53,8 @@ export default function AgentPicker({ open, onConfirm, onClose }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [scheduleCommand, setScheduleCommand] = useState("");
   const [scheduleInterval, setScheduleInterval] = useState("60");
-  const [cwd, setCwd] = useState(lastCwd);
+  // The scene (or floor) directory wins over the last one typed
+  const [cwd, setCwd] = useState(() => defaultCwd ?? lastCwd());
   const [maestro, setMaestro] = useState(false);
 
   useEffect(() => {

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useState, useEffect, useRef } from "react";
+import { lazy, Suspense, useCallback, useMemo, useState, useEffect, useRef } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -31,7 +31,9 @@ import EmptyState from "@/components/EmptyState";
 const AgentPicker = lazy(() => import("@/components/AgentPicker"));
 import SketchLayer from "@/components/SketchLayer";
 import Toolbar from "@/components/Toolbar";
-import { useCanvasStore } from "@/stores/canvas";
+import { GROUND, floorOf, useCanvasStore } from "@/stores/canvas";
+import FloorBar from "@/components/FloorBar";
+import { floorDir } from "@/lib/floors";
 import { useLedgerStore } from "@/stores/ledger";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import { useToolStore, PLACEMENT_TOOLS } from "@/stores/tool";
@@ -97,6 +99,15 @@ function CanvasInner() {
       }))
     );
   const hydrated = useCanvasStore((s) => s.hydrated);
+  const currentFloor = useCanvasStore((s) => s.currentFloor);
+
+  // One floor on screen at a time; every floor's terminals keep running
+  const visibleNodes = useMemo(() => nodes.filter((n) => floorOf(n) === currentFloor), [nodes, currentFloor]);
+  const visibleEdges = useMemo(() => {
+    if (currentFloor === GROUND && visibleNodes.length === nodes.length) return edges;
+    const ids = new Set(visibleNodes.map((n) => n.id));
+    return edges.filter((e) => ids.has(e.source) && ids.has(e.target));
+  }, [edges, nodes.length, visibleNodes, currentFloor]);
   const { current: currentWorkspace } = useWorkspacesStore();
   const { active: activeTool, setTool } = useToolStore();
   const undoSketch = useSketchStore((s) => s.undo);
@@ -118,11 +129,12 @@ function CanvasInner() {
   // re-frame on every structural node change instead.
   const fitDoneFor = useRef<string | null>(null);
   useEffect(() => {
-    if (hydrated && fitDoneFor.current !== currentWorkspace) {
-      fitDoneFor.current = currentWorkspace;
+    const key = `${currentWorkspace}@${currentFloor}`;
+    if (hydrated && fitDoneFor.current !== key) {
+      fitDoneFor.current = key;
       requestAnimationFrame(() => fitView({ padding: 0.2 }));
     }
-  }, [hydrated, currentWorkspace, fitView]);
+  }, [hydrated, currentWorkspace, currentFloor, fitView]);
 
   // New nodes spawn at the center of the current viewport, slightly jittered
   // so consecutive spawns don't stack exactly.
@@ -306,8 +318,8 @@ function CanvasInner() {
       className={`w-full h-full relative ${placementMode ? "placement-mode" : ""}`}
     >
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={visibleNodes}
+        edges={visibleEdges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
@@ -355,9 +367,8 @@ function CanvasInner() {
       {/* Welcome screen when the canvas is empty */}
       <EmptyState onTerminal={openTerminalPicker} />
 
-      <div className="absolute top-0 left-0 h-10 flex items-center px-4 z-10 pointer-events-none">
-        <span className="text-[#2a2a2a] text-xs select-none">{currentWorkspace}</span>
-      </div>
+      {/* Scene + floors */}
+      <FloorBar />
 
       {drawMode && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
@@ -378,7 +389,12 @@ function CanvasInner() {
       {/* Lazy modals: only enter the bundle/DOM when opened */}
       {pickerOpen && (
         <Suspense fallback={null}>
-          <AgentPicker open={pickerOpen} onConfirm={handleAgentPicked} onClose={() => setPickerOpen(false)} />
+          <AgentPicker
+            open={pickerOpen}
+            defaultCwd={floorDir(currentFloor) ?? undefined}
+            onConfirm={handleAgentPicked}
+            onClose={() => setPickerOpen(false)}
+          />
         </Suspense>
       )}
 

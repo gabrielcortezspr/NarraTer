@@ -1,5 +1,5 @@
 import { listen } from "@tauri-apps/api/event";
-import { syncPortals, useCanvasStore } from "@/stores/canvas";
+import { floorOf, syncPortals, useCanvasStore } from "@/stores/canvas";
 import { useTerminalsStore } from "@/stores/terminals";
 import { canvasRespond, portalOpen } from "@/lib/tauri";
 import { presetOf } from "@/lib/agents";
@@ -35,6 +35,14 @@ const STATUS_TEXT: Record<string, string> = {
   exited: "exited",
 };
 
+/** " · on floor X" when the agent lives on another floor than `from`. */
+function floorNote(n: AppNode, fromFloor: string): string {
+  const f = floorOf(n);
+  if (f === fromFloor) return "";
+  const name = f === "ground" ? "Ground" : useCanvasStore.getState().floors.find((x) => x.id === f)?.name ?? f;
+  return ` · on floor ${name}`;
+}
+
 function agentLine(n: AppNode): string {
   const d = n.data as TerminalNodeData;
   const status = STATUS_TEXT[useTerminalsStore.getState().sessions[n.id]?.status ?? "spawning"];
@@ -57,7 +65,7 @@ function listFor(nodes: AppNode[], edges: AppEdge[], from: string): string {
   out.push("", "Agents:");
   if (agents.length === 0) out.push("  (none connected — ask the user to connect agents on the canvas)");
   agents.forEach((a) => {
-    out.push(`  - ${agentLine(a)}`);
+    out.push(`  - ${agentLine(a)}${me ? floorNote(a, floorOf(me)) : ""}`);
     // A Maestro also sees each teammate's own wiring (before a --replace or a rewire)
     if (maestro) {
       const theirs = reachOf(nodes, edges, a.id);

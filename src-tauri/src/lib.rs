@@ -1,5 +1,6 @@
 mod browser;
 mod canvas_bridge;
+mod floors;
 mod fsops;
 mod ipc;
 mod pty;
@@ -7,6 +8,7 @@ mod roles;
 mod routines;
 mod scene;
 pub mod screen;
+mod workspaces;
 
 use pty::PtyState;
 
@@ -56,6 +58,11 @@ pub fn run() {
             routines::routine_set_enabled,
             routines::routine_delete,
             routines::routine_run,
+            workspaces::workspaces_layout,
+            workspaces::workspace_set_dir,
+            floors::floor_prepare,
+            floors::floor_status,
+            floors::floor_remove,
             pty::pty_queue_cancel,
             pty::narrater_ledger,
             scene::load_scene,

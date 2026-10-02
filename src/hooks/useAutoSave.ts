@@ -48,7 +48,7 @@ export function useAutoSave() {
     () =>
       useCanvasStore.subscribe((s, prev) => {
         if (!s.hydrated || !prev.hydrated) return;
-        if (s.nodes === prev.nodes && s.edges === prev.edges) return;
+        if (s.nodes === prev.nodes && s.edges === prev.edges && s.floors === prev.floors) return;
         usePersistenceStore.getState().set("dirty");
         if (timer) clearTimeout(timer);
         timer = setTimeout(persist, DEBOUNCE_MS);

@@ -65,8 +65,13 @@ concept to Linux.
   natively. A role can be flagged **delegate-only (orchestrator)**: the agent
   only coordinates (Claude Code also loses its file-editing tools). The
   default roles are **Leader** (delegate-only) and **Developer**.
-- **Scenes**: workspaces are auto-saved (1s debounce, Ctrl+S to flush) as JSON
-  under `~/.config/narrater/scenes/` and restored on load.
+- **Scenes (workspaces)**: auto-saved (1s debounce, Ctrl+S to flush) as JSON
+  under `~/.config/narrater/scenes/` and restored on load. Each can have a
+  working directory and be filed under sidebar groups and folders.
+- **Floors**: levels inside a scene. When the scene's directory is a git
+  repository a floor is a `git worktree` on its own branch, so agents can
+  experiment there without touching your checkout — and still talk to the
+  agents on other floors.
 - **Sticky notes, sketch layer and edge history** for annotating and auditing
   what your agents did.
 

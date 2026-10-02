@@ -13,11 +13,12 @@ import { useAutoSave } from "@/hooks/useAutoSave";
 import { initCanvasBridge } from "@/lib/canvasBridge";
 import { onPortalState } from "@/lib/portalBus";
 import { initRoutines } from "@/stores/routines";
+import { initWorkspaceEvents } from "@/stores/workspaces";
 import type { LedgerEntry, QueueItem } from "@/lib/tauri";
 
 export default function App() {
   const { loadScene } = useCanvasStore();
-  const { loadList } = useWorkspacesStore();
+  const { loadList, loadLayout } = useWorkspacesStore();
   const { load: loadRoles } = useRolesStore();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -25,7 +26,7 @@ export default function App() {
 
   useEffect(() => {
     const init = async () => {
-      await Promise.all([loadList(), loadRoles(), loadScene("default")]);
+      await Promise.all([loadList(), loadLayout(), loadRoles(), loadScene("default")]);
     };
     init();
   }, []);
@@ -69,6 +70,9 @@ export default function App() {
         if (Object.keys(patch).length) useCanvasStore.getState().updateNodeData(id, patch);
       })
     );
+
+    // Workspace layout changes made by agents → sidebar
+    initWorkspaceEvents().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
     // Routines: backend scheduler → panel + fire toasts
     initRoutines().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));

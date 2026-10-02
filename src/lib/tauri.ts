@@ -45,6 +45,8 @@ export interface SceneNode {
   skip_permissions?: boolean;
   cwd?: string;
   maestro?: boolean;
+  /** Floor id (absent = ground) */
+  floor?: string;
   // filetree.rootPath / attachment.path
   path?: string;
   // portal
@@ -62,9 +64,20 @@ export interface SceneEdge {
   target_handle?: string;
 }
 
+/** A floor of a scene; git-isolated when it has a worktree/branch. */
+export interface FloorMeta {
+  id: string;
+  name: string;
+  branch?: string | null;
+  worktree?: string | null;
+  /** Where its terminals work (absent: the scene's directory) */
+  dir?: string | null;
+}
+
 export interface SceneData {
   nodes: SceneNode[];
   edges: SceneEdge[];
+  floors?: FloorMeta[];
 }
 
 /** Message waiting in a terminal's queue (pty_queue event). */
@@ -128,7 +141,7 @@ export const deleteScene = (name: string) =>
   invoke<void>("delete_scene", { name });
 
 export const renameScene = (oldName: string, newName: string) =>
-  invoke<void>("rename_scene", { old_name: oldName, new_name: newName });
+  invoke<void>("rename_scene", { oldName, newName });
 
 export const openInEditor = (editor: string, path: string) =>
   invoke<void>("open_in_editor", { editor, path });
@@ -211,6 +224,43 @@ export const routineRun = (id: string) => invoke<string>("routine_run", { id });
 
 /** Terminals in Maestro mode (gates Maestro-only CLI commands in the backend). */
 export const maestrosSync = (ids: string[]) => invoke<void>("maestros_sync", { ids });
+
+// ---- Workspaces (sidebar layout) and floors ----
+
+export interface WorkspaceMeta {
+  dir?: string | null;
+  group?: string | null;
+  folder?: string | null;
+}
+
+export interface WorkspacesLayout {
+  groups: string[];
+  folders: Array<{ name: string; group?: string | null }>;
+  scenes: Record<string, WorkspaceMeta>;
+}
+
+export const workspacesLayout = () => invoke<WorkspacesLayout>("workspaces_layout");
+/** Sets (or clears, with null) a workspace's working directory; returns the absolute path. */
+export const workspaceSetDir = (name: string, dir: string | null) =>
+  invoke<string | null>("workspace_set_dir", { name, dir });
+
+export interface FloorInfo {
+  dir: string | null;
+  worktree: string | null;
+  branch: string | null;
+  /** Why the floor isn't git-isolated, when it isn't */
+  note: string | null;
+}
+
+export const floorPrepare = (opts: {
+  root: string | null; scene: string; name: string; branch?: string; existingBranch?: boolean; noGit?: boolean;
+}) =>
+  invoke<FloorInfo>("floor_prepare", {
+    root: opts.root, scene: opts.scene, name: opts.name, branch: opts.branch ?? null,
+    existingBranch: opts.existingBranch ?? false, noGit: opts.noGit ?? false,
+  });
+export const floorStatus = (worktree: string) => invoke<{ dirty: boolean; branch: string | null }>("floor_status", { worktree });
+export const floorRemove = (worktree: string, force: boolean) => invoke<void>("floor_remove", { worktree, force });
 
 /** Desktop notification (notify-send). */
 export const systemNotify = (title: string, body: string) =>

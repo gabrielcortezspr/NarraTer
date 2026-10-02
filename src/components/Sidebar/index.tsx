@@ -2,8 +2,9 @@ import { lazy, Suspense, useState, useRef, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen, Plus, Pencil, Trash2, Check, X,
-  ChevronLeft, ChevronRight, Keyboard, Users,
+  ChevronLeft, ChevronRight, Keyboard, Users, Folder, FolderOpen,
 } from "lucide-react";
+import { toast } from "@/stores/toasts";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import { useCanvasStore } from "@/stores/canvas";
 import { saveNow } from "@/hooks/useAutoSave";
@@ -24,8 +25,9 @@ interface Props {
 }
 
 export default function Sidebar({ collapsed, onToggle }: Props) {
-  const { list, current, setCurrent, createWorkspace, deleteWorkspace, renameWorkspace } =
+  const { list, current, setCurrent, createWorkspace, deleteWorkspace, renameWorkspace, layout, setDir } =
     useWorkspacesStore();
+  const [dirValue, setDirValue] = useState<string | null>(null);
   const loadScene = useCanvasStore((s) => s.loadScene);
   const clearSketch = useSketchStore((s) => s.clear);
   const { roles, loaded, load: loadRoles } = useRolesStore();
@@ -169,25 +171,54 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
             </div>
 
             <div className="flex flex-col gap-0.5 max-h-64 overflow-y-auto">
-              {list.map((name) => (
-                <WorkspaceItem
-                  key={name}
-                  name={name}
-                  active={name === current}
-                  isRenaming={renaming === name}
-                  renameValue={renameValue}
-                  renameInputRef={renaming === name ? renameInputRef : undefined}
-                  onRenameChange={setRenameValue}
-                  onRenameSubmit={handleRename}
-                  onRenameCancel={() => setRenaming(null)}
-                  onClick={() => switchWorkspace(name)}
-                  onContextMenu={(e) => {
-                    if (name === "default") return;
-                    e.preventDefault();
-                    setContextMenu({ x: e.clientX, y: e.clientY, name });
-                  }}
-                />
-              ))}
+              {(() => {
+                // Sidebar hierarchy (Maestri): root workspaces, root folders,
+                // then groups with their folders — filed by `narrater workspace`
+                const meta = (n: string) => layout.scenes[n] ?? {};
+                const at = (group: string | null, folder: string | null) =>
+                  list.filter((n) => (meta(n).group ?? null) === group && (meta(n).folder ?? null) === folder);
+                const renderItem = (name: string) => (
+                  <WorkspaceItem
+                    key={name}
+                    name={name}
+                    dir={layout.scenes[name]?.dir ?? undefined}
+                    active={name === current}
+                    isRenaming={renaming === name}
+                    renameValue={renameValue}
+                    renameInputRef={renaming === name ? renameInputRef : undefined}
+                    onRenameChange={setRenameValue}
+                    onRenameSubmit={handleRename}
+                    onRenameCancel={() => setRenaming(null)}
+                    onClick={() => switchWorkspace(name)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setDirValue(null);
+                      setContextMenu({ x: e.clientX, y: e.clientY, name });
+                    }}
+                  />
+                );
+                const folderBlock = (f: string, group: string | null) => (
+                  <div key={`f-${group}-${f}`} className="mt-1">
+                    <div className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-[#555] select-none">
+                      <Folder size={10} /> {f}
+                    </div>
+                    <div className="pl-3">{at(group, f).map(renderItem)}</div>
+                  </div>
+                );
+                return (
+                  <>
+                    {at(null, null).map(renderItem)}
+                    {layout.folders.filter((f) => !f.group).map((f) => folderBlock(f.name, null))}
+                    {layout.groups.map((g) => (
+                      <div key={`g-${g}`} className="mt-2">
+                        <div className="px-2 py-0.5 text-[9px] text-[#444] uppercase tracking-wider select-none">{g}</div>
+                        {layout.folders.filter((f) => f.group === g).map((f) => folderBlock(f.name, g))}
+                        {at(g, null).map(renderItem)}
+                      </div>
+                    ))}
+                  </>
+                );
+              })()}
 
               {/* New workspace input */}
               <AnimatePresence>
@@ -293,13 +324,44 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onMouseDown={(e) => e.stopPropagation()}
         >
+          {/* Working directory: where new terminals start, and the root floors clone */}
+          {dirValue === null ? (
+            <button
+              onClick={() => setDirValue(layout.scenes[contextMenu.name]?.dir ?? "")}
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors"
+            >
+              <FolderOpen size={12} /> Set directory…
+            </button>
+          ) : (
+            <div className="px-2 py-1">
+              <input
+                autoFocus
+                value={dirValue}
+                onChange={(e) => setDirValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setDirValue(null);
+                  if (e.key !== "Enter") return;
+                  const name = contextMenu.name;
+                  setDir(name, dirValue.trim() || null)
+                    .then(() => toast.success(dirValue.trim() ? `"${name}" works in ${dirValue.trim()}` : `"${name}" has no directory now`))
+                    .catch((err) => toast.error(String(err)));
+                  setContextMenu(null);
+                  setDirValue(null);
+                }}
+                placeholder="~/Projects/app (Enter)"
+                className="w-[220px] bg-[#111] border border-[#333] text-white text-[11px] font-mono rounded px-2 py-1 focus:outline-none focus:border-[#8b5cf6]"
+              />
+            </div>
+          )}
+          {contextMenu.name !== "default" && (
           <button
             onClick={() => startRename(contextMenu.name)}
             className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors"
           >
             <Pencil size={12} /> Rename
           </button>
-          {confirmingDelete === contextMenu.name ? (
+          )}
+          {contextMenu.name === "default" ? null : confirmingDelete === contextMenu.name ? (
             <button
               onClick={() => handleDelete(contextMenu.name)}
               className="flex items-center gap-2 w-full px-3 py-1.5 text-xs font-medium text-white bg-[#7f1d1d] hover:bg-[#991b1b] transition-colors"
@@ -323,6 +385,8 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
 
 interface WorkspaceItemProps {
   name: string;
+  /** Working directory (tooltip) */
+  dir?: string;
   active: boolean;
   isRenaming: boolean;
   renameValue: string;
@@ -335,7 +399,7 @@ interface WorkspaceItemProps {
 }
 
 function WorkspaceItem({
-  name, active, isRenaming, renameValue, renameInputRef,
+  name, dir, active, isRenaming, renameValue, renameInputRef,
   onRenameChange, onRenameSubmit, onRenameCancel, onClick, onContextMenu,
 }: WorkspaceItemProps) {
   if (isRenaming) {
@@ -362,6 +426,7 @@ function WorkspaceItem({
     <button
       onClick={onClick}
       onContextMenu={onContextMenu}
+      title={dir ? `${name} — ${dir}` : `${name} — no working directory (right-click to set one)`}
       className={`relative flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs transition-colors text-left
         ${active
           ? "bg-[#8b5cf620] text-white"

@@ -26,7 +26,7 @@ Usage:
   narrater portal key "Portal" "Enter"             Press a key (ctrl+a, shift+tab…)
   narrater portal navigate "Portal" "url"          Go to a URL (also: info, screenshot, text, html, evaluate…)
                                                    Run `narrater help portal` for every portal command
-  narrater recruit "Name" [--preset P] [--role R] [--command C] [--dir PATH]
+  narrater recruit "Name" [--preset P] [--role R] [--floor F] [--command C] [--dir PATH]
                                                    (Maestro only) Spawn a teammate, auto-connected to you
   narrater recruit ["New Name"] --preset P --replace "Old"
                                                    (Maestro only) Swap which agent runs on a teammate, in place
@@ -39,6 +39,13 @@ Usage:
   narrater role assign "Recruit" "Role" | --none   (Maestro only) Reassign a teammate's role (restarts it)
   narrater role delete "Name" [--force]            (Maestro only) Delete a role; --force unassigns it first
   narrater notify "message"                        (Maestro only) Send the user a desktop notification
+  narrater workspace create "Name" --dir PATH [--from "Source"] [--group G] [--folder F]
+                                                   (Maestro only) New workspace rooted at PATH (optionally cloning another)
+  narrater workspace list | rename "Old" "New" | move "Name" --group G | --folder F | --root
+                                                   (Maestro only) The sidebar hierarchy; rename; refile
+  narrater floor create "Name" [--branch B] [--existing-branch] [--no-git] [--copy-ground]
+                                                   (Maestro only) New floor of this workspace — a git worktree when possible
+  narrater floor list                              (Maestro only) Ground + floors with branch, path, node count
   narrater routine list | show "Name"              (Maestro only) Scheduled routines of this scene
   narrater routine create "Name" --command "..." <schedule> [options]
                                                    (Maestro only) Schedule a prompt/command (default target: you)
@@ -168,6 +175,8 @@ ask it instead of recruiting a duplicate.
   --role     an existing role (`narrater role list`); the recruit boots with
              its prompt as CLAUDE.md / AGENTS.md
   --command  override the program; matching a preset's program uses that preset
+  --floor    put it on another floor of this workspace ("Ground" for the
+             ground level); without --dir it works in that floor's worktree
   --dir      working directory (must exist); default: yours
 
 --replace swaps the agent running on an existing teammate in place: the node,
@@ -203,6 +212,42 @@ with the new role (connections kept, chat history lost).""",
 
 (Maestro only) Sends the user a desktop notification. Only when the user asked
 to be notified — otherwise assume they're following along on the canvas.""",
+    "workspace": """Usage:
+  narrater workspace list
+  narrater workspace create "Name" --dir PATH [--from "Source"] [--group "G"] [--folder "F"] [--root]
+  narrater workspace rename "Current" "New"
+  narrater workspace move "Name" --group "G" | --folder "F" | --root
+
+(Maestro only) Workspaces are the canvases in the sidebar, each rooted in a
+project directory. Creation is silent: the new workspace appears in the
+sidebar and its terminals start when the user opens it. The directory must
+already exist (create it, and `git init` if wanted, first).
+
+--from clones an existing workspace: its whole layout (terminals, notes,
+floors, connections) with every path under the source's directory retargeted
+onto PATH; terminals start fresh, and floors come over as plain floors.
+--group files it under a sidebar group; --folder in a folder (matched
+anywhere, created at the root when missing; with --group, inside that group;
+with --root, only root folders). `move` refiles; --root alone moves it out of
+any group or folder. There is no delete command — that stays in the UI.""",
+    "floor": """Usage:
+  narrater floor list
+  narrater floor create "Name" [--branch NAME] [--existing-branch] [--no-git] [--copy-ground]
+
+(Maestro only) A floor is a separate canvas inside this workspace. When the
+workspace directory is a git repository, the floor gets its own git worktree
+on its own branch (default: a slug of the name), so a teammate can work there
+without touching the ground checkout. Otherwise it's a plain floor sharing the
+directory, and the answer says why.
+
+  --branch NAME         branch for the worktree (fails if it already exists)
+  --existing-branch     check out an existing branch instead
+  --no-git              skip isolation and share the ground directory
+  --copy-ground         start with a copy of the ground floor's layout
+
+Staff a floor without leaving yours: `narrater recruit "Name" --floor "F"` —
+the recruit works in the floor's worktree and stays connected to you, so ask
+and check work across floors. Landing a floor's branch is up to the user.""",
     "routine": """Usage:
   narrater routine list
   narrater routine show "Name" [--id PREFIX]
@@ -445,6 +490,9 @@ def cmd_portal(args):
 
 
 def cmd_recruit(args):
+    if pop_flag(args, "--workspace") is not None:
+        fail("Error: --workspace isn't supported yet — NarraTer runs one workspace at a time; recruit here or on a --floor")
+    floor = pop_flag(args, "--floor")
     preset = pop_flag(args, "--preset")
     role = pop_flag(args, "--role")
     command = pop_flag(args, "--command")
@@ -461,6 +509,7 @@ def cmd_recruit(args):
         "command": command or "",
         "dir": directory or "",
         "replace": replace or "",
+        "floor": floor or "",
     })
 
 
@@ -498,6 +547,57 @@ def cmd_role(args):
 ROUTINE_VALUE_FLAGS = ("--id", "--command", "--every", "--daily", "--weekly", "--once", "--terminal",
                        "--count", "--until", "--pre-run")
 ROUTINE_BOOL_FLAGS = ("--reminder", "--no-skip-if-busy", "--skip-if-busy", "--no-notify", "--notify", "--disabled")
+
+
+def cmd_workspace(args):
+    if not args:
+        fail(HELP["workspace"])
+    verb, rest = args[0], args[1:]
+    params = {"verb": verb}
+    for flag in ("--dir", "--from", "--group", "--folder"):
+        value = pop_flag(rest, flag)
+        if value is not None:
+            params[flag[2:]] = value
+    if pop_flag(rest, "--root", has_value=False):
+        params["root"] = True
+    if verb == "list":
+        if rest:
+            fail("Usage: narrater workspace list")
+    elif verb == "rename":
+        if len(rest) != 2:
+            fail('Usage: narrater workspace rename "Current Name" "New Name"')
+        params["name"], params["new_name"] = rest
+    elif verb in ("create", "move"):
+        if len(rest) != 1:
+            fail(HELP["workspace"])
+        params["name"] = rest[0]
+    else:
+        fail(HELP["workspace"])
+    payload = base_payload("workspace")
+    payload["params"] = params
+    emit(request(payload))
+
+
+def cmd_floor(args):
+    if not args:
+        fail(HELP["floor"])
+    verb, rest = args[0], args[1:]
+    if verb == "list":
+        canvas("floor_list", {})
+    elif verb == "create":
+        branch = pop_flag(rest, "--branch")
+        params = {
+            "branch": branch or "",
+            "existing_branch": bool(pop_flag(rest, "--existing-branch", has_value=False)),
+            "no_git": bool(pop_flag(rest, "--no-git", has_value=False)),
+            "copy_ground": bool(pop_flag(rest, "--copy-ground", has_value=False)),
+        }
+        if len(rest) != 1:
+            fail('Usage: narrater floor create "Name" [--branch B] [--existing-branch] [--no-git] [--copy-ground]')
+        params["name"] = rest[0]
+        canvas("floor_create", params)
+    else:
+        fail(HELP["floor"])
 
 
 def cmd_routine(args):
@@ -624,6 +724,10 @@ def main():
         canvas("notify", {"message": decode(" ".join(rest))})
     elif cmd == "routine":
         cmd_routine(rest)
+    elif cmd == "workspace":
+        cmd_workspace(rest)
+    elif cmd == "floor":
+        cmd_floor(rest)
     elif cmd == "debug":
         cmd_debug()
     else:

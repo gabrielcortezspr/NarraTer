@@ -1,9 +1,17 @@
 import { create } from "zustand";
-import { listScenes, saveScene, deleteScene, renameScene } from "@/lib/tauri";
+import { listen } from "@tauri-apps/api/event";
+import { listScenes, saveScene, deleteScene, renameScene, workspacesLayout, workspaceSetDir } from "@/lib/tauri";
+import type { WorkspacesLayout } from "@/lib/tauri";
 
 interface WorkspacesStore {
   list: string[];
   current: string;
+  /** Working directory, group and folder of each workspace (backend-owned). */
+  layout: WorkspacesLayout;
+  loadLayout: () => Promise<void>;
+  /** A workspace's working directory (absolute), if it has one. */
+  dirOf: (name: string) => string | null;
+  setDir: (name: string, dir: string | null) => Promise<void>;
   loadList: () => Promise<void>;
   setCurrent: (name: string) => void;
   createWorkspace: (name: string) => Promise<void>;
@@ -14,6 +22,22 @@ interface WorkspacesStore {
 export const useWorkspacesStore = create<WorkspacesStore>((set, get) => ({
   list: ["default"],
   current: "default",
+  layout: { groups: [], folders: [], scenes: {} },
+
+  loadLayout: async () => {
+    try {
+      set({ layout: await workspacesLayout() });
+    } catch (e) {
+      console.error("workspaces layout:", e);
+    }
+  },
+
+  dirOf: (name) => get().layout.scenes[name]?.dir ?? null,
+
+  setDir: async (name, dir) => {
+    await workspaceSetDir(name, dir);
+    await get().loadLayout();
+  },
 
   loadList: async () => {
     try {
@@ -53,3 +77,24 @@ export const useWorkspacesStore = create<WorkspacesStore>((set, get) => ({
     }));
   },
 }));
+
+/**
+ * Backend → sidebar: agents changed the workspace layout (`narrater
+ * workspace …`), or asked for a rename — done here so the open scene's
+ * name follows.
+ */
+export async function initWorkspaceEvents(): Promise<() => void> {
+  const offChanged = await listen("workspaces_changed", () => {
+    const { loadList, loadLayout } = useWorkspacesStore.getState();
+    loadList();
+    loadLayout();
+  });
+  const offRename = await listen<{ old: string; new: string }>("workspace_rename_request", (e) => {
+    const { renameWorkspace, loadLayout } = useWorkspacesStore.getState();
+    renameWorkspace(e.payload.old, e.payload.new).then(loadLayout).catch(console.error);
+  });
+  return () => {
+    offChanged();
+    offRename();
+  };
+}

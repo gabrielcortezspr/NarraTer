@@ -432,9 +432,13 @@ demais skills reaproveitam. Ordem sugerida:
    `--count`, `--until`, `--pre-run` com `{{output}}`, skip-if-busy,
    `--no-notify`, `--disabled`, `--id` para duplicatas; painel na sidebar;
    o "scheduled prompt" antigo migra para rotina; skill `narrater-routines`).
-4. **maestri-workspace → workspaces e floors.** Cena com diretório raiz e
-   "andares" com clone git isolado por branch, para agentes trabalharem sem
-   tocar no checkout principal.
+4. ✅ **maestri-workspace → workspaces e floors** (feito: cena com diretório
+   e grupos/pastas na sidebar; `workspace create/list/rename/move` com
+   `--from`; andares por nó, todos os terminais rodando; `git worktree` por
+   andar (`--branch`, `--existing-branch`, `--no-git`, `--copy-ground`);
+   `recruit --floor`; barra de andares; remoção só pela UI; skill
+   `narrater-workspace`). Diferença que fica: o NarraTer roda uma cena por
+   vez, então `recruit --workspace` ainda não existe.
 5. **maestri-portal-devices** (Android via adb) e **maestri-chat** (threads
    com o usuário fora do terminal, `say`/`recall`): menor prioridade.
 

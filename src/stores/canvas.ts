@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { applyNodeChanges, applyEdgeChanges } from "@xyflow/react";
 import type { Node, Edge, NodeChange, EdgeChange, XYPosition } from "@xyflow/react";
 import { loadScene, saveScene, connectionsSync, portalsSync, maestrosSync, routinesLoad, routineUiCreate } from "@/lib/tauri";
+import type { FloorMeta, SceneNode } from "@/lib/tauri";
 import { disposeTerminal, replaceTerminal, startTerminal, spawnOptsFor } from "@/lib/terminalManager";
 import type { AgentType } from "@/lib/agents";
 
@@ -74,11 +75,23 @@ export interface AddTerminalOpts {
   maestro?: boolean;
   /** Terminal name; defaults to the role or agent type. */
   label?: string;
+  /** Floor to create it on (default: the floor on screen). */
+  floor?: string;
 }
 
 interface CanvasStore {
+  /** Every node of the scene, all floors (the canvas shows one floor). */
   nodes: AppNode[];
   edges: AppEdge[];
+  /** Floors besides the ground floor. */
+  floors: FloorMeta[];
+  /** Floor on screen ("ground" or a floor id). */
+  currentFloor: string;
+  setFloor: (id: string) => void;
+  /** Adds a floor; copyGround duplicates the ground layout onto it (terminals start fresh). */
+  addFloor: (floor: FloorMeta, copyGround?: { retargetFrom?: string | null }) => void;
+  /** Removes a floor and everything on it (its terminals stop). */
+  removeFloor: (id: string) => void;
   // True once a scene finished loading — gates auto-save and fitView so
   // neither runs against a canvas that is mid-hydration.
   hydrated: boolean;
@@ -104,6 +117,67 @@ interface CanvasStore {
   removeNode: (id: string) => void;
   loadScene: (name: string) => Promise<void>;
   saveScene: (name: string) => Promise<void>;
+}
+
+type NodeBase = { id: string; position: XYPosition; style: { width: number; height: number } };
+
+/** A saved scene node → canvas node (floor applied by the caller). */
+function toNode(n: SceneNode, base: NodeBase): AppNode {
+  if (n.node_type === "note") {
+    return { ...base, type: "note" as const, data: { content: n.content ?? "", label: n.label ?? "Note" } };
+  }
+  if (n.node_type === "text") {
+    return { ...base, type: "text" as const, data: { text: n.content ?? "" } };
+  }
+  if (n.node_type === "filetree") {
+    return {
+      ...base,
+      type: "filetree" as const,
+      data: { rootPath: n.path ?? "~", expandedPaths: n.expanded_paths ?? [] },
+    };
+  }
+  if (n.node_type === "attachment") {
+    const path = n.path ?? "";
+    return {
+      ...base,
+      type: "attachment" as const,
+      data: { path, fileName: path.split("/").pop() ?? path },
+    };
+  }
+  if (n.node_type === "portal") {
+    return { ...base, type: "portal" as const, data: { url: n.url ?? "", label: n.label ?? "Portal" } };
+  }
+  return {
+    ...base,
+    type: "terminal" as const,
+    data: {
+      agentType: (n.agent_type ?? "shell") as AgentType,
+      command: n.command,
+      label: n.label ?? n.agent_type ?? "terminal",
+      instructions: n.instructions,
+      scheduleCommand: n.schedule_command,
+      scheduleIntervalSecs: n.schedule_interval_secs,
+      roleId: n.role_id,
+      roleName: n.role_name,
+      roleColor: n.role_color,
+      skipPermissions: n.skip_permissions,
+      cwd: n.cwd,
+      maestro: n.maestro,
+    },
+  };
+}
+
+export const GROUND = "ground";
+
+/** Floor a node lives on. */
+export function floorOf(n: AppNode): string {
+  return (n.data as { floor?: string }).floor || GROUND;
+}
+
+/** New nodes land on the floor on screen unless they name one. */
+function onFloor(n: AppNode, floor: string): AppNode {
+  if ((n.data as { floor?: string }).floor || floor === GROUND) return n;
+  return { ...n, data: { ...n.data, floor } } as AppNode;
 }
 
 let nodeCounter = 0;
@@ -156,7 +230,61 @@ function uniquePortalLabel(nodes: AppNode[]): string {
 export const useCanvasStore = create<CanvasStore>((set, get) => ({
   nodes: [],
   edges: [],
+  floors: [],
+  currentFloor: GROUND,
   hydrated: false,
+
+  setFloor: (id) => {
+    if (id !== GROUND && !get().floors.some((f) => f.id === id)) return;
+    set({ currentFloor: id });
+  },
+
+  addFloor: (floor, copyGround) => {
+    const { nodes, edges } = get();
+    const added: AppNode[] = [];
+    const addedEdges: AppEdge[] = [];
+    if (copyGround) {
+      // Fresh ids; terminals that worked in the scene's directory work in the floor's
+      const ids = new Map<string, string>();
+      for (const n of nodes.filter((x) => floorOf(x) === GROUND)) {
+        const id = `${n.type}-${crypto.randomUUID().slice(0, 8)}`;
+        ids.set(n.id, id);
+        const data: Record<string, unknown> = { ...n.data, floor: floor.id };
+        const cwd = data.cwd as string | undefined;
+        const from = copyGround.retargetFrom;
+        if (n.type === "terminal" && floor.dir && (!cwd || (from && (cwd === from || cwd.startsWith(`${from}/`))))) {
+          data.cwd = cwd && from ? floor.dir + cwd.slice(from.length) : floor.dir;
+        }
+        delete data.sessionGen;
+        added.push({ ...n, id, data, selected: false } as AppNode);
+      }
+      for (const e of edges) {
+        const source = ids.get(e.source);
+        const target = ids.get(e.target);
+        if (source && target) addedEdges.push({ ...e, id: `edge-${crypto.randomUUID().slice(0, 8)}`, source, target });
+      }
+    }
+    const nextEdges = [...edges, ...addedEdges];
+    set({ floors: [...get().floors, floor], nodes: [...nodes, ...added], edges: nextEdges });
+    if (added.length) {
+      syncConnections(nextEdges);
+      startTerminals(added);
+    }
+  },
+
+  removeFloor: (id) => {
+    const { nodes, edges, floors, currentFloor } = get();
+    const gone = new Set(nodes.filter((n) => floorOf(n) === id).map((n) => n.id));
+    nodes.filter((n) => gone.has(n.id) && n.type === "terminal").forEach((n) => disposeTerminal(n.id));
+    const nextEdges = edges.filter((e) => !gone.has(e.source) && !gone.has(e.target));
+    set({
+      floors: floors.filter((f) => f.id !== id),
+      nodes: nodes.filter((n) => !gone.has(n.id)),
+      edges: nextEdges,
+      currentFloor: currentFloor === id ? GROUND : currentFloor,
+    });
+    syncConnections(nextEdges);
+  },
 
   snapshot: () => {
     undoStack.push({ nodes: get().nodes, edges: get().edges });
@@ -227,7 +355,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       // Born compact — the NodeResizer lets it grow when needed
       style: { width: 520, height: 360 },
     };
-    set((s) => ({ nodes: [...s.nodes, newNode] }));
+    set((s) => ({ nodes: [...s.nodes, onFloor(newNode, s.currentFloor)] }));
     startTerminals([newNode]);
     return id;
   },
@@ -262,7 +390,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       data: { content: "", label: "Note", ...initial },
       style: { width: 280, height: 200 },
     };
-    set((s) => ({ nodes: [...s.nodes, newNode] }));
+    set((s) => ({ nodes: [...s.nodes, onFloor(newNode, s.currentFloor)] }));
     return id;
   },
 
@@ -277,7 +405,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       data: { text: initialText ?? "" },
       style: { width: 240, height: 80 },
     };
-    set((s) => ({ nodes: [...s.nodes, newNode] }));
+    set((s) => ({ nodes: [...s.nodes, onFloor(newNode, s.currentFloor)] }));
     return id;
   },
 
@@ -298,7 +426,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       data: { rootPath: rootPath ?? "~", expandedPaths: [] },
       style: { width: 280, height: 360 },
     };
-    set((s) => ({ nodes: [...s.nodes, newNode] }));
+    set((s) => ({ nodes: [...s.nodes, onFloor(newNode, s.currentFloor)] }));
     return id;
   },
 
@@ -314,7 +442,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       data: { path, fileName },
       style: { width: 260, height: 220 },
     };
-    set((s) => ({ nodes: [...s.nodes, newNode] }));
+    set((s) => ({ nodes: [...s.nodes, onFloor(newNode, s.currentFloor)] }));
     return id;
   },
 
@@ -329,7 +457,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       data: { url: url ?? "", label: label ?? uniquePortalLabel(get().nodes) },
       style: { width: 720, height: 520 },
     };
-    set((s) => ({ nodes: [...s.nodes, newNode] }));
+    set((s) => ({ nodes: [...s.nodes, onFloor(newNode, s.currentFloor)] }));
     return id;
   },
 
@@ -366,7 +494,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     get().nodes.forEach((n) => {
       if (n.type === "terminal") disposeTerminal(n.id);
     });
-    set({ hydrated: false });
+    set({ hydrated: false, currentFloor: GROUND });
     try {
       const data = await loadScene(name);
       const nodes: AppNode[] = data.nodes.map((n): AppNode => {
@@ -375,49 +503,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           position: { x: n.x, y: n.y },
           style: { width: n.width, height: n.height },
         };
-        if (n.node_type === "note") {
-          return { ...base, type: "note" as const, data: { content: n.content ?? "", label: n.label ?? "Note" } };
-        }
-        if (n.node_type === "text") {
-          return { ...base, type: "text" as const, data: { text: n.content ?? "" } };
-        }
-        if (n.node_type === "filetree") {
-          return {
-            ...base,
-            type: "filetree" as const,
-            data: { rootPath: n.path ?? "~", expandedPaths: n.expanded_paths ?? [] },
-          };
-        }
-        if (n.node_type === "attachment") {
-          const path = n.path ?? "";
-          return {
-            ...base,
-            type: "attachment" as const,
-            data: { path, fileName: path.split("/").pop() ?? path },
-          };
-        }
-        if (n.node_type === "portal") {
-          return { ...base, type: "portal" as const, data: { url: n.url ?? "", label: n.label ?? "Portal" } };
-        }
-        return {
-          ...base,
-          type: "terminal" as const,
-          data: {
-            agentType: (n.agent_type ?? "shell") as AgentType,
-            command: n.command,
-            label: n.label ?? n.agent_type ?? "terminal",
-            instructions: n.instructions,
-            scheduleCommand: n.schedule_command,
-            scheduleIntervalSecs: n.schedule_interval_secs,
-            roleId: n.role_id,
-            roleName: n.role_name,
-            roleColor: n.role_color,
-            skipPermissions: n.skip_permissions,
-            cwd: n.cwd,
-            maestro: n.maestro,
-          },
-        };
+        const node = toNode(n, base);
+        return n.floor ? ({ ...node, data: { ...node.data, floor: n.floor } } as AppNode) : node;
       });
+      const floors = data.floors ?? [];
       const edges: AppEdge[] = data.edges.map((e) => ({
         id: e.id,
         source: e.source,
@@ -430,21 +519,21 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           ? { stroke: "#4a4a4a", strokeWidth: 1.5 }
           : undefined,
       }));
-      set({ nodes, edges, hydrated: true });
+      set({ nodes, edges, floors, hydrated: true });
       syncConnections(edges);
       startTerminals(nodes);
       await routinesLoad(name).catch(console.error);
       await migrateScheduledPrompts();
     } catch {
       // No saved scene yet — start empty
-      set({ nodes: [], edges: [], hydrated: true });
+      set({ nodes: [], edges: [], floors: [], hydrated: true });
       syncConnections([]);
       await routinesLoad(name).catch(console.error);
     }
   },
 
   saveScene: async (name) => {
-    const { nodes, edges } = get();
+    const { nodes, edges, floors } = get();
     const data = {
       nodes: nodes.map((n) => {
         const tdata = n.type === "terminal" ? (n.data as TerminalNodeData) : undefined;
@@ -477,6 +566,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           skip_permissions: tdata?.skipPermissions,
           cwd: tdata?.cwd,
           maestro: tdata?.maestro,
+          floor: floorOf(n) === GROUND ? undefined : floorOf(n),
         };
       }),
       edges: edges.map((e) => ({
@@ -487,6 +577,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         source_handle: e.sourceHandle ?? undefined,
         target_handle: e.targetHandle ?? undefined,
       })),
+      floors,
     };
     await saveScene(name, data);
   },

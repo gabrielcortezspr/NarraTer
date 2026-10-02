@@ -1,4 +1,6 @@
-import { useCanvasStore } from "@/stores/canvas";
+import { GROUND, floorOf, useCanvasStore } from "@/stores/canvas";
+import { useWorkspacesStore } from "@/stores/workspaces";
+import { createFloor, findFloor, floorDir } from "@/lib/floors";
 import { useRolesStore } from "@/stores/roles";
 import { toast } from "@/stores/toasts";
 import { fsListDir, systemNotify, type Role } from "@/lib/tauri";
@@ -18,7 +20,7 @@ const NOT_MAESTRO =
   "(the crown in its header) to unlock this command";
 
 export const MANAGER_ACTIONS = new Set([
-  "recruit", "dismiss", "preset_list", "notify",
+  "recruit", "dismiss", "preset_list", "notify", "floor_create", "floor_list",
   "role_list", "role_show", "role_create", "role_write", "role_edit", "role_delete", "role_assign",
 ]);
 
@@ -132,20 +134,34 @@ async function recruit(ctx: Ctx): Promise<string> {
     );
   }
 
+  // --floor: another level of this scene; on a git-isolated floor the
+  // recruit works in the floor's worktree unless --dir says otherwise
+  const floorRef = str(ctx.params.floor).trim();
+  let floorId = floorOf(ctx.me);
+  if (floorRef) {
+    const f = findFloor(floorRef);
+    if (!f) return `Error: no floor named '${floorRef}' — \`narrater floor list\``;
+    floorId = f === "ground" ? GROUND : f.id;
+  }
+  const floorNodes = store.nodes.filter((n) => floorOf(n) === floorId);
+  const cwd = dir || (floorRef ? floorDir(floorId) ?? undefined : ctx.meData.cwd);
+
   const label = uniqueName(store.nodes, "terminal", name || presetOf(agent.agentType).label);
   const id = store.addTerminalNode(
     {
       ...agent,
       label,
       ...(role ? rolePatch(role) : {}),
-      cwd: dir || ctx.meData.cwd,
+      cwd,
+      floor: floorId === GROUND ? undefined : floorId,
     },
-    freeSpot(store.nodes, ctx.me, RECRUIT_SIZE),
+    freeSpot(floorNodes, ctx.me, RECRUIT_SIZE),
   );
   store.addEdge({ id: `edge-${crypto.randomUUID().slice(0, 8)}`, source: ctx.req.from, target: id, type: "agent-pipe" });
   const d = useCanvasStore.getState().nodes.find((n) => n.id === id)?.data as TerminalNodeData;
+  const where = floorRef ? ` on floor '${floorRef}'${cwd ? ` (working in ${cwd})` : ""}` : "";
   return (
-    `ok: recruited '${label}' (${describe(d)}), connected to you. It may still be booting — ` +
+    `ok: recruited '${label}' (${describe(d)})${where}, connected to you. It may still be booting — ` +
     `your first \`narrater ask "${label}" "..."\` waits until it's ready.`
   );
 }
@@ -263,6 +279,40 @@ async function roleCommand(ctx: Ctx): Promise<string> {
   }
 }
 
+function floorList(ctx: Ctx): string {
+  const { floors, nodes } = useCanvasStore.getState();
+  const ws = useWorkspacesStore.getState();
+  const count = (id: string) => nodes.filter((n) => floorOf(n) === id).length;
+  const mine = floorOf(ctx.me);
+  const here = (id: string) => (id === mine ? "  ← you" : "");
+  const lines = [`Ground  ${ws.dirOf(ws.current) ?? "(no directory)"}  (${count(GROUND)} nodes)${here(GROUND)}`];
+  for (const f of floors) {
+    const iso = f.branch ? `branch ${f.branch}  ${f.dir}` : "plain (shares the ground directory)";
+    lines.push(`${f.name}  ${iso}  (${count(f.id)} nodes)${here(f.id)}`);
+  }
+  return lines.join("\n");
+}
+
+async function floorCreate(ctx: Ctx): Promise<string> {
+  const name = str(ctx.params.name);
+  try {
+    const summary = await createFloor({
+      name,
+      branch: str(ctx.params.branch) || undefined,
+      existingBranch: ctx.params.existing_branch === true,
+      noGit: ctx.params.no_git === true,
+      copyGround: ctx.params.copy_ground === true,
+    });
+    const isolated = useCanvasStore.getState().floors.find((f) => f.name === name.trim())?.branch;
+    return (
+      `ok: ${summary}. Staff it with \`narrater recruit "Name" --floor "${name.trim()}"\`` +
+      (isolated ? "; landing its branch is up to the user." : ".")
+    );
+  } catch (e) {
+    return `Error: ${e instanceof Error ? e.message : e}`;
+  }
+}
+
 async function notify(ctx: Ctx): Promise<string> {
   const message = str(ctx.params.message).trim();
   if (!message) return 'Usage: narrater notify "message"';
@@ -289,6 +339,10 @@ export async function handleManager(req: CanvasRequest): Promise<string> {
       return dismiss(ctx);
     case "preset_list":
       return presetList();
+    case "floor_create":
+      return floorCreate(ctx);
+    case "floor_list":
+      return floorList(ctx);
     case "notify":
       return notify(ctx);
     default:
