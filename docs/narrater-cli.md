@@ -32,7 +32,8 @@ Gemini CLI, OpenCode…) knows how to use it. The command set mirrors Maestri's
 | `narrater notify "message"` | Maestro: desktop notification (notify-send) |
 | `narrater routine list \| show \| create \| edit \| enable \| disable \| run \| delete` | Maestro: scheduled prompts/commands into a terminal of the scene, or reminders (`narrater help routine`) |
 | `narrater workspace list \| create \| rename \| move` | Maestro: workspaces (scenes with a directory), sidebar groups/folders, `--from` clones |
-| `narrater floor list \| create` | Maestro: floors of this workspace — a git worktree on its own branch when possible |
+| `narrater floor list \| create \| land \| delete` | Maestro: floors of this workspace — a git worktree on its own branch when possible; land/delete only from Ground |
+| `narrater floor status ["Text"] [--state S] [--progress 2/5]` | Any agent: the status line of its floor (`--floor` is Maestro-only); blocked/review/done notify the user |
 | `narrater say "text" \| <<'EOF' \| --file P \| --attach P \| --progress "…"` | NarraTer Chat: reply to the user's chat message (each say is a bubble) |
 | `narrater recall [thread] [--turns N \| --last … \| --from D [--to D] \| --all] [--json]` | NarraTer Chat: replay a thread; `recall list`, `recall attachment ID` |
 | `narrater debug` | Environment + socket diagnostics |
@@ -154,9 +155,24 @@ and **every floor's terminals keep running** — so `ask`/`check` span floors.
 When the workspace directory is a git repository, a floor gets a
 `git worktree` on its own branch under `~/.local/share/narrater/floors/`
 (`src-tauri/src/floors.rs`) — the Linux take on Maestri's copy-on-write
-clones. Deleting a floor is UI-only (right-click its chip): the worktree goes,
-its branch and commits stay; a dirty worktree asks before discarding.
-`narrater recruit --floor "F"` staffs a floor from anywhere.
+clones. `narrater recruit --floor "F"` staffs a floor from anywhere.
+
+Each level carries a **status line** (`FloorMeta.status`, and
+`ground_status` in the scene file) that agents post with
+`narrater floor status`; the chip shows its state as a colored dot plus the
+progress, the tooltip the text. Moving into `blocked`/`review`/`done` raises
+a toast and a desktop notification.
+
+**Landing** (`narrater floor land`, or *Land…* on the chip's menu) keeps the
+floor's branch in the repo and removes the worktree; `--into BRANCH` merges
+it first — `git merge` when BRANCH is checked out on Ground, otherwise
+`merge-tree --write-tree` + `commit-tree` + `update-ref` (or a fast-forward).
+Conflicts are found with `merge-tree` *before* anything changes, and
+uncommitted work on the floor (untracked included) or on Ground (tracked)
+refuses the land. **Deleting** from the chip keeps the branch;
+`narrater floor delete` deletes it unless `--keep-branch` (printing the sha
+to restore it), and a dirty worktree needs `--force`. Both CLI verbs run only
+from a terminal on Ground.
 
 ## Flow
 

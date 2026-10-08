@@ -1,6 +1,6 @@
 ---
 name: narrater-workspace
-description: Create NarraTer workspaces and floors from the command line, optionally cloning an existing workspace as a starting point; file workspaces into sidebar groups and folders. Use inside NarraTer when the user asks to provision, spin up or scaffold a new workspace or project environment, or an isolated floor (a git worktree on its own branch) for risky or experimental work.
+description: Create NarraTer workspaces and floors from the command line, optionally cloning an existing workspace as a starting point; file workspaces into sidebar groups and folders; land or delete a floor when its work is done; post a floor's status. Use inside NarraTer when the user asks to provision, spin up or scaffold a new workspace or project environment, or an isolated floor (a git worktree on its own branch) for risky or experimental work, or to land, merge back or remove a floor — and whenever you are working on a task on a floor, to keep its status current.
 ---
 
 # NarraTer workspace provisioning
@@ -9,11 +9,16 @@ You're running inside NarraTer, a spatial canvas that connects AI agents, termin
 
 **Workspaces** are standalone canvases, each rooted in its own project directory — isolation *between* projects. **Floors** are levels inside one workspace, optionally backed by a git worktree of its repository on its own branch — isolation *within* a project. These commands provision either without leaving the terminal.
 
-They need **Maestro mode** on your terminal: if one answers "this terminal is not the Maestro", the user must turn it on (the crown in your terminal's header).
+They need **Maestro mode** on your terminal, except `narrater floor status`, which any agent uses for the floor it is on. If one answers "this terminal is not the Maestro", the user must turn it on (the crown in your terminal's header).
+
+## Floor status (any agent)
+
+When you work on a task on a floor, keep that floor's status current with `narrater floor status`. It is the line the user glances at on the floor's chip to see how things stand, so post when you start, at a real milestone, when you need the user (`--state blocked`), and when the work is ready (`--state review`). Moving to `blocked`, `review` or `done` also notifies the user, so use those states only when they are true. One short line in plain words; don't post every step.
 
 ## Scope & safety
 
-- Creation and filing are additive and reversible; renaming only changes a label. There is deliberately **no delete command** — anything destructive (deleting a workspace or a floor, landing a floor's branch) stays in the UI, on explicit user action.
+- Creation and filing are additive and reversible; renaming only changes a label. Workspaces have deliberately **no delete command** — removing one stays in the UI, on explicit user action.
+- Floors are the exception: `narrater floor land` and `narrater floor delete` change the user's project (a merge into their branch, a deleted worktree and branch). **Run them only when the user asks, or after confirming with them** — a floor reporting `review` is ready for the user to decide, not a signal to land it yourself. Both run **from a terminal on the ground level** only.
 - Creation is silent: nothing changes on the user's screen. A new workspace appears in the sidebar; its terminals start when the user opens it.
 - The directory must already exist — create it (and `git init` if wanted) before `workspace create`.
 
@@ -54,14 +59,40 @@ narrater floor create "Refactor Auth" --branch refactor-auth
 narrater floor create "Scratch" --no-git
 ```
 
-Landing a floor's work (merging its branch) is done by the user — there's no CLI command for it.
+### `narrater floor land "Name" [--into BRANCH] [--delete-branch] [--keep-floor]`
+Brings the floor's work into the project, like the Land action on the floor's chip. **Only when the user asks, or after confirming with them; only from Ground.** The floor's branch already lives in the repository (worktrees share history), so landing removes the floor and keeps its branch, ready to review or merge.
+
+- `--into BRANCH` — also merge the floor's branch into BRANCH (e.g. `main`). If BRANCH is checked out on Ground the merge happens there; if it's checked out nowhere, the branch is moved directly.
+- `--delete-branch` — after a merge with `--into`, delete the floor's branch.
+- `--keep-floor` — leave the floor in place after landing.
+
+A land is refused, with nothing changed, when there is uncommitted work on the floor or on the ground, or when the merge would conflict (the files are named). Ask the floor's agent to commit first, or to merge BRANCH into its own branch and resolve the conflict there, then land again.
+
+```
+narrater floor land "Refactor Auth"
+narrater floor land "Refactor Auth" --into main --delete-branch
+```
+
+### `narrater floor delete "Name" [--keep-branch] [--force]`
+Removes the floor — its terminals, notes and other nodes — and its worktree; the branch is deleted too unless `--keep-branch` (the answer prints the commit to bring it back). **Only when the user asks, or after confirming with them; only from Ground.** A worktree with uncommitted work is refused unless `--force`, which discards that work.
 
 ### `narrater floor list`
-Ground and every floor, with branch, worktree path and node count.
+Ground and every floor, with branch, worktree path, node count and status line.
+
+### `narrater floor status ["Text"] [--state working|blocked|review|done] [--progress 2/5] [--floor "Name"] [--clear]`
+The one line the user sees on a floor's chip. Any terminal posts it for the floor it is on; only the Maestro can name another floor with `--floor` (`"Ground"` for the ground level, where a summary of the floors above belongs). `--state` defaults to `working`; moving into `blocked`, `review` or `done` notifies the user, new text or progress in the same state doesn't. `--progress` takes `2/5`, `40%` or `0.4`. Without text it prints the current status; `--clear` removes it. Lines are cut at 120 characters.
+
+```
+narrater floor status "Tests green, wiring the login screen" --progress 3/5
+narrater floor status "Need a decision on the token format" --state blocked
+narrater floor status "Branch committed, ready to land" --state review
+narrater floor status "2 of 3 floors in review" --floor "Ground"
+```
 
 ## Isolated-experiment flow
 
 When the user wants risky or experimental work kept out of the main checkout:
 
 1. `narrater floor create "Experiment" --branch feat/idea`
-2. `narrater recruit "Name" --floor "Experiment" --role "..."` (from the narrater-manager skill) — the recruit works in the floor's worktree, on its own branch, while you and the user stay on the ground floor. The connection spans floors: `narrater ask` and `check` work the same.
+2. `narrater recruit "Name" --floor "Experiment" --role "..."` (from the narrater-manager skill) — the recruit works in the floor's worktree, on its own branch, while you and the user stay on the ground floor. The connection spans floors: `narrater ask` and `check` work the same. Tell the recruit to keep `narrater floor status` current and to commit its work when done.
+3. When the floor reports `review`, tell the user; land it (`narrater floor land "Experiment" --into main`) only when they say so.

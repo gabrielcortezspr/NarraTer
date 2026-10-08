@@ -1,19 +1,35 @@
 import { useEffect, useRef, useState } from "react";
-import { GitBranch, Layers, Plus, Check, X } from "lucide-react";
+import { GitBranch, GitMerge, Layers, Plus, Check, X } from "lucide-react";
 import { GROUND, floorOf, useCanvasStore } from "@/stores/canvas";
 import { useWorkspacesStore } from "@/stores/workspaces";
-import { createFloor, deleteFloor, floorIsDirty } from "@/lib/floors";
+import { createFloor, deleteFloor, describeStatus, floorIsDirty, landFloor } from "@/lib/floors";
+import { floorBranches, type FloorState, type FloorStatusLine } from "@/lib/tauri";
 import { toast } from "@/stores/toasts";
 
 // Scene name + directory, and the floors of the scene: switch, create (a git
 // worktree on its own branch when the scene's directory is a repository),
-// copy a floor's path, delete one (UI only, like Maestri).
+// copy a floor's path, land its branch, delete it. Each chip shows the
+// status line its agents post (`narrater floor status`).
 interface Menu {
   id: string;
   x: number;
   y: number;
-  /** delete → confirm; dirty → confirm discarding uncommitted changes */
-  stage: "menu" | "confirm" | "dirty";
+  /** delete → confirm; dirty → confirm discarding uncommitted changes; land → pick a target */
+  stage: "menu" | "confirm" | "dirty" | "land";
+}
+
+const STATE_COLOR: Record<FloorState, string> = {
+  working: "#60a5fa",
+  blocked: "#f87171",
+  review: "#fbbf24",
+  done: "#4ade80",
+};
+
+/** Land target: "" = keep the branch only, otherwise merge into it. */
+interface LandForm {
+  branches: string[];
+  into: string;
+  deleteBranch: boolean;
 }
 
 function shortPath(p: string): string {
@@ -25,6 +41,7 @@ export default function FloorBar() {
   const current = useWorkspacesStore((s) => s.current);
   const sceneDir = useWorkspacesStore((s) => s.layout.scenes[s.current]?.dir ?? null);
   const floors = useCanvasStore((s) => s.floors);
+  const groundStatus = useCanvasStore((s) => s.groundStatus);
   const currentFloor = useCanvasStore((s) => s.currentFloor);
   const setFloor = useCanvasStore((s) => s.setFloor);
   const counts = useCanvasStore((s) => {
@@ -39,6 +56,7 @@ export default function FloorBar() {
   const [copyGround, setCopyGround] = useState(false);
   const [busy, setBusy] = useState(false);
   const [menu, setMenu] = useState<Menu | null>(null);
+  const [land, setLand] = useState<LandForm | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -80,8 +98,37 @@ export default function FloorBar() {
     }
   };
 
-  const chip = (id: string, label: string, branch?: string | null) => {
+  const openLand = async () => {
+    if (!menu) return;
+    const floor = floors.find((f) => f.id === menu.id);
+    const branches = floor?.worktree ? await floorBranches(floor.worktree).catch(() => []) : [];
+    const targets = branches.filter((b) => b !== floor?.branch);
+    setLand({ branches: targets, into: targets[0] ?? "", deleteBranch: false });
+    setMenu({ ...menu, stage: "land" });
+  };
+
+  const doLand = async (id: string) => {
+    if (!land) return;
+    setMenu(null);
+    setBusy(true);
+    try {
+      const summary = await landFloor(id, { into: land.into || undefined, deleteBranch: land.into ? land.deleteBranch : false });
+      toast.success(`Landed — ${summary}`);
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setBusy(false);
+      setLand(null);
+    }
+  };
+
+  const chip = (id: string, label: string, branch?: string | null, status?: FloorStatusLine | null) => {
     const active = currentFloor === id;
+    const tip = [
+      branch ? `branch ${branch}` : id === GROUND ? "Ground floor" : null,
+      status ? describeStatus(status) : null,
+      id === GROUND ? null : "right-click for more",
+    ].filter(Boolean).join(" · ");
     return (
       <button
         key={id}
@@ -91,13 +138,15 @@ export default function FloorBar() {
           e.preventDefault();
           setMenu({ id, x: e.clientX, y: e.clientY, stage: "menu" });
         }}
-        title={branch ? `branch ${branch} · right-click for more` : id === GROUND ? "Ground floor" : "Right-click for more"}
+        title={tip}
         className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] border transition-colors shrink-0 whitespace-nowrap ${
           active ? "border-[#8b5cf6] text-[#c4b5fd] bg-[#8b5cf614]" : "border-[#222] text-[#555] hover:text-[#999] hover:border-[#333]"
         }`}
       >
+        {status && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: STATE_COLOR[status.state] }} />}
         {branch && <GitBranch size={9} />}
         {label}
+        {status?.progress && <span className="text-[#666]">{status.progress}</span>}
         {(nodeCount[id] ?? 0) > 0 && <span className="text-[#444]">{nodeCount[id]}</span>}
       </button>
     );
@@ -116,8 +165,8 @@ export default function FloorBar() {
       {(floors.length > 0 || creating) && <Layers size={11} className="text-[#333] shrink-0" />}
       {floors.length > 0 && (
         <div className="flex items-center gap-1 overflow-x-auto min-w-0 [scrollbar-width:none]">
-          {chip(GROUND, "Ground")}
-          {floors.map((f) => chip(f.id, f.name, f.branch))}
+          {chip(GROUND, "Ground", null, groundStatus)}
+          {floors.map((f) => chip(f.id, f.name, f.branch, f.status))}
         </div>
       )}
 
@@ -154,7 +203,7 @@ export default function FloorBar() {
 
       {menu && menuFloor && (
         <div
-          className="fixed z-50 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl py-1 w-[230px]"
+          className="fixed z-50 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl py-1 w-[250px]"
           style={{ top: menu.y, left: menu.x }}
           onMouseDown={(e) => e.stopPropagation()}
         >
@@ -163,6 +212,20 @@ export default function FloorBar() {
               <div className="px-3 py-1 text-[9px] text-[#555] break-all">
                 {menuFloor.branch ? `branch ${menuFloor.branch} · ${menuFloor.dir}` : "plain floor (shares the scene's directory)"}
               </div>
+              {menuFloor.status && (
+                <div className="px-3 pb-1 text-[10px] break-words" style={{ color: STATE_COLOR[menuFloor.status.state] }}>
+                  {describeStatus(menuFloor.status)}
+                </div>
+              )}
+              {menuFloor.branch && (
+                <button
+                  onClick={openLand}
+                  disabled={busy}
+                  className="w-full flex items-center gap-1.5 text-left px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a]"
+                >
+                  <GitMerge size={11} /> Land…
+                </button>
+              )}
               {menuFloor.dir && (
                 <button
                   onClick={() => { navigator.clipboard.writeText(menuFloor.dir!).catch(() => {}); setMenu(null); }}
@@ -186,6 +249,41 @@ export default function FloorBar() {
             <button onClick={() => remove(menu.id, false)} className="w-full text-left px-3 py-1.5 text-xs text-[#f87171] hover:bg-[#2a2a2a]">
               Delete '{menuFloor.name}' and everything on it?{menuFloor.branch ? " (the branch stays)" : ""}
             </button>
+          )}
+          {menu.stage === "land" && land && (
+            <div className="px-3 py-2 flex flex-col gap-2 text-[10px] text-[#999]">
+              <label className="flex flex-col gap-1">
+                Bring '{menuFloor.branch}' into
+                <select
+                  value={land.into}
+                  onChange={(e) => setLand({ ...land, into: e.target.value })}
+                  className="bg-[#111] border border-[#333] rounded px-1 py-0.5 text-[#ddd] focus:outline-none focus:border-[#8b5cf6]"
+                >
+                  {land.branches.map((b) => <option key={b} value={b}>{b}</option>)}
+                  <option value="">nothing — keep the branch only</option>
+                </select>
+              </label>
+              {land.into && (
+                <label className="flex items-center gap-1 select-none">
+                  <input
+                    type="checkbox"
+                    checked={land.deleteBranch}
+                    onChange={(e) => setLand({ ...land, deleteBranch: e.target.checked })}
+                    className="accent-[#8b5cf6]"
+                  />
+                  delete '{menuFloor.branch}' after merging
+                </label>
+              )}
+              <div className="text-[9px] text-[#555]">
+                The floor and its worktree go; uncommitted work or a conflict stops it with nothing changed.
+              </div>
+              <button
+                onClick={() => doLand(menu.id)}
+                className="self-start flex items-center gap-1 px-2 py-0.5 rounded border border-[#8b5cf6] text-[#c4b5fd] hover:bg-[#8b5cf61a]"
+              >
+                <GitMerge size={10} /> Land '{menuFloor.name}'
+              </button>
+            </div>
           )}
           {menu.stage === "dirty" && (
             <button onClick={() => remove(menu.id, true)} className="w-full text-left px-3 py-1.5 text-xs text-[#f87171] hover:bg-[#2a2a2a]">

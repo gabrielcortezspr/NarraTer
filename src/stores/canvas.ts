@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { applyNodeChanges, applyEdgeChanges } from "@xyflow/react";
 import type { Node, Edge, NodeChange, EdgeChange, XYPosition } from "@xyflow/react";
 import { loadScene, saveScene, connectionsSync, portalsSync, maestrosSync, routinesLoad, routineUiCreate } from "@/lib/tauri";
-import type { FloorMeta, SceneNode } from "@/lib/tauri";
+import type { FloorMeta, FloorStatusLine, SceneNode } from "@/lib/tauri";
 import { disposeTerminal, replaceTerminal, startTerminal, spawnOptsFor } from "@/lib/terminalManager";
 import type { AgentType } from "@/lib/agents";
 
@@ -94,6 +94,10 @@ interface CanvasStore {
   addFloor: (floor: FloorMeta, copyGround?: { retargetFrom?: string | null }) => void;
   /** Removes a floor and everything on it (its terminals stop). */
   removeFloor: (id: string) => void;
+  /** Status line of the ground level (floors carry their own in FloorMeta). */
+  groundStatus: FloorStatusLine | null;
+  /** Sets (or clears, with null) the status line of the ground or a floor. */
+  setFloorStatus: (id: string, status: FloorStatusLine | null) => void;
   // True once a scene finished loading — gates auto-save and fitView so
   // neither runs against a canvas that is mid-hydration.
   hydrated: boolean;
@@ -238,7 +242,13 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   edges: [],
   floors: [],
   currentFloor: GROUND,
+  groundStatus: null,
   hydrated: false,
+
+  setFloorStatus: (id, status) => {
+    if (id === GROUND) set({ groundStatus: status });
+    else set({ floors: get().floors.map((f) => (f.id === id ? { ...f, status } : f)) });
+  },
 
   setFloor: (id) => {
     if (id !== GROUND && !get().floors.some((f) => f.id === id)) return;
@@ -526,21 +536,21 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
           ? { stroke: "#4a4a4a", strokeWidth: 1.5 }
           : undefined,
       }));
-      set({ nodes, edges, floors, hydrated: true });
+      set({ nodes, edges, floors, groundStatus: data.ground_status ?? null, hydrated: true });
       syncConnections(edges);
       startTerminals(nodes);
       await routinesLoad(name).catch(console.error);
       await migrateScheduledPrompts();
     } catch {
       // No saved scene yet — start empty
-      set({ nodes: [], edges: [], floors: [], hydrated: true });
+      set({ nodes: [], edges: [], floors: [], groundStatus: null, hydrated: true });
       syncConnections([]);
       await routinesLoad(name).catch(console.error);
     }
   },
 
   saveScene: async (name) => {
-    const { nodes, edges, floors } = get();
+    const { nodes, edges, floors, groundStatus } = get();
     const data = {
       nodes: nodes.map((n) => {
         const tdata = n.type === "terminal" ? (n.data as TerminalNodeData) : undefined;
@@ -586,6 +596,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
         target_handle: e.targetHandle ?? undefined,
       })),
       floors,
+      ground_status: groundStatus,
     };
     await saveScene(name, data);
   },

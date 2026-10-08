@@ -52,7 +52,13 @@ Usage:
                                                    (Maestro only) The sidebar hierarchy; rename; refile
   narrater floor create "Name" [--branch B] [--existing-branch] [--no-git] [--copy-ground]
                                                    (Maestro only) New floor of this workspace — a git worktree when possible
-  narrater floor list                              (Maestro only) Ground + floors with branch, path, node count
+  narrater floor list                              (Maestro only) Ground + floors with branch, path, node count, status
+  narrater floor status ["Text"] [--state working|blocked|review|done] [--progress 2/5] [--clear]
+                                                   Post (or print) your floor's status line; --floor "F" is Maestro only
+  narrater floor land "Name" [--into BRANCH] [--delete-branch] [--keep-floor]
+                                                   (Maestro only, from Ground, only when the user asks) Land a floor's branch
+  narrater floor delete "Name" [--keep-branch] [--force]
+                                                   (Maestro only, from Ground, only when the user asks) Remove a floor
   narrater routine list | show "Name"              (Maestro only) Scheduled routines of this scene
   narrater routine create "Name" --command "..." <schedule> [options]
                                                    (Maestro only) Schedule a prompt/command (default target: you)
@@ -274,8 +280,11 @@ any group or folder. There is no delete command — that stays in the UI.""",
     "floor": """Usage:
   narrater floor list
   narrater floor create "Name" [--branch NAME] [--existing-branch] [--no-git] [--copy-ground]
+  narrater floor status ["Text"] [--state working|blocked|review|done] [--progress 2/5] [--floor "F"] [--clear]
+  narrater floor land "Name" [--into BRANCH] [--delete-branch] [--keep-floor]
+  narrater floor delete "Name" [--keep-branch] [--force]
 
-(Maestro only) A floor is a separate canvas inside this workspace. When the
+(Maestro only, except `status`) A floor is a separate canvas inside this workspace. When the
 workspace directory is a git repository, the floor gets its own git worktree
 on its own branch (default: a slug of the name), so a teammate can work there
 without touching the ground checkout. Otherwise it's a plain floor sharing the
@@ -288,7 +297,23 @@ directory, and the answer says why.
 
 Staff a floor without leaving yours: `narrater recruit "Name" --floor "F"` —
 the recruit works in the floor's worktree and stays connected to you, so ask
-and check work across floors. Landing a floor's branch is up to the user.""",
+and check work across floors.
+
+status — the one line the user sees on a floor's chip. Any terminal posts it
+for the floor it is on; only the Maestro may name another with --floor
+("Ground" for the ground level). --state defaults to working; moving into
+blocked, review or done notifies the user. --progress takes 2/5, 40% or 0.4.
+Without text (or flags) it prints the current status; --clear removes it.
+
+land — ONLY when the user asks, from a terminal on Ground. Removes the floor
+and keeps its branch in the project; --into BRANCH also merges it there
+(--delete-branch then deletes the floor's branch); --keep-floor leaves the
+floor in place. Refused, with nothing changed, on uncommitted work on the
+floor or the ground, or when the merge would conflict (the files are named).
+
+delete — ONLY when the user asks, from Ground. Removes the floor, everything
+on it and its worktree, and deletes its branch unless --keep-branch. A
+worktree with uncommitted work is refused unless --force (which discards it).""",
     "routine": """Usage:
   narrater routine list
   narrater routine show "Name" [--id PREFIX]
@@ -692,6 +717,38 @@ def cmd_floor(args):
     verb, rest = args[0], args[1:]
     if verb == "list":
         canvas("floor_list", {})
+    elif verb == "status":
+        params = {}
+        for flag in ("--state", "--progress", "--floor"):
+            value = pop_flag(rest, flag)
+            if value is not None:
+                params[flag[2:]] = value
+        if pop_flag(rest, "--clear", has_value=False):
+            params["clear"] = True
+        if len(rest) > 1 or any(a.startswith("--") for a in rest):
+            fail('Usage: narrater floor status ["Text"] [--state working|blocked|review|done] [--progress 2/5] [--floor "F"] [--clear]')
+        if rest:
+            params["text"] = decode(rest[0])
+        canvas("floor_status", params)
+    elif verb == "land":
+        params = {
+            "into": pop_flag(rest, "--into") or "",
+            "delete_branch": bool(pop_flag(rest, "--delete-branch", has_value=False)),
+            "keep_floor": bool(pop_flag(rest, "--keep-floor", has_value=False)),
+        }
+        if len(rest) != 1 or rest[0].startswith("--"):
+            fail('Usage: narrater floor land "Name" [--into BRANCH] [--delete-branch] [--keep-floor]')
+        params["name"] = rest[0]
+        canvas("floor_land", params)
+    elif verb == "delete":
+        params = {
+            "keep_branch": bool(pop_flag(rest, "--keep-branch", has_value=False)),
+            "force": bool(pop_flag(rest, "--force", has_value=False)),
+        }
+        if len(rest) != 1 or rest[0].startswith("--"):
+            fail('Usage: narrater floor delete "Name" [--keep-branch] [--force]')
+        params["name"] = rest[0]
+        canvas("floor_delete", params)
     elif verb == "create":
         branch = pop_flag(rest, "--branch")
         params = {

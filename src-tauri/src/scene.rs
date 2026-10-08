@@ -76,6 +76,24 @@ pub struct FloorMeta {
     /// subdirectory when the scene root is inside the repo)
     #[serde(default)]
     pub dir: Option<String>,
+    /// The line agents post with `narrater floor status`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<FloorStatusLine>,
+}
+
+/// Where a floor's work stands: one short line, a state and an optional
+/// progress ("2/5", "40%"), shown under the floor in the floor bar.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FloorStatusLine {
+    #[serde(default)]
+    pub text: String,
+    /// working | blocked | review | done
+    pub state: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<String>,
+    /// Epoch ms of the last post
+    #[serde(default)]
+    pub at: u64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -84,6 +102,9 @@ pub struct SceneData {
     pub edges: Vec<SceneEdge>,
     #[serde(default)]
     pub floors: Vec<FloorMeta>,
+    /// Status line of the ground level (a summary of the floors above)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ground_status: Option<FloorStatusLine>,
 }
 
 pub(crate) fn scenes_dir() -> PathBuf {

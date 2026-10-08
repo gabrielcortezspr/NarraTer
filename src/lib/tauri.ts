@@ -74,12 +74,28 @@ export interface FloorMeta {
   worktree?: string | null;
   /** Where its terminals work (absent: the scene's directory) */
   dir?: string | null;
+  /** The line agents post with `narrater floor status` */
+  status?: FloorStatusLine | null;
+}
+
+export type FloorState = "working" | "blocked" | "review" | "done";
+
+/** Where a floor's work stands (shown in the floor bar). */
+export interface FloorStatusLine {
+  text: string;
+  state: FloorState;
+  /** "2/5", "40%" */
+  progress?: string | null;
+  /** Epoch ms of the last post */
+  at: number;
 }
 
 export interface SceneData {
   nodes: SceneNode[];
   edges: SceneEdge[];
   floors?: FloorMeta[];
+  /** Status line of the ground level */
+  ground_status?: FloorStatusLine | null;
 }
 
 /** Message waiting in a terminal's queue (pty_queue event). */
@@ -269,6 +285,17 @@ export const floorPrepare = (opts: {
   });
 export const floorStatus = (worktree: string) => invoke<{ dirty: boolean; branch: string | null }>("floor_status", { worktree });
 export const floorRemove = (worktree: string, force: boolean) => invoke<void>("floor_remove", { worktree, force });
+/** Merges the floor's branch (optionally into `into`) and removes its worktree; returns a summary. */
+export const floorLand = (opts: { worktree: string; branch: string; into?: string; deleteBranch?: boolean; keepFloor?: boolean }) =>
+  invoke<string>("floor_land", {
+    worktree: opts.worktree, branch: opts.branch, into: opts.into ?? null,
+    deleteBranch: opts.deleteBranch ?? false, keepFloor: opts.keepFloor ?? false,
+  });
+/** Removes the floor's worktree and, unless keepBranch, its branch; returns a summary. */
+export const floorDelete = (opts: { worktree: string; branch: string | null; keepBranch: boolean; force: boolean }) =>
+  invoke<string>("floor_delete", opts);
+/** Local branches of a floor's repository, the ground checkout's first. */
+export const floorBranches = (worktree: string) => invoke<string[]>("floor_branches", { worktree });
 
 // ---- NarraTer Chat ----
 

@@ -436,9 +436,15 @@ demais skills reaproveitam. Ordem sugerida:
    e grupos/pastas na sidebar; `workspace create/list/rename/move` com
    `--from`; andares por nó, todos os terminais rodando; `git worktree` por
    andar (`--branch`, `--existing-branch`, `--no-git`, `--copy-ground`);
-   `recruit --floor`; barra de andares; remoção só pela UI; skill
-   `narrater-workspace`). Diferença que fica: o NarraTer roda uma cena por
-   vez, então `recruit --workspace` ainda não existe.
+   `recruit --floor`; barra de andares; skill `narrater-workspace`).
+   Depois (2026-10-08): `floor status` para qualquer agente (ponto de cor e
+   progresso no chip, notificação ao entrar em `blocked/review/done`,
+   `--floor` só para o Maestro), `floor land` com `--into/--delete-branch/
+   --keep-floor` (conflito detectado por `merge-tree` antes de mudar algo;
+   também no menu *Land…* do chip) e `floor delete` com `--keep-branch/
+   --force`, ambos só a partir do térreo. Diferença que fica: o NarraTer
+   roda uma cena por vez, então `recruit --workspace` ainda não existe, e
+   não há `--copy` nem `--pull-request`.
 5. ✅ **maestri-portal-devices → portais Android** (feito: `portal devices`,
    `portal create --simulator` com boot headless do AVD e desligamento quando
    nenhum portal usa; tela no tile por `screencap` com toque, swipe, teclas e

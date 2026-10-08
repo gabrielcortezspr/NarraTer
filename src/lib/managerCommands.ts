@@ -1,9 +1,12 @@
 import { GROUND, floorOf, useCanvasStore } from "@/stores/canvas";
 import { useWorkspacesStore } from "@/stores/workspaces";
-import { createFloor, findFloor, floorDir } from "@/lib/floors";
+import {
+  FLOOR_STATES, createFloor, deleteFloorFully, describeStatus, findFloor, floorDir, floorName, landFloor,
+  parseProgress, postStatus, statusOf,
+} from "@/lib/floors";
 import { useRolesStore } from "@/stores/roles";
 import { toast } from "@/stores/toasts";
-import { fsListDir, systemNotify, type Role } from "@/lib/tauri";
+import { fsListDir, systemNotify, type FloorState, type Role } from "@/lib/tauri";
 import { AGENT_ORDER, AGENT_PRESETS, presetOf, type AgentType } from "@/lib/agents";
 import { findByName, freeSpot, labelOf, neighbors, reachOf, str, uniqueName, type CanvasRequest } from "@/lib/canvasReach";
 import type { AppNode, TerminalNodeData } from "@/stores/canvas";
@@ -20,7 +23,8 @@ const NOT_MAESTRO =
   "(the crown in its header) to unlock this command";
 
 export const MANAGER_ACTIONS = new Set([
-  "recruit", "dismiss", "preset_list", "notify", "floor_create", "floor_list",
+  "recruit", "dismiss", "preset_list", "notify", "floor_create", "floor_list", "floor_land", "floor_delete",
+  "floor_status",
   "role_list", "role_show", "role_create", "role_write", "role_edit", "role_delete", "role_assign",
 ]);
 
@@ -290,7 +294,11 @@ function floorList(ctx: Ctx): string {
     const iso = f.branch ? `branch ${f.branch}  ${f.dir}` : "plain (shares the ground directory)";
     lines.push(`${f.name}  ${iso}  (${count(f.id)} nodes)${here(f.id)}`);
   }
-  return lines.join("\n");
+  // Status lines under each level that has one
+  const levels = [GROUND, ...floors.map((f) => f.id)];
+  return lines
+    .map((l, i) => (statusOf(levels[i]) ? `${l}\n    ${describeStatus(statusOf(levels[i]))}` : l))
+    .join("\n");
 }
 
 async function floorCreate(ctx: Ctx): Promise<string> {
@@ -306,11 +314,86 @@ async function floorCreate(ctx: Ctx): Promise<string> {
     const isolated = useCanvasStore.getState().floors.find((f) => f.name === name.trim())?.branch;
     return (
       `ok: ${summary}. Staff it with \`narrater recruit "Name" --floor "${name.trim()}"\`` +
-      (isolated ? "; landing its branch is up to the user." : ".")
+      (isolated ? "; land or delete it only when the user asks." : ".")
     );
   } catch (e) {
     return `Error: ${e instanceof Error ? e.message : e}`;
   }
+}
+
+/** The floor named in `name` (not Ground), for land/delete from the ground level. */
+function groundOnlyTarget(ctx: Ctx, verb: string): { id: string; name: string } | string {
+  if (floorOf(ctx.me) !== GROUND) {
+    return `Error: a floor is ${verb === "land" ? "landed" : "deleted"} from the ground level — run it from a terminal on Ground, not from a floor`;
+  }
+  const ref = str(ctx.params.name).trim();
+  if (!ref) return `Usage: narrater floor ${verb} "Name"`;
+  const f = findFloor(ref);
+  if (!f) return `Error: no floor named '${ref}' — \`narrater floor list\``;
+  if (f === "ground") return `Error: the ground level can't be ${verb === "land" ? "landed" : "deleted"}`;
+  return { id: f.id, name: f.name };
+}
+
+async function floorLandCmd(ctx: Ctx): Promise<string> {
+  const target = groundOnlyTarget(ctx, "land");
+  if (typeof target === "string") return target;
+  try {
+    const summary = await landFloor(target.id, {
+      into: str(ctx.params.into).trim() || undefined,
+      deleteBranch: ctx.params.delete_branch === true,
+      keepFloor: ctx.params.keep_floor === true,
+    });
+    return `ok: landed '${target.name}' — ${summary}`;
+  } catch (e) {
+    return `Error: ${e instanceof Error ? e.message : e}`;
+  }
+}
+
+async function floorDeleteCmd(ctx: Ctx): Promise<string> {
+  const target = groundOnlyTarget(ctx, "delete");
+  if (typeof target === "string") return target;
+  try {
+    const summary = await deleteFloorFully(target.id, ctx.params.keep_branch === true, ctx.params.force === true);
+    return `ok: deleted floor '${target.name}' and everything on it — ${summary}`;
+  } catch (e) {
+    return `Error: ${e instanceof Error ? e.message : e}`;
+  }
+}
+
+/** `narrater floor status` — any terminal, for its own floor; --floor is the Maestro's. */
+function floorStatusCmd(ctx: Ctx): string {
+  const p = ctx.params;
+  let id = floorOf(ctx.me);
+  const floorRef = str(p.floor).trim();
+  if (floorRef) {
+    if (!ctx.meData.maestro) {
+      return "Error: only the Maestro can post another floor's status — drop --floor to post your own floor's";
+    }
+    const f = findFloor(floorRef);
+    if (!f) return `Error: no floor named '${floorRef}' — \`narrater floor list\``;
+    id = f === "ground" ? GROUND : f.id;
+  }
+  const text = str(p.text).trim();
+  const stateRef = str(p.state).trim().toLowerCase();
+  const progressRef = str(p.progress).trim();
+
+  if (p.clear === true) {
+    useCanvasStore.getState().setFloorStatus(id, null);
+    return `ok: cleared the status of ${floorName(id)}`;
+  }
+  if (!text && !stateRef && !progressRef) return `${floorName(id)}: ${describeStatus(statusOf(id))}`;
+
+  if (stateRef && !FLOOR_STATES.includes(stateRef as FloorState)) {
+    return `Error: --state takes ${FLOOR_STATES.join(", ")}`;
+  }
+  const progress = progressRef ? parseProgress(progressRef) : undefined;
+  if (progress === null) return "Error: --progress takes 2/5, 40% or 0.4";
+  const line = postStatus(
+    id,
+    { text: text || undefined, state: (stateRef || undefined) as FloorState | undefined, progress },
+    labelOf(ctx.me),
+  );
+  return `ok: ${floorName(id)} ${describeStatus(line)}`;
 }
 
 async function notify(ctx: Ctx): Promise<string> {
@@ -329,8 +412,9 @@ export async function handleManager(req: CanvasRequest): Promise<string> {
   const me = useCanvasStore.getState().nodes.find((n) => n.id === req.from);
   if (me?.type !== "terminal") return "Error: unknown terminal";
   const meData = me.data as TerminalNodeData;
-  if (!meData.maestro) return NOT_MAESTRO;
   const ctx: Ctx = { req, params: req.params ?? {}, me, meData };
+  if (req.action === "floor_status") return floorStatusCmd(ctx);
+  if (!meData.maestro) return NOT_MAESTRO;
 
   switch (req.action) {
     case "recruit":
@@ -343,6 +427,10 @@ export async function handleManager(req: CanvasRequest): Promise<string> {
       return floorCreate(ctx);
     case "floor_list":
       return floorList(ctx);
+    case "floor_land":
+      return floorLandCmd(ctx);
+    case "floor_delete":
+      return floorDeleteCmd(ctx);
     case "notify":
       return notify(ctx);
     default:
