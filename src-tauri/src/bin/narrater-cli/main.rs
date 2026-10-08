@@ -38,8 +38,27 @@ fn request_at(sock: &str, payload: &Value) -> String {
     String::from_utf8_lossy(&buf).into_owned()
 }
 
+/// Inside a persistent session (tmux) the shell outlives the app run that
+/// started it: the current socket and token are published in tmux's global
+/// environment under this terminal's key — prefer them.
+fn published(name: &str) -> Option<String> {
+    std::env::var_os("TMUX")?;
+    let key = std::env::var("NARRATER_KEY").ok().filter(|k| !k.is_empty())?;
+    let var = format!("{}_{}", name, key);
+    let out = std::process::Command::new("tmux").args(["show-environment", "-g", &var]).output().ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.trim().strip_prefix(&format!("{}=", var)).map(str::to_string).filter(|v| !v.is_empty())
+}
+
+fn var(name: &str) -> Option<String> {
+    match name {
+        "NARRATER_SOCKET" | "NARRATER_TOKEN" => published(name).or_else(|| std::env::var(name).ok()),
+        _ => std::env::var(name).ok(),
+    }
+}
+
 fn request(payload: &Value) -> String {
-    let sock = std::env::var("NARRATER_SOCKET").unwrap_or_default();
+    let sock = var("NARRATER_SOCKET").unwrap_or_default();
     if sock.is_empty() {
         fail("Error: NARRATER_SOCKET not set. Run this from a NarraTer terminal (`narrater debug` to diagnose).");
     }
@@ -47,7 +66,7 @@ fn request(payload: &Value) -> String {
 }
 
 fn base(mode: &str) -> Map<String, Value> {
-    let env = |k: &str| Value::String(std::env::var(k).unwrap_or_default());
+    let env = |k: &str| Value::String(var(k).unwrap_or_default());
     let mut m = Map::new();
     m.insert("from".into(), env("NARRATER_ID"));
     m.insert("token".into(), env("NARRATER_TOKEN"));
@@ -74,13 +93,16 @@ fn cmd_debug() {
     println!("=== NarraTer CLI Diagnostics ===\n");
     println!("--- Environment ---");
     for k in ENV_KEYS {
-        println!("{:<16} {}", k, std::env::var(k).unwrap_or_else(|_| "(not set)".into()));
+        println!("{:<16} {}", k, var(k).unwrap_or_else(|| "(not set)".into()));
     }
-    let token = if std::env::var("NARRATER_TOKEN").is_ok_and(|t| !t.is_empty()) { "(set)" } else { "(not set)" };
+    if published("NARRATER_SOCKET").is_some() {
+        println!("{:<16} persistent (tmux) — socket and token from the session's published values", "Session");
+    }
+    let token = if var("NARRATER_TOKEN").is_some_and(|t| !t.is_empty()) { "(set)" } else { "(not set)" };
     println!("{:<16} {}", "NARRATER_TOKEN", token);
     let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "(unknown)".into());
     println!("{:<16} {} (v{})", "CLI", exe, env!("CARGO_PKG_VERSION"));
-    let sock = std::env::var("NARRATER_SOCKET").unwrap_or_default();
+    let sock = var("NARRATER_SOCKET").unwrap_or_default();
     println!("\n--- Transport probe ---");
     if sock.is_empty() {
         println!("Socket:          (no NARRATER_SOCKET — not inside a NarraTer terminal?)");
@@ -109,7 +131,7 @@ fn cmd_debug() {
         Ok(_) => println!("Ping:            unexpected answer"),
         Err(e) => println!("Ping:            FAILED ({})", e),
     }
-    if std::env::var("NARRATER_ID").is_ok_and(|id| !id.is_empty()) {
+    if var("NARRATER_ID").is_some_and(|id| !id.is_empty()) {
         let out = request(&Value::Object(base("whoami")));
         println!("Identity:        {}", out.trim().replace('\n', " · "));
     }
@@ -117,7 +139,6 @@ fn cmd_debug() {
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
-    let var = |k: &str| std::env::var(k).ok();
     let mut stdin = || {
         let mut text = String::new();
         (!std::io::stdin().is_terminal()).then(|| std::io::stdin().read_to_string(&mut text).ok()).flatten()?;

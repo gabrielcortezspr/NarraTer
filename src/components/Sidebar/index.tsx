@@ -2,10 +2,11 @@ import { lazy, Suspense, useState, useRef, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen, Plus, Pencil, Trash2, Check, X,
-  ChevronLeft, ChevronRight, Keyboard, Users, Folder, FolderOpen, Square, Server, Container,
+  ChevronLeft, ChevronRight, Keyboard, Users, Folder, FolderOpen, Square, Server, Container, History,
 } from "lucide-react";
 import { toast } from "@/stores/toasts";
 import EnvironmentSheet from "@/components/EnvironmentSheet";
+import BackupsSheet from "@/components/BackupsSheet";
 import { describeEnvironment } from "@/lib/tauri";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import { useCanvasStore } from "@/stores/canvas";
@@ -46,6 +47,8 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
   /** Workspace whose Environment sheet is open */
   const [envFor, setEnvFor] = useState<string | null>(null);
+  /** Workspace whose Backups sheet is open */
+  const [backupsFor, setBackupsFor] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const createInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -311,6 +314,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
       )}
 
       {envFor && <EnvironmentSheet scene={envFor} onClose={() => setEnvFor(null)} />}
+      {backupsFor && <BackupsSheet scene={backupsFor} onClose={() => setBackupsFor(null)} />}
 
       {roleManagerOpen && (
         <Suspense fallback={null}>
@@ -360,6 +364,13 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
             className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors"
           >
             <Server size={12} /> Environment…
+          </button>
+          <button
+            onClick={() => { setBackupsFor(contextMenu.name); setContextMenu(null); }}
+            title="Earlier versions of this workspace's canvas"
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors"
+          >
+            <History size={12} /> Backups…
           </button>
           {running.has(contextMenu.name) && (
             <button

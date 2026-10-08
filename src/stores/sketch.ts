@@ -1,4 +1,8 @@
 import { create } from "zustand";
+import { useCanvasStore } from "@/stores/canvas";
+
+// The pen tool: colour, size and the stroke being drawn. Finished strokes
+// belong to the scene (canvas store `drawings`, saved with it, per floor).
 
 export interface Stroke {
   points: number[][];
@@ -7,7 +11,6 @@ export interface Stroke {
 }
 
 interface SketchStore {
-  strokes: Stroke[];
   currentStroke: number[][];
   isDrawing: boolean;
   color: string;
@@ -19,11 +22,10 @@ interface SketchStore {
   clear: () => void;
   setColor: (color: string) => void;
   setSize: (size: number) => void;
-  loadStrokes: (strokes: Stroke[]) => void;
+
 }
 
 export const useSketchStore = create<SketchStore>((set, get) => ({
-  strokes: [],
   currentStroke: [],
   isDrawing: false,
   color: "#8b5cf6",
@@ -41,20 +43,20 @@ export const useSketchStore = create<SketchStore>((set, get) => ({
       set({ currentStroke: [], isDrawing: false });
       return;
     }
-    set((s) => ({
-      strokes: [...s.strokes, { points: currentStroke, color, size }],
-      currentStroke: [],
-      isDrawing: false,
-    }));
+    useCanvasStore.getState().addDrawing({ points: currentStroke, color, size });
+    set({ currentStroke: [], isDrawing: false });
   },
 
   cancelStroke: () => set({ currentStroke: [], isDrawing: false }),
 
-  undo: () => set((s) => ({ strokes: s.strokes.slice(0, -1) })),
+  undo: () => useCanvasStore.getState().undoDrawing(),
 
-  clear: () => set({ strokes: [], currentStroke: [], isDrawing: false }),
+  clear: () => {
+    useCanvasStore.getState().clearDrawings();
+    set({ currentStroke: [], isDrawing: false });
+  },
 
   setColor: (color) => set({ color }),
   setSize: (size) => set({ size }),
-  loadStrokes: (strokes) => set({ strokes }),
+
 }));

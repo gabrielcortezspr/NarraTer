@@ -97,6 +97,33 @@ pub struct PtySession {
     pub project_dir: PathBuf,
     /// The SSH server / Docker container it runs in (None: this machine)
     pub remote: Option<crate::environments::Environment>,
+    /// Its persistent tmux session (outlives the app), ended when the
+    /// terminal is removed for good
+    pub tmux: Option<TmuxSession>,
+}
+
+/// A terminal's tmux session: local, or in its remote environment.
+#[derive(Clone)]
+pub struct TmuxSession {
+    pub name: String,
+    pub remote: Option<crate::environments::Environment>,
+}
+
+impl TmuxSession {
+    /// Ends it (in the background: a remote one goes over ssh / docker).
+    pub fn end(&self) {
+        let session = self.clone();
+        std::thread::spawn(move || match &session.remote {
+            Some(env) => {
+                let _ = crate::environments::end_sessions(env, Some(&session.name));
+            }
+            None => {
+                if let Some(tmux) = crate::environments::local_tmux() {
+                    crate::environments::local_kill(&tmux, &session.name);
+                }
+            }
+        });
+    }
 }
 
 impl PtySession {
@@ -113,8 +140,9 @@ impl PtySession {
 
     fn compute_turn(&self, now: Instant) -> TurnState {
         let since = now.saturating_duration_since(self.screen.last_change);
-        // Remote: the local process is ssh / docker — only the screen tells
-        let fg = if self.is_shell() && self.remote.is_none() { self.foreground_busy() } else { None };
+        // Remote or inside tmux: the local foreground is ssh / docker / the
+        // tmux client — only the screen tells
+        let fg = if self.is_shell() && self.remote.is_none() && self.tmux.is_none() { self.foreground_busy() } else { None };
         classify(&self.screen.footer(), since, self.is_shell(), fg)
     }
 }
@@ -394,6 +422,24 @@ pub async fn pty_spawn(
     };
     let token = uuid::Uuid::new_v4().simple().to_string();
 
+    // Swapping the agent in place (same id, `recruit --replace`, role
+    // change): its old persistent session must go, or the new spawn would
+    // reattach to the old agent
+    let old_tmux = state.0.lock().unwrap().sessions.get(&id).and_then(|s| s.tmux.clone());
+    if let Some(old) = old_tmux {
+        match &old.remote {
+            Some(env) => {
+                let (env, name) = (env.clone(), old.name.clone());
+                let _ = tauri::async_runtime::spawn_blocking(move || crate::environments::end_sessions(&env, Some(&name))).await;
+            }
+            None => {
+                if let Some(tmux) = crate::environments::local_tmux() {
+                    crate::environments::local_kill(&tmux, &old.name);
+                }
+            }
+        }
+    }
+
     // A workspace on an SSH server or in a Docker container: the terminal is
     // ssh / docker exec running the agent over there
     let remote = match crate::workspaces::environment_of(&scene) {
@@ -422,11 +468,16 @@ pub async fn pty_spawn(
         .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
         .map_err(|e| e.to_string())?;
 
+    let key = crate::environments::session_key(&id);
+    let mut tmux_session = None;
     let (mut cmd, project_dir, spawn_dir) = match &remote {
         Some(r) => {
             let mut cmd = CommandBuilder::new(&r.argv[0]);
             cmd.args(&r.argv[1..]);
             let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+            if r.env.persistent() {
+                tmux_session = Some(TmuxSession { name: format!("narrater-{}", key), remote: Some(r.env.clone()) });
+            }
             (cmd, PathBuf::from(&r.project_dir), home)
         }
         None => {
@@ -444,7 +495,46 @@ pub async fn pty_spawn(
                 }),
                 None => project_dir.clone(),
             };
-            (cmd, project_dir, spawn_dir)
+            // Persistent: the agent runs inside our tmux server, so it keeps
+            // running when NarraTer closes; reopening reattaches (`-A`)
+            let tmux = crate::preferences::get().persistent_sessions.then(crate::environments::local_tmux).flatten();
+            let launched = tmux.and_then(|tmux| {
+                let bin = dirs::home_dir().map(|h| h.join(".local/bin")).unwrap_or_default();
+                let cli = bin.join("narrater").display().to_string();
+                let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+                let socket = crate::ipc::socket_path();
+                let exports = [
+                    ("NARRATER_SOCKET", socket.as_str()),
+                    ("NARRATER_ID", id.as_str()),
+                    ("NARRATER_TOKEN", token.as_str()),
+                    ("NARRATER_LABEL", effective_label.as_str()),
+                    ("NARRATER_SCENE", scene.as_str()),
+                    ("NARRATER_KEY", key.as_str()),
+                    ("NARRATER_CLI", cli.as_str()),
+                    ("PATH", path.as_str()),
+                    ("TERM_PROGRAM", "NarraTer"),
+                    ("COLORTERM", "truecolor"),
+                ];
+                let argv: Vec<String> = std::iter::once(program.clone()).chain(prog_args.iter().cloned()).collect();
+                let run = crate::environments::local_launch(&key, &exports, &spawn_dir, &argv)
+                    .map_err(|e| eprintln!("[NarraTer] persistent session unavailable: {}", e))
+                    .ok()?;
+                crate::environments::local_publish(&tmux, &key, &socket, &token);
+                let name = format!("narrater-{}", key);
+                let mut cmd = CommandBuilder::new(&tmux);
+                cmd.args(["-L", crate::environments::LOCAL_TMUX_SOCKET, "-f"]);
+                cmd.arg(crate::environments::local_tmux_conf());
+                cmd.args(["new-session", "-A", "-s", name.as_str(), "sh"]);
+                cmd.arg(&run);
+                Some((cmd, name))
+            });
+            match launched {
+                Some((tmux_cmd, name)) => {
+                    tmux_session = Some(TmuxSession { name, remote: None });
+                    (tmux_cmd, project_dir, spawn_dir)
+                }
+                None => (cmd, project_dir, spawn_dir),
+            }
         }
     };
     cmd.cwd(&spawn_dir);
@@ -517,6 +607,7 @@ pub async fn pty_spawn(
             token: token.clone(),
             project_dir: project_dir.clone(),
             remote: remote.as_ref().map(|r| r.env.clone()),
+            tmux: tmux_session,
         });
     }
 
@@ -594,6 +685,11 @@ pub fn pty_kill(id: String, state: State<'_, PtyState>) -> Result<(), String> {
     // EOF, reaps the real exit code and does the full cleanup there.
     let mut inner = state.0.lock().unwrap();
     if let Some(session) = inner.sessions.get_mut(&id) {
+        // Removed for good: a persistent session goes too (closing the app
+        // doesn't come through here, so agents outlive it)
+        if let Some(t) = &session.tmux {
+            t.end();
+        }
         session.child.kill().map_err(|e| e.to_string())?;
     }
     Ok(())

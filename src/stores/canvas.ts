@@ -5,7 +5,7 @@ import {
   loadScene, saveScene, connectionsSync, portalsSync, maestrosSync, routinesLoad, routineUiCreate,
   routinesWake, routinesSleep, linksRemoveNode, linksScenes, listScenes,
 } from "@/lib/tauri";
-import type { FloorMeta, FloorStatusLine, SceneData, SceneNode } from "@/lib/tauri";
+import type { Drawing, FloorMeta, FloorStatusLine, SceneData, SceneNode } from "@/lib/tauri";
 import { disposeTerminal, replaceTerminal, startTerminal, spawnOptsFor } from "@/lib/terminalManager";
 import type { AgentType } from "@/lib/agents";
 import { toast } from "@/stores/toasts";
@@ -92,7 +92,11 @@ export interface SceneSlice {
   edges: AppEdge[];
   floors: FloorMeta[];
   groundStatus: FloorStatusLine | null;
+  /** Pen strokes, each on its floor */
+  drawings: Drawing[];
 }
+
+const emptySlice = (): SceneSlice => ({ nodes: [], edges: [], floors: [], groundStatus: null, drawings: [] });
 
 interface CanvasStore {
   /** Name of the scene on screen. */
@@ -117,6 +121,14 @@ interface CanvasStore {
   removeFloor: (id: string) => void;
   /** Status line of the ground level (floors carry their own in FloorMeta). */
   groundStatus: FloorStatusLine | null;
+  /** Pen strokes of the scene on screen (all floors). */
+  drawings: Drawing[];
+  /** Adds a stroke on the floor on screen. */
+  addDrawing: (stroke: Omit<Drawing, "floor">) => void;
+  /** Removes the last stroke of the floor on screen. */
+  undoDrawing: () => void;
+  /** Removes every stroke of the floor on screen. */
+  clearDrawings: () => void;
   /** Sets (or clears, with null) the status line of the ground or a floor of `scene`. */
   setFloorStatus: (id: string, status: FloorStatusLine | null, scene?: string) => void;
   /** Starts a scene in the background (terminals, routines) unless it's live. */
@@ -127,6 +139,9 @@ interface CanvasStore {
   forgetScene: (name: string) => void;
   /** A scene was renamed: a live one follows. */
   renameLiveScene: (oldName: string, newName: string) => void;
+  /** Re-reads a live scene from disk (a backup was restored): terminals
+   *  still in it keep running, the others stop. */
+  reloadScene: (name: string) => Promise<void>;
   // True once a scene finished loading — gates auto-save and fitView so
   // neither runs against a canvas that is mid-hydration.
   hydrated: boolean;
@@ -326,7 +341,7 @@ function hydrate(data: SceneData): SceneSlice {
       ? { stroke: "#4a4a4a", strokeWidth: 1.5 }
       : undefined,
   }));
-  return { nodes, edges, floors: data.floors ?? [], groundStatus: data.ground_status ?? null };
+  return { nodes, edges, floors: data.floors ?? [], groundStatus: data.ground_status ?? null, drawings: data.drawings ?? [] };
 }
 
 /** Slice → what goes in the scene file. */
@@ -377,6 +392,7 @@ function serialize(sl: SceneSlice): SceneData {
     })),
     floors: sl.floors,
     ground_status: sl.groundStatus,
+    drawings: sl.drawings,
   };
 }
 
@@ -427,7 +443,25 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   floors: [],
   currentFloor: GROUND,
   groundStatus: null,
+  drawings: [],
   hydrated: false,
+
+  addDrawing: (stroke) => {
+    const floor = get().currentFloor;
+    set({ drawings: [...get().drawings, { ...stroke, ...(floor === GROUND ? {} : { floor }) }] });
+  },
+
+  undoDrawing: () => {
+    const floor = get().currentFloor;
+    const all = get().drawings;
+    const i = all.map((d) => d.floor ?? GROUND).lastIndexOf(floor);
+    if (i >= 0) set({ drawings: [...all.slice(0, i), ...all.slice(i + 1)] });
+  },
+
+  clearDrawings: () => {
+    const floor = get().currentFloor;
+    set({ drawings: get().drawings.filter((d) => (d.floor ?? GROUND) !== floor) });
+  },
 
   setFloorStatus: (id, status, scene) => {
     const where = id === GROUND ? scene : sceneOfFloor(id) ?? scene;
@@ -474,6 +508,22 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     const { [name]: _gone, ...rest } = get().background;
     set({ background: rest });
     syncConnections();
+  },
+
+  reloadScene: async (name) => {
+    const sl = sliceOf(name);
+    if (!sl) return; // not running: it reads the file when it opens
+    const next = hydrate(await loadScene(name));
+    const keep = new Set(next.nodes.filter((n) => n.type === "terminal").map((n) => n.id));
+    sl.nodes.filter((n) => n.type === "terminal" && !keep.has(n.id)).forEach((n) => disposeTerminal(n.id));
+    if (isOnScreen(name)) {
+      undoStack.length = 0;
+      redoStack.length = 0;
+      set({ currentFloor: GROUND });
+    }
+    writeSlice(name, next);
+    syncConnections();
+    startTerminals(next.nodes, name);
   },
 
   renameLiveScene: (oldName, newName) => {
@@ -541,6 +591,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       floors: floors.filter((f) => f.id !== id),
       nodes: nodes.filter((n) => !gone.has(n.id)),
       edges: nextEdges,
+      drawings: sl.drawings.filter((d) => d.floor !== id),
     });
     if (isOnScreen(scene) && get().currentFloor === id) set({ currentFloor: GROUND });
     syncConnections();
@@ -764,8 +815,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     // workspaces): its agents stay reachable, its routines keep firing.
     let background = st.background;
     if (st.hydrated && st.scene && st.scene !== name) {
-      const { nodes, edges, floors, groundStatus } = st;
-      background = { ...background, [st.scene]: { nodes, edges, floors, groundStatus } };
+      const { nodes, edges, floors, groundStatus, drawings } = st;
+      background = { ...background, [st.scene]: { nodes, edges, floors, groundStatus, drawings } };
     }
     const live = background[name];
     if (live) {
@@ -776,7 +827,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       void wakeLinked(name);
       return;
     }
-    set({ background, scene: name, nodes: [], edges: [], floors: [], groundStatus: null, hydrated: false, currentFloor: GROUND });
+    set({ background, scene: name, ...emptySlice(), hydrated: false, currentFloor: GROUND });
     let slice: SceneSlice;
     try {
       // A missing file loads as an empty scene (backend); an error is a file
@@ -784,7 +835,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       slice = hydrate(await loadScene(name));
     } catch (e) {
       console.error(`can't load "${name}":`, e);
-      toast.error(`Couldn't open workspace "${name}" — its file was left untouched: ${e}`);
+      toast.error(`Couldn't open workspace "${name}" — its file was left untouched; right-click it → Backups… to restore one: ${e}`);
       return;
     }
     set({ ...slice, hydrated: true });

@@ -111,6 +111,20 @@ pub struct SceneData {
     /// Status line of the ground level (a summary of the floors above)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ground_status: Option<FloorStatusLine>,
+    /// Freehand drawings, in canvas coordinates
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub drawings: Vec<Drawing>,
+}
+
+/// A pen stroke drawn on the canvas: points are [x, y, pressure].
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Drawing {
+    pub points: Vec<Vec<f64>>,
+    pub color: String,
+    pub size: f64,
+    /// Floor it was drawn on (None = the ground floor)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub floor: Option<String>,
 }
 
 pub(crate) fn scenes_dir() -> PathBuf {
@@ -144,7 +158,112 @@ pub fn save_scene(name: String, data: SceneData) -> Result<(), String> {
     fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let path = dir.join(format!("{}.json", name));
     let json = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
-    fs::write(&path, json).map_err(|e| e.to_string())
+    backup_before_write(&name, &path, false);
+    write_atomic(&path, &json)
+}
+
+/// Temp file + rename: a crash mid-save never leaves a truncated scene.
+fn write_atomic(path: &std::path::Path, content: &str) -> Result<(), String> {
+    let tmp = path.with_extension(format!("json.tmp-{}", std::process::id()));
+    fs::write(&tmp, content).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, path).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        e.to_string()
+    })
+}
+
+// ---- Backups ----------------------------------------------------------------
+
+/// At most one backup per scene this often (saves happen every second).
+const BACKUP_EVERY_SECS: u64 = 10 * 60;
+const BACKUPS_KEPT: usize = 30;
+
+pub(crate) fn backups_dir(name: &str) -> PathBuf {
+    config_dir().unwrap_or_else(|| PathBuf::from(".")).join("narrater/backups").join(name)
+}
+
+fn backup_files(name: &str) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = fs::read_dir(backups_dir(name))
+        .map(|rd| rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "json")).collect())
+        .unwrap_or_default();
+    files.sort();
+    files
+}
+
+/// Copies the scene file about to be overwritten into its backups (unless
+/// one was made recently, or `force`). Only a file that parses is kept — a
+/// corrupt one would be no use to restore.
+fn backup_before_write(name: &str, path: &std::path::Path, force: bool) {
+    let Ok(current) = fs::read_to_string(path) else { return };
+    if serde_json::from_str::<SceneData>(&current).is_err() {
+        return;
+    }
+    let files = backup_files(name);
+    let recent = files.last().and_then(|f| f.metadata().ok()?.modified().ok()?.elapsed().ok());
+    if !force && recent.is_some_and(|age| age.as_secs() < BACKUP_EVERY_SECS) {
+        return;
+    }
+    // Identical to the last backup: nothing new to keep
+    if files.last().and_then(|f| fs::read_to_string(f).ok()).as_deref() == Some(current.as_str()) {
+        return;
+    }
+    let dir = backups_dir(name);
+    if fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S%.3f");
+    let _ = fs::write(dir.join(format!("{}.json", stamp)), &current);
+    let files = backup_files(name);
+    if files.len() > BACKUPS_KEPT {
+        for old in &files[..files.len() - BACKUPS_KEPT] {
+            let _ = fs::remove_file(old);
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub struct BackupInfo {
+    pub file: String,
+    /// Epoch ms
+    pub at: u64,
+    pub nodes: usize,
+    pub terminals: usize,
+    pub floors: usize,
+}
+
+/// A scene's backups, newest first.
+#[tauri::command]
+pub fn scene_backups(name: String) -> Vec<BackupInfo> {
+    let mut out: Vec<BackupInfo> = backup_files(&name)
+        .into_iter()
+        .filter_map(|p| {
+            let data: SceneData = serde_json::from_str(&fs::read_to_string(&p).ok()?).ok()?;
+            let at = p.metadata().ok()?.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_millis() as u64;
+            Some(BackupInfo {
+                file: p.file_name()?.to_string_lossy().into_owned(),
+                at,
+                nodes: data.nodes.len(),
+                terminals: data.nodes.iter().filter(|n| n.node_type == "terminal").count(),
+                floors: data.floors.len(),
+            })
+        })
+        .collect();
+    out.reverse();
+    out
+}
+
+/// Puts a backup back as the scene file; what was there becomes a backup.
+#[tauri::command]
+pub fn scene_restore_backup(name: String, file: String) -> Result<(), String> {
+    if file.contains('/') || file.contains("..") {
+        return Err("invalid backup".into());
+    }
+    let src = backups_dir(&name).join(&file);
+    let content = fs::read_to_string(&src).map_err(|e| format!("can't read the backup: {}", e))?;
+    serde_json::from_str::<SceneData>(&content).map_err(|e| format!("the backup is unreadable: {}", e))?;
+    let path = scenes_dir().join(format!("{}.json", name));
+    backup_before_write(&name, &path, true);
+    write_atomic(&path, &content)
 }
 
 #[tauri::command]
@@ -200,6 +319,10 @@ pub fn rename_scene(
     if old_path.exists() {
         fs::rename(&old_path, &new_path).map_err(|e| e.to_string())?;
     }
+    let (old_b, new_b) = (backups_dir(&old_name), backups_dir(&new_name));
+    if old_b.exists() && !new_b.exists() {
+        let _ = fs::rename(old_b, new_b);
+    }
     Ok(())
 }
 
@@ -210,4 +333,45 @@ pub fn open_in_editor(editor: String, path: String) -> Result<(), String> {
         .spawn()
         .map(|_| ())
         .map_err(|e| format!("Failed to open '{}': {}", editor, e))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scene(nodes: usize) -> SceneData {
+        let mut d = SceneData::default();
+        for i in 0..nodes {
+            d.nodes.push(serde_json::from_value(serde_json::json!({
+                "id": format!("n{}", i), "node_type": "note", "x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0,
+                "agent_type": null, "command": null, "label": null, "content": null, "instructions": null,
+                "schedule_command": null, "schedule_interval_secs": null, "role_id": null, "role_name": null, "role_color": null
+            })).unwrap());
+        }
+        d
+    }
+
+    #[test]
+    fn backups_keep_valid_versions_and_restore() {
+        let name = format!("backup-test-{}", uuid::Uuid::new_v4().simple());
+        let path = scenes_dir().join(format!("{}.json", name));
+        save_scene(name.clone(), scene(1)).unwrap();
+        // First overwrite backs up the previous version; the next one, minutes
+        // later in real life, is skipped here (too recent)
+        save_scene(name.clone(), scene(2)).unwrap();
+        save_scene(name.clone(), scene(3)).unwrap();
+        let list = scene_backups(name.clone());
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].nodes, 1);
+        // A corrupt scene file is never backed up
+        fs::write(&path, "{ not json").unwrap();
+        backup_before_write(&name, &path, true);
+        assert_eq!(scene_backups(name.clone()).len(), 1);
+        // Restore: the backup comes back
+        scene_restore_backup(name.clone(), list[0].file.clone()).unwrap();
+        assert_eq!(load_scene(name.clone()).unwrap().nodes.len(), 1);
+        assert!(scene_restore_backup(name.clone(), "../x.json".into()).is_err());
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_dir_all(backups_dir(&name));
+    }
 }

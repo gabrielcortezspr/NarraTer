@@ -277,6 +277,11 @@ pub struct RemoteInfo {
 
 static SETUP: Mutex<Option<HashMap<String, RemoteInfo>>> = Mutex::new(None);
 
+/// Our tmux settings (local and remote sessions run on their own tmux
+/// server): no status bar, no ESC delay for the agents' TUIs, mouse wheel
+/// scrolls the history.
+pub const TMUX_CONF: &str = "set -g status off\nset -g escape-time 0\nset -g mouse on\nset -g history-limit 50000\n";
+
 /// The wrapper agents call as `narrater` in a remote workspace.
 pub const WRAPPER: &str = include_str!("../assets/narrater-remote.sh");
 
@@ -292,6 +297,7 @@ pub fn ensure_setup(env: &Environment, skills: &[(&str, &str)], force: bool) -> 
     let mut script = String::from("set -e\nmkdir -p \"$HOME/.narrater/bin\" \"$HOME/.narrater/launch\"\n");
     script.push_str(&write_file("\"$HOME/.narrater/bin/narrater\"", WRAPPER));
     script.push_str("chmod +x \"$HOME/.narrater/bin/narrater\"\n");
+    script.push_str(&write_file("\"$HOME/.narrater/tmux.conf\"", TMUX_CONF));
     for base in SKILL_DIRS {
         for (name, content) in skills {
             let dir = format!("\"$HOME\"/{}", sh_quote(&format!("{}/{}", base, name)));
@@ -477,10 +483,10 @@ fn launch_script(env: &Environment, info: &RemoteInfo, l: &Launch) -> Result<(St
     if env.persistent() {
         launch.push_str(&format!(
             "if command -v tmux >/dev/null 2>&1; then\n\
-             \ttmux -L narrater start-server 2>/dev/null || true\n\
+             \ttmux -L narrater -f \"$HOME/.narrater/tmux.conf\" start-server 2>/dev/null || true\n\
              \ttmux -L narrater set-environment -g NARRATER_BRIDGE_{key} {bridge} 2>/dev/null || true\n\
              \ttmux -L narrater set-environment -g NARRATER_TOKEN_{key} {token} 2>/dev/null || true\n\
-             \texec tmux -L narrater new-session -A -s narrater-{key} \"sh $HOME/.narrater/launch/{key}.run\"\n\
+             \texec tmux -L narrater -f \"$HOME/.narrater/tmux.conf\" new-session -A -s narrater-{key} \"sh $HOME/.narrater/launch/{key}.run\"\n\
              fi\n",
             key = key,
             bridge = sh_quote(l.bridge),
@@ -723,4 +729,77 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "Dev's in rev");
         let _ = std::fs::remove_dir_all(&home);
     }
+}
+
+// ---- Local persistent sessions ----------------------------------------------
+
+/// The tmux server local agents run on (separate from the user's own).
+pub const LOCAL_TMUX_SOCKET: &str = "narrater-local";
+
+/// tmux on this machine, if installed (looked up once per run).
+pub fn local_tmux() -> Option<std::path::PathBuf> {
+    static FOUND: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    FOUND
+        .get_or_init(|| {
+            std::env::var_os("PATH").and_then(|paths| {
+                std::env::split_paths(&paths).map(|d| d.join("tmux")).find(|p| p.is_file())
+            })
+        })
+        .clone()
+}
+
+fn local_dir() -> std::path::PathBuf {
+    dirs::data_local_dir().unwrap_or_else(std::env::temp_dir).join("narrater")
+}
+
+/// Our tmux config file (written when it changed).
+pub fn local_tmux_conf() -> std::path::PathBuf {
+    let path = local_dir().join("tmux.conf");
+    if std::fs::read_to_string(&path).ok().as_deref() != Some(TMUX_CONF) {
+        let _ = std::fs::create_dir_all(local_dir());
+        let _ = std::fs::write(&path, TMUX_CONF);
+    }
+    path
+}
+
+/// Writes the script a persistent local terminal runs inside tmux: its
+/// identity, directory and agent command.
+pub fn local_launch(key: &str, exports: &[(&str, &str)], dir: &Path, argv: &[String]) -> Result<std::path::PathBuf, String> {
+    let launch = local_dir().join("launch");
+    std::fs::create_dir_all(&launch).map_err(|e| e.to_string())?;
+    let mut run = String::new();
+    for (k, v) in exports {
+        run.push_str(&format!("export {}={}\n", k, sh_quote(v)));
+    }
+    run.push_str(&format!("cd {} 2>/dev/null || cd \"$HOME\"\n", sh_quote(&dir.display().to_string())));
+    let argv: Vec<String> = argv.iter().map(|a| sh_quote(a)).collect();
+    run.push_str(&format!("exec {}\n", argv.join(" ")));
+    let path = launch.join(format!("{}.run", key));
+    std::fs::write(&path, run).map_err(|e| e.to_string())?;
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700));
+    Ok(path)
+}
+
+/// Runs a tmux command on our local server (best effort).
+fn local_tmux_cmd(tmux: &Path, args: &[&str]) -> bool {
+    Command::new(tmux)
+        .args(["-L", LOCAL_TMUX_SOCKET])
+        .args(args)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+/// A reattached shell keeps its old environment: the app's current socket
+/// and the terminal's new token are published for the CLI to prefer.
+pub fn local_publish(tmux: &Path, key: &str, socket: &str, token: &str) {
+    local_tmux_cmd(tmux, &["set-environment", "-g", &format!("NARRATER_SOCKET_{}", key), socket]);
+    local_tmux_cmd(tmux, &["set-environment", "-g", &format!("NARRATER_TOKEN_{}", key), token]);
+}
+
+/// Ends a local persistent session (its terminal was removed for good).
+pub fn local_kill(tmux: &Path, session: &str) {
+    local_tmux_cmd(tmux, &["kill-session", "-t", session]);
 }

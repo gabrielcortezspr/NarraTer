@@ -8,6 +8,7 @@ mod floors;
 mod fsops;
 mod ipc;
 mod names;
+mod preferences;
 mod pty;
 mod roles;
 mod routines;
@@ -68,6 +69,10 @@ pub fn run() {
             names::link_add,
             names::links_remove_node,
             names::links_scenes,
+            preferences::preferences_get,
+            scene::scene_backups,
+            scene::scene_restore_backup,
+            preferences::preferences_set,
             workspaces::workspace_set_environment,
             workspaces::environment_test,
             workspaces::environment_ssh_hosts,

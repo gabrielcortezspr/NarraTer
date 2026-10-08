@@ -73,7 +73,7 @@ export function useAutoSave() {
           }
         }
         if (!s.hydrated || !prev.hydrated || s.scene !== prev.scene) return;
-        if (s.nodes === prev.nodes && s.edges === prev.edges && s.floors === prev.floors && s.groundStatus === prev.groundStatus) return;
+        if (s.nodes === prev.nodes && s.edges === prev.edges && s.floors === prev.floors && s.groundStatus === prev.groundStatus && s.drawings === prev.drawings) return;
         usePersistenceStore.getState().set("dirty");
         if (timer) clearTimeout(timer);
         timer = setTimeout(persist, DEBOUNCE_MS);

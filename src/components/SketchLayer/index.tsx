@@ -1,7 +1,9 @@
 import { useCallback, useRef } from "react";
 import { useViewport } from "@xyflow/react";
 import { getStroke } from "perfect-freehand";
-import { useSketchStore, type Stroke } from "@/stores/sketch";
+import { useSketchStore } from "@/stores/sketch";
+import { GROUND, useCanvasStore } from "@/stores/canvas";
+import type { Drawing } from "@/lib/tauri";
 
 function strokeToPath(points: number[][], size: number): string {
   const outline = getStroke(points, {
@@ -28,8 +30,11 @@ interface Props {
 
 export default function SketchLayer({ active }: Props) {
   const { x: vpX, y: vpY, zoom } = useViewport();
-  const { strokes, currentStroke, color, size, addPoint, commitStroke, cancelStroke } =
-    useSketchStore();
+  const { currentStroke, color, size, addPoint, commitStroke, cancelStroke } = useSketchStore();
+  // The scene's strokes on the floor on screen
+  const drawings = useCanvasStore((s) => s.drawings);
+  const floor = useCanvasStore((s) => s.currentFloor);
+  const strokes = drawings.filter((d) => (d.floor ?? GROUND) === floor);
   const svgRef = useRef<SVGSVGElement>(null);
   const isPointerDown = useRef(false);
 
@@ -98,7 +103,7 @@ export default function SketchLayer({ active }: Props) {
       onPointerLeave={handlePointerLeave}
     >
       <g transform={`translate(${vpX},${vpY}) scale(${zoom})`}>
-        {strokes.map((stroke: Stroke, i: number) => {
+        {strokes.map((stroke: Drawing, i: number) => {
           const d = strokeToPath(stroke.points, stroke.size);
           return d ? (
             <path key={i} d={d} fill={stroke.color} opacity={0.85} />

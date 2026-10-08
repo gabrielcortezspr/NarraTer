@@ -111,6 +111,16 @@ export interface SceneData {
   floors?: FloorMeta[];
   /** Status line of the ground level */
   ground_status?: FloorStatusLine | null;
+  /** Freehand drawings (canvas coordinates) */
+  drawings?: Drawing[];
+}
+
+/** A pen stroke: points are [x, y, pressure]; floor absent = ground. */
+export interface Drawing {
+  points: number[][];
+  color: string;
+  size: number;
+  floor?: string | null;
 }
 
 /** Message waiting in a terminal's queue (pty_queue event). */
@@ -263,6 +273,21 @@ export const routineRun = (id: string) => invoke<string>("routine_run", { id });
 
 /** Terminals in Maestro mode (gates Maestro-only CLI commands in the backend). */
 export const maestrosSync = (ids: string[]) => invoke<void>("maestros_sync", { ids });
+
+// ---- Backups ----
+
+export interface BackupInfo {
+  file: string;
+  /** Epoch ms */
+  at: number;
+  nodes: number;
+  terminals: number;
+  floors: number;
+}
+/** A workspace's backups, newest first. */
+export const sceneBackups = (name: string) => invoke<BackupInfo[]>("scene_backups", { name });
+/** Puts a backup back (the current version becomes a backup first). */
+export const sceneRestoreBackup = (name: string, file: string) => invoke<void>("scene_restore_backup", { name, file });
 
 // ---- Live scenes and cross-workspace links ----
 

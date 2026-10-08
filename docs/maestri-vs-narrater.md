@@ -519,6 +519,20 @@ demais skills reaproveitam. Ordem sugerida:
      Docker — list/ask/debug pelo CLI remoto, reconexão ao tmux mantendo o
      shell, e o Test acusando `AllowTcpForwarding no`.
 
+9. ✅ **Robustez no desktop** (2026-10-08):
+   - **Desenhos salvos com a cena**, por andar (antes ficavam só na memória
+     e sumiam ao trocar de workspace ou fechar o app).
+   - **Agentes sobrevivem ao fechamento do app**: com tmux instalado (e a
+     preferência `persistent_sessions`, ligada por padrão), terminais
+     locais rodam num servidor tmux próprio (`-L narrater-local`); reabrir
+     reanexa, e socket/token novos são publicados no tmux para o CLI.
+     Remover o terminal ou "Stop agents" encerra a sessão; fechar o app não.
+     Sem tmux, tudo segue como antes.
+   - **Backups dos workspaces**: a versão anterior do arquivo vai para
+     `backups/<cena>/` (no máximo a cada 10 min, 30 guardados, só JSON
+     válido); gravação atômica; "Backups…" no menu do workspace restaura,
+     guardando a versão atual como backup.
+
 Com isso, todas as skills do Maestri têm equivalente no NarraTer. O que
 segue diferente: tela Android por polling e o acesso remoto/celular do
 Maestri Chat ("Maestri Remote").

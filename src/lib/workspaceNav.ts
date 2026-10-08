@@ -50,7 +50,8 @@ export async function switchWorkspace(name: string): Promise<void> {
     await saveNow();
     await useCanvasStore.getState().loadScene(name);
     useWorkspacesStore.getState().setCurrent(name);
-    useSketchStore.getState().clear();
+    // A stroke in progress doesn't follow (the scene's drawings do)
+    useSketchStore.getState().cancelStroke();
     mru = [name, from, ...mru.filter((n) => n !== name && n !== from)];
   })();
   try {
