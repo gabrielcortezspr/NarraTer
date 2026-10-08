@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { GitBranch, GitMerge, Layers, Plus, Check, X } from "lucide-react";
+import { ExternalLink, GitBranch, GitMerge, GitPullRequest, Layers, Plus, Check, X } from "lucide-react";
 import { GROUND, floorOf, useCanvasStore } from "@/stores/canvas";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import { createFloor, deleteFloor, describeStatus, floorIsDirty, landFloor } from "@/lib/floors";
-import { floorBranches, type FloorState, type FloorStatusLine } from "@/lib/tauri";
+import {
+  floorBranches, floorPrMerge, floorPrStatus, openInEditor, type FloorState, type FloorStatusLine,
+} from "@/lib/tauri";
 import { toast } from "@/stores/toasts";
 
 // Scene name + directory, and the floors of the scene: switch, create (a git
@@ -14,9 +16,12 @@ interface Menu {
   id: string;
   x: number;
   y: number;
-  /** delete → confirm; dirty → confirm discarding uncommitted changes; land → pick a target */
-  stage: "menu" | "confirm" | "dirty" | "land";
+  /** delete → confirm; dirty → confirm discarding uncommitted changes; land → pick a target; merge → confirm the PR merge */
+  stage: "menu" | "confirm" | "dirty" | "land" | "merge";
 }
+
+/** "#42", "42" or a pull/merge request link typed as a new floor's name. */
+const PR_REF = /^#\d+$|^https?:\/\/\S+\/(pull|merge_requests)\/\d+/;
 
 const STATE_COLOR: Record<FloorState, string> = {
   working: "#60a5fa",
@@ -57,11 +62,26 @@ export default function FloorBar() {
   const [busy, setBusy] = useState(false);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [land, setLand] = useState<LandForm | null>(null);
+  /** Pull request status of the floor whose menu is open (null: loading) */
+  const [prStatus, setPrStatus] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (creating) inputRef.current?.focus();
   }, [creating]);
+
+  const menuId = menu?.id;
+  useEffect(() => {
+    setPrStatus(null);
+    const floor = floors.find((f) => f.id === menuId);
+    if (!floor?.pull_request || !floor.worktree) return;
+    let live = true;
+    floorPrStatus(floor.worktree, floor.pull_request)
+      .then((s) => live && setPrStatus(s))
+      .catch((e) => live && setPrStatus(`status unavailable — ${e}`));
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuId]);
 
   useEffect(() => {
     if (!menu) return;
@@ -74,9 +94,12 @@ export default function FloorBar() {
     if (!name.trim()) { setCreating(false); return; }
     setBusy(true);
     try {
-      const summary = await createFloor({ name, copyGround });
+      const ref = name.trim();
+      const { name: created_, summary } = await createFloor(
+        PR_REF.test(ref) ? { name: "", pullRequest: ref, copyGround } : { name, copyGround },
+      );
       toast.success(summary);
-      const created = useCanvasStore.getState().floors.find((f) => f.name === name.trim());
+      const created = useCanvasStore.getState().floors.find((f) => f.name === created_);
       if (created) setFloor(created.id);
       setCreating(false);
       setName("");
@@ -101,10 +124,24 @@ export default function FloorBar() {
   const openLand = async () => {
     if (!menu) return;
     const floor = floors.find((f) => f.id === menu.id);
-    const branches = floor?.worktree ? await floorBranches(floor.worktree).catch(() => []) : [];
+    const branches = floor?.worktree ? await floorBranches(floor.worktree, sceneDir).catch(() => []) : [];
     const targets = branches.filter((b) => b !== floor?.branch);
     setLand({ branches: targets, into: targets[0] ?? "", deleteBranch: false });
     setMenu({ ...menu, stage: "land" });
+  };
+
+  const doMerge = async (id: string) => {
+    const floor = floors.find((f) => f.id === id);
+    setMenu(null);
+    if (!floor?.pull_request || !floor.worktree) return;
+    setBusy(true);
+    try {
+      toast.success(await floorPrMerge(floor.worktree, floor.pull_request));
+    } catch (e) {
+      toast.error(String(e));
+    } finally {
+      setBusy(false);
+    }
   };
 
   const doLand = async (id: string) => {
@@ -144,7 +181,7 @@ export default function FloorBar() {
         }`}
       >
         {status && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: STATE_COLOR[status.state] }} />}
-        {branch && <GitBranch size={9} />}
+        {branch && (floors.find((f) => f.id === id)?.pull_request ? <GitPullRequest size={9} /> : <GitBranch size={9} />)}
         {label}
         {status?.progress && <span className="text-[#666]">{status.progress}</span>}
         {(nodeCount[id] ?? 0) > 0 && <span className="text-[#444]">{nodeCount[id]}</span>}
@@ -181,7 +218,7 @@ export default function FloorBar() {
               if (e.key === "Enter") submit();
               if (e.key === "Escape") { setCreating(false); setName(""); }
             }}
-            placeholder="floor name…"
+            placeholder="name, or #PR / PR link…"
             className="w-28 bg-[#1a1a1a] border border-[#333] text-white text-[10px] rounded px-2 py-0.5 focus:outline-none focus:border-[#8b5cf6]"
           />
           <label className="flex items-center gap-1 text-[9px] text-[#555] select-none" title="Start the floor with a copy of the ground floor's layout">
@@ -212,6 +249,30 @@ export default function FloorBar() {
               <div className="px-3 py-1 text-[9px] text-[#555] break-all">
                 {menuFloor.branch ? `branch ${menuFloor.branch} · ${menuFloor.dir}` : "plain floor (shares the scene's directory)"}
               </div>
+              {menuFloor.pull_request && (
+                <div className="px-3 pb-1 flex flex-col gap-1 text-[10px]">
+                  <div className="text-[#ccc] break-words">
+                    #{menuFloor.pull_request.number} {menuFloor.pull_request.title}
+                    {!menuFloor.pull_request.same_repo && <span className="text-[#777]"> · from a fork (commits here can't reach it)</span>}
+                  </div>
+                  <div className="text-[#777] break-words">{prStatus ?? "checking the pull request…"}</div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => { openInEditor("xdg-open", menuFloor.pull_request!.url).catch((e) => toast.error(String(e))); setMenu(null); }}
+                      className="flex items-center gap-1 text-[#93c5fd] hover:text-white"
+                    >
+                      <ExternalLink size={10} /> Open
+                    </button>
+                    <button
+                      onClick={() => setMenu({ ...menu, stage: "merge" })}
+                      disabled={busy}
+                      className="flex items-center gap-1 text-[#c4b5fd] hover:text-white"
+                    >
+                      <GitMerge size={10} /> Merge…
+                    </button>
+                  </div>
+                </div>
+              )}
               {menuFloor.status && (
                 <div className="px-3 pb-1 text-[10px] break-words" style={{ color: STATE_COLOR[menuFloor.status.state] }}>
                   {describeStatus(menuFloor.status)}
@@ -248,6 +309,11 @@ export default function FloorBar() {
           {menu.stage === "confirm" && (
             <button onClick={() => remove(menu.id, false)} className="w-full text-left px-3 py-1.5 text-xs text-[#f87171] hover:bg-[#2a2a2a]">
               Delete '{menuFloor.name}' and everything on it?{menuFloor.branch ? " (the branch stays)" : ""}
+            </button>
+          )}
+          {menu.stage === "merge" && menuFloor.pull_request && (
+            <button onClick={() => doMerge(menu.id)} className="w-full text-left px-3 py-1.5 text-xs text-[#c4b5fd] hover:bg-[#2a2a2a]">
+              Merge pull request #{menuFloor.pull_request.number} on {menuFloor.pull_request.provider === "gitlab" ? "GitLab" : "GitHub"}?
             </button>
           )}
           {menu.stage === "land" && land && (

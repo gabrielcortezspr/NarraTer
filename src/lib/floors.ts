@@ -10,11 +10,16 @@ import {
 // lines, landing and removal, shared by the floor bar and `narrater floor …`.
 
 export interface CreateFloorOpts {
+  /** Optional with pullRequest (defaults to "#42 Title") */
   name: string;
   branch?: string;
   existingBranch?: boolean;
   noGit?: boolean;
   copyGround?: boolean;
+  /** A full copy of the repository instead of a worktree */
+  copy?: boolean;
+  /** Review an open pull request: 42, #42 or its link */
+  pullRequest?: string;
 }
 
 /** Working directory of a floor: its worktree, else the scene's directory. */
@@ -31,27 +36,41 @@ export function findFloor(name: string): FloorMeta | "ground" | undefined {
   return useCanvasStore.getState().floors.find((f) => f.name.toLowerCase() === wanted);
 }
 
-/** Creates a floor on the open scene; returns a one-line summary. */
-export async function createFloor(opts: CreateFloorOpts): Promise<string> {
-  const name = opts.name.trim();
-  if (!name) throw new Error("the floor needs a name");
-  if (name.toLowerCase() === "ground" || findFloor(name)) throw new Error(`a floor named '${name}' already exists`);
+const nameTaken = (name: string) => name.toLowerCase() === "ground" || !!findFloor(name);
+
+/** Creates a floor on the open scene; returns its name and a one-line summary. */
+export async function createFloor(opts: CreateFloorOpts): Promise<{ name: string; summary: string }> {
+  let name = opts.name.trim();
+  if (!name && !opts.pullRequest) throw new Error("the floor needs a name");
+  if (name && nameTaken(name)) throw new Error(`a floor named '${name}' already exists`);
   const ws = useWorkspacesStore.getState();
   const root = ws.dirOf(ws.current);
   const info = await floorPrepare({
     root, scene: ws.current, name, branch: opts.branch, existingBranch: opts.existingBranch, noGit: opts.noGit,
+    copy: opts.copy, pullRequest: opts.pullRequest,
+    takenPrs: useCanvasStore.getState().floors.flatMap((f) => (f.pull_request ? [f.pull_request.number] : [])),
   });
+  if (!name) {
+    const base = info.name ?? `#${info.pull_request?.number}`;
+    name = base;
+    for (let i = 2; nameTaken(name); i++) name = `${base} (${i})`;
+  }
   const floor: FloorMeta = {
     id: `floor-${crypto.randomUUID().slice(0, 8)}`,
     name,
     branch: info.branch,
     worktree: info.worktree,
     dir: info.dir,
+    ...(info.copy ? { copy: true } : {}),
+    ...(info.pull_request ? { pull_request: info.pull_request } : {}),
   };
   useCanvasStore.getState().addFloor(floor, opts.copyGround ? { retargetFrom: root } : undefined);
-  return info.branch
-    ? `floor '${name}' created — git-isolated worktree on branch '${info.branch}' at ${info.dir}`
+  const kind = info.copy ? "a copy of the repository" : "git-isolated worktree";
+  const pr = info.pull_request ? ` reviewing pull request #${info.pull_request.number} (${info.pull_request.url})` : "";
+  const summary = info.branch
+    ? `floor '${name}' created${pr} — ${kind} on branch '${info.branch}' at ${info.dir}${info.note ? `; ${info.note}` : ""}`
     : `floor '${name}' created — ${info.note ?? "plain floor"}`;
+  return { name, summary };
 }
 
 /**
@@ -152,7 +171,8 @@ export async function landFloor(id: string, opts: LandOpts): Promise<string> {
   if (!floor.worktree || !floor.branch) {
     throw new Error(`'${floor.name}' is a plain floor — it has no branch to land; delete it instead`);
   }
-  const summary = await floorLand({ worktree: floor.worktree, branch: floor.branch, ...opts });
+  const ws = useWorkspacesStore.getState();
+  const summary = await floorLand({ worktree: floor.worktree, branch: floor.branch, root: ws.dirOf(ws.current), ...opts });
   if (!opts.keepFloor) useCanvasStore.getState().removeFloor(id);
   return summary;
 }

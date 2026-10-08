@@ -543,20 +543,32 @@ fn cmd_floor(mut a: Args) {
         }
         "create" => {
             let branch = a.value("--branch").unwrap_or_default();
+            let pull_request = a.value("--pull-request").unwrap_or_default();
             let existing_branch = a.flag("--existing-branch");
             let no_git = a.flag("--no-git");
+            let copy = a.flag("--copy");
             let copy_ground = a.flag("--copy-ground");
-            if a.len() != 1 {
-                fail(r#"Usage: narrater floor create "Name" [--branch B] [--existing-branch] [--no-git] [--copy-ground]"#);
+            if let Some(flag) = a.0.iter().find(|x| x.starts_with("--")) {
+                fail(&format!("Error: unknown flag {} — run `narrater help floor`", flag));
+            }
+            let named = a.len() == 1 || (a.len() == 0 && !pull_request.is_empty());
+            if !named {
+                fail(r#"Usage: narrater floor create "Name" [--branch B] [--existing-branch] [--copy] [--no-git] [--copy-ground]
+       narrater floor create ["Name"] --pull-request NUMBER|URL [--copy] [--copy-ground]"#);
+            }
+            if !pull_request.is_empty() && (!branch.is_empty() || existing_branch || no_git) {
+                fail("Error: --branch, --existing-branch and --no-git don't apply with --pull-request");
             }
             canvas(
                 "floor_create",
                 json!({
-                    "name": a.get(0),
+                    "name": if a.len() == 1 { a.get(0) } else { "" },
                     "branch": branch,
                     "existing_branch": existing_branch,
                     "no_git": no_git,
+                    "copy": copy,
                     "copy_ground": copy_ground,
+                    "pull_request": pull_request,
                 }),
             );
         }

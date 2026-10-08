@@ -46,11 +46,12 @@ Only the label changes — canvas, floors, routines and directory stay.
 ### `narrater workspace list`
 The sidebar hierarchy — root workspaces, folders, groups — with each workspace's directory and floor count, marking yours. Run it before `create` or `move` to pick a free name, the exact `--from` source and where to file it.
 
-### `narrater floor create "Name" [--branch NAME] [--existing-branch] [--no-git] [--copy-ground]`
-Adds a floor to **your own workspace**. When the workspace directory is a git repository, the floor gets its own **git worktree** on its own branch (default: a slug of the floor name), outside the project, so work there can't disturb the ground floor. Otherwise a plain floor is created and the answer says why.
+### `narrater floor create "Name" [--branch NAME] [--existing-branch] [--copy] [--no-git] [--copy-ground]`
+Adds a floor to **your own workspace**. When the workspace directory is a git repository, the floor gets its own **git worktree** on its own branch (default: a slug of the floor name), outside the project, so work there can't disturb the ground floor. The worktree shares the project's history: its branch and commits are in the project from the start. Otherwise a plain floor is created and the answer says why.
 
 - `--branch NAME` — branch for the worktree (fails if it already exists).
-- `--existing-branch` — check out an existing branch instead of creating one.
+- `--existing-branch` — check out an existing branch instead of creating one. A worktree can't take the branch Ground has checked out; add `--copy` for that.
+- `--copy` — instead of a worktree, a fully isolated copy of the repository, exactly as it is right now (only where the disk clones instantly — btrfs, XFS; otherwise it's refused and says so). Because it's separate, it can check out the same branch as Ground, and landing the floor transfers its work back. Use it for that, or when the user asks for full isolation; a worktree is the right choice for most work.
 - `--no-git` — skip isolation and share the ground directory.
 - `--copy-ground` — start the floor with a copy of the ground floor's layout.
 
@@ -59,8 +60,16 @@ narrater floor create "Refactor Auth" --branch refactor-auth
 narrater floor create "Scratch" --no-git
 ```
 
+### `narrater floor create ["Name"] --pull-request NUMBER|URL [--copy] [--copy-ground]`
+Adds a floor to review an open pull request of the project: `42`, `#42` or its link. NarraTer asks the project's host about it (its CLI — `gh` or `glab` — signed in), brings its branch into the project and checks it out on the floor. The name defaults to `#42` and the title. When the host confirms the pull request's branch is in the project's own repository, the floor has that branch and commits pushed from it go to the pull request. Otherwise (a fork), the floor has a copy of its commits named `pr-42`: commits made there can't reach it. The floor's menu in the floor bar shows the pull request's review and checks, and can merge it. It's refused, with the reason, when the pull request isn't open, is already on a floor or being made into one, changed while it was fetched, the host has no CLI that can list pull requests, or your local branch of that name went its own way or pushes somewhere else. `--branch`, `--existing-branch` and `--no-git` don't apply.
+
+```
+narrater floor create --pull-request 42
+narrater floor create "Review Login Fix" --pull-request https://github.com/acme/app/pull/42
+```
+
 ### `narrater floor land "Name" [--into BRANCH] [--delete-branch] [--keep-floor]`
-Brings the floor's work into the project, like the Land action on the floor's chip. **Only when the user asks, or after confirming with them; only from Ground.** The floor's branch already lives in the repository (worktrees share history), so landing removes the floor and keeps its branch, ready to review or merge.
+Brings the floor's work into the project, like the Land action on the floor's chip. **Only when the user asks, or after confirming with them; only from Ground.** A worktree's branch already lives in the repository, and a copy's branch is fetched back into the project's branch of the same name; landing then removes the floor and keeps the branch, ready to review or merge.
 
 - `--into BRANCH` — also merge the floor's branch into BRANCH (e.g. `main`). If BRANCH is checked out on Ground the merge happens there; if it's checked out nowhere, the branch is moved directly.
 - `--delete-branch` — after a merge with `--into`, delete the floor's branch.

@@ -71,6 +71,8 @@ pub fn run() {
             floors::floor_land,
             floors::floor_delete,
             floors::floor_branches,
+            floors::floor_pr_status,
+            floors::floor_pr_merge,
             pty::pty_queue_cancel,
             pty::narrater_ledger,
             scene::load_scene,

@@ -74,8 +74,21 @@ export interface FloorMeta {
   worktree?: string | null;
   /** Where its terminals work (absent: the scene's directory) */
   dir?: string | null;
+  /** The checkout is a full copy of the repository (`--copy`), not a worktree */
+  copy?: boolean | null;
+  /** The pull request the floor reviews (`--pull-request`) */
+  pull_request?: PullRequestInfo | null;
   /** The line agents post with `narrater floor status` */
   status?: FloorStatusLine | null;
+}
+
+export interface PullRequestInfo {
+  number: number;
+  title: string;
+  url: string;
+  provider: "github" | "gitlab";
+  /** The floor has the PR's own branch (false: a fork, copied to pr-N) */
+  same_repo: boolean;
 }
 
 export type FloorState = "working" | "blocked" | "review" | "done";
@@ -272,30 +285,44 @@ export interface FloorInfo {
   dir: string | null;
   worktree: string | null;
   branch: string | null;
+  copy: boolean;
+  pull_request: PullRequestInfo | null;
+  /** Default name ("#42 Title" for a pull request) */
+  name: string | null;
   /** Why the floor isn't git-isolated, when it isn't */
   note: string | null;
 }
 
 export const floorPrepare = (opts: {
   root: string | null; scene: string; name: string; branch?: string; existingBranch?: boolean; noGit?: boolean;
+  copy?: boolean; pullRequest?: string; takenPrs?: number[];
 }) =>
   invoke<FloorInfo>("floor_prepare", {
     root: opts.root, scene: opts.scene, name: opts.name, branch: opts.branch ?? null,
     existingBranch: opts.existingBranch ?? false, noGit: opts.noGit ?? false,
+    copy: opts.copy ?? false, pullRequest: opts.pullRequest ?? null, takenPrs: opts.takenPrs ?? [],
   });
 export const floorStatus = (worktree: string) => invoke<{ dirty: boolean; branch: string | null }>("floor_status", { worktree });
 export const floorRemove = (worktree: string, force: boolean) => invoke<void>("floor_remove", { worktree, force });
 /** Merges the floor's branch (optionally into `into`) and removes its worktree; returns a summary. */
-export const floorLand = (opts: { worktree: string; branch: string; into?: string; deleteBranch?: boolean; keepFloor?: boolean }) =>
+export const floorLand = (opts: {
+  worktree: string; branch: string; into?: string; deleteBranch?: boolean; keepFloor?: boolean; root: string | null;
+}) =>
   invoke<string>("floor_land", {
     worktree: opts.worktree, branch: opts.branch, into: opts.into ?? null,
-    deleteBranch: opts.deleteBranch ?? false, keepFloor: opts.keepFloor ?? false,
+    deleteBranch: opts.deleteBranch ?? false, keepFloor: opts.keepFloor ?? false, root: opts.root,
   });
 /** Removes the floor's worktree and, unless keepBranch, its branch; returns a summary. */
 export const floorDelete = (opts: { worktree: string; branch: string | null; keepBranch: boolean; force: boolean }) =>
   invoke<string>("floor_delete", opts);
 /** Local branches of a floor's repository, the ground checkout's first. */
-export const floorBranches = (worktree: string) => invoke<string[]>("floor_branches", { worktree });
+export const floorBranches = (worktree: string, root: string | null) => invoke<string[]>("floor_branches", { worktree, root });
+/** "OPEN · review: APPROVED · checks: 5 passed · mergeable: MERGEABLE" */
+export const floorPrStatus = (worktree: string, pullRequest: PullRequestInfo) =>
+  invoke<string>("floor_pr_status", { worktree, pullRequest });
+/** Merges the floor's pull request on the host (gh/glab). */
+export const floorPrMerge = (worktree: string, pullRequest: PullRequestInfo) =>
+  invoke<string>("floor_pr_merge", { worktree, pullRequest });
 
 // ---- NarraTer Chat ----
 

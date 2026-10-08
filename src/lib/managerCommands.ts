@@ -291,7 +291,8 @@ function floorList(ctx: Ctx): string {
   const here = (id: string) => (id === mine ? "  ← you" : "");
   const lines = [`Ground  ${ws.dirOf(ws.current) ?? "(no directory)"}  (${count(GROUND)} nodes)${here(GROUND)}`];
   for (const f of floors) {
-    const iso = f.branch ? `branch ${f.branch}  ${f.dir}` : "plain (shares the ground directory)";
+    const pr = f.pull_request ? `PR #${f.pull_request.number}${f.pull_request.same_repo ? "" : " (fork copy)"}  ` : "";
+    const iso = f.branch ? `${pr}branch ${f.branch}  ${f.copy ? "copy " : ""}${f.dir}` : "plain (shares the ground directory)";
     lines.push(`${f.name}  ${iso}  (${count(f.id)} nodes)${here(f.id)}`);
   }
   // Status lines under each level that has one
@@ -302,18 +303,23 @@ function floorList(ctx: Ctx): string {
 }
 
 async function floorCreate(ctx: Ctx): Promise<string> {
-  const name = str(ctx.params.name);
+  const pullRequest = str(ctx.params.pull_request).trim();
+  if (pullRequest && (str(ctx.params.branch) || ctx.params.existing_branch === true || ctx.params.no_git === true)) {
+    return "Error: --branch, --existing-branch and --no-git don't apply with --pull-request";
+  }
   try {
-    const summary = await createFloor({
-      name,
+    const { name, summary } = await createFloor({
+      name: str(ctx.params.name),
       branch: str(ctx.params.branch) || undefined,
       existingBranch: ctx.params.existing_branch === true,
       noGit: ctx.params.no_git === true,
       copyGround: ctx.params.copy_ground === true,
+      copy: ctx.params.copy === true,
+      pullRequest: pullRequest || undefined,
     });
-    const isolated = useCanvasStore.getState().floors.find((f) => f.name === name.trim())?.branch;
+    const isolated = useCanvasStore.getState().floors.find((f) => f.name === name)?.branch;
     return (
-      `ok: ${summary}. Staff it with \`narrater recruit "Name" --floor "${name.trim()}"\`` +
+      `ok: ${summary}. Staff it with \`narrater recruit "Name" --floor "${name}"\`` +
       (isolated ? "; land or delete it only when the user asks." : ".")
     );
   } catch (e) {

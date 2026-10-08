@@ -52,8 +52,10 @@ Usage:
                                                    (Maestro only) New workspace rooted at PATH (optionally cloning another)
   narrater workspace list | rename "Old" "New" | move "Name" --group G | --folder F | --root
                                                    (Maestro only) The sidebar hierarchy; rename; refile
-  narrater floor create "Name" [--branch B] [--existing-branch] [--no-git] [--copy-ground]
+  narrater floor create "Name" [--branch B] [--existing-branch] [--copy] [--no-git] [--copy-ground]
                                                    (Maestro only) New floor of this workspace — a git worktree when possible
+  narrater floor create ["Name"] --pull-request NUMBER|URL [--copy] [--copy-ground]
+                                                   (Maestro only) New floor reviewing an open pull request
   narrater floor list                              (Maestro only) Ground + floors with branch, path, node count, status
   narrater floor status ["Text"] [--state working|blocked|review|done] [--progress 2/5] [--clear]
                                                    Post (or print) your floor's status line; --floor "F" is Maestro only
@@ -277,7 +279,8 @@ with --root, only root folders). `move` refiles; --root alone moves it out of
 any group or folder. There is no delete command — that stays in the UI."#,
         "floor" => r#"Usage:
   narrater floor list
-  narrater floor create "Name" [--branch NAME] [--existing-branch] [--no-git] [--copy-ground]
+  narrater floor create "Name" [--branch NAME] [--existing-branch] [--copy] [--no-git] [--copy-ground]
+  narrater floor create ["Name"] --pull-request NUMBER|URL [--copy] [--copy-ground]
   narrater floor status ["Text"] [--state working|blocked|review|done] [--progress 2/5] [--floor "F"] [--clear]
   narrater floor land "Name" [--into BRANCH] [--delete-branch] [--keep-floor]
   narrater floor delete "Name" [--keep-branch] [--force]
@@ -289,9 +292,22 @@ without touching the ground checkout. Otherwise it's a plain floor sharing the
 directory, and the answer says why.
 
   --branch NAME         branch for the worktree (fails if it already exists)
-  --existing-branch     check out an existing branch instead
+  --existing-branch     check out an existing branch instead (not the one
+                        Ground has checked out — add --copy for that)
+  --copy                a full copy of the repository instead of a worktree,
+                        only where the disk clones instantly (btrfs/XFS); it
+                        can share Ground's branch, and landing brings its work back
   --no-git              skip isolation and share the ground directory
   --copy-ground         start with a copy of the ground floor's layout
+
+--pull-request reviews an open pull/merge request (42, #42 or its link): the
+host's CLI (gh or glab, signed in) says where it comes from, its branch is
+brought into the project and checked out on the floor (named #42 and its title).
+From the project's own repository the floor has that branch, so pushes reach
+the pull request; from a fork it gets a copy of the commits as pr-42.
+Refused when the pull request isn't open, is already on a floor, moved while
+fetched, or your local branch of that name went its own way or pushes
+somewhere else. --branch, --existing-branch and --no-git don't apply.
 
 Staff a floor without leaving yours: `narrater recruit "Name" --floor "F"` —
 the recruit works in the floor's worktree and stays connected to you, so ask

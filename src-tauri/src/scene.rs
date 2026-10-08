@@ -76,6 +76,12 @@ pub struct FloorMeta {
     /// subdirectory when the scene root is inside the repo)
     #[serde(default)]
     pub dir: Option<String>,
+    /// The checkout is a full copy of the repository (`--copy`), not a worktree
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copy: Option<bool>,
+    /// The pull request the floor reviews (`--pull-request`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pull_request: Option<crate::floors::PullRequestInfo>,
     /// The line agents post with `narrater floor status`
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<FloorStatusLine>,

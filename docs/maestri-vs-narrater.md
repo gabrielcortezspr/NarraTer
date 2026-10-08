@@ -443,8 +443,14 @@ demais skills reaproveitam. Ordem sugerida:
    --keep-floor` (conflito detectado por `merge-tree` antes de mudar algo;
    também no menu *Land…* do chip) e `floor delete` com `--keep-branch/
    --force`, ambos só a partir do térreo. Diferença que fica: o NarraTer
-   roda uma cena por vez, então `recruit --workspace` ainda não existe, e
-   não há `--copy` nem `--pull-request`.
+   roda uma cena por vez, então `recruit --workspace` ainda não existe.
+   Depois: `floor create --pull-request` (via `gh`/`glab`: branch do próprio
+   repositório com upstream, ou cópia `pr-N` de fork; recusas por PR
+   fechado, já em andar, alterado durante o fetch, branch local divergente
+   ou com outro upstream; status de review/checks e merge no menu do chip)
+   e `--copy` (cópia instantânea por reflink, que pode usar o branch do
+   térreo; o land traz o trabalho de volta por fetch). Em disco sem reflink
+   (ext4) o `--copy` é recusado, como no Maestri fora do APFS.
 5. ✅ **maestri-portal-devices → portais Android** (feito: `portal devices`,
    `portal create --simulator` com boot headless do AVD e desligamento quando
    nenhum portal usa; tela no tile por `screencap` com toque, swipe, teclas e
