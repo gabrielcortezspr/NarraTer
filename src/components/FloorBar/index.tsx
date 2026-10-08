@@ -4,7 +4,7 @@ import { GROUND, floorOf, useCanvasStore } from "@/stores/canvas";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import { createFloor, deleteFloor, describeStatus, floorIsDirty, landFloor } from "@/lib/floors";
 import {
-  floorBranches, floorPrMerge, floorPrStatus, openInEditor, type FloorState, type FloorStatusLine,
+  describeEnvironment, floorBranches, floorPrMerge, floorPrStatus, openInEditor, type FloorState, type FloorStatusLine,
 } from "@/lib/tauri";
 import { toast } from "@/stores/toasts";
 
@@ -45,6 +45,7 @@ function shortPath(p: string): string {
 export default function FloorBar() {
   const current = useWorkspacesStore((s) => s.current);
   const sceneDir = useWorkspacesStore((s) => s.layout.scenes[s.current]?.dir ?? null);
+  const remote = useWorkspacesStore((s) => describeEnvironment(s.layout.scenes[s.current]?.environment));
   const floors = useCanvasStore((s) => s.floors);
   const groundStatus = useCanvasStore((s) => s.groundStatus);
   const currentFloor = useCanvasStore((s) => s.currentFloor);
@@ -196,6 +197,7 @@ export default function FloorBar() {
     <div className="absolute top-0 left-0 h-10 flex items-center gap-2 px-4 z-10" style={{ maxWidth: "calc(50% - 220px)" }}>
       <span className="text-[#3a3a3a] text-xs select-none truncate min-w-[40px] max-w-[160px]" title={sceneDir ?? "No working directory — set one from the scene's menu in the sidebar"}>
         {current}
+        {remote && <span className="text-[#4a4a6a]"> · {remote}</span>}
         {sceneDir && <span className="text-[#2a2a2a]"> · {shortPath(sceneDir)}</span>}
       </span>
 

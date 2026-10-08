@@ -25,6 +25,8 @@ const POLL: Duration = Duration::from_millis(250);
 /// After delivery, the target must stay settled this long before the answer
 /// is read (the screen-state settle window already applies on top).
 const MIN_TURN: Duration = Duration::from_millis(800);
+/// How long an ask waits for a remote teammate that is still starting.
+const BOOT_WAIT: Duration = Duration::from_secs(120);
 /// `--raw` returns once the terminal reacts and settles, at most this long.
 const RAW_MAX_WAIT: Duration = Duration::from_secs(10);
 /// Ledger copies of replies are capped — the full text goes to the caller.
@@ -40,6 +42,11 @@ const SKILLS: &[(&str, &str)] = &[
     ("narrater-workspace", include_str!("../assets/SKILL-workspace.md")),
     ("narrater-chat", include_str!("../assets/SKILL-chat.md")),
 ];
+/// The skills, as (name, SKILL.md) — also installed in remote workspaces.
+pub fn skills() -> Vec<(&'static str, &'static str)> {
+    SKILLS.to_vec()
+}
+
 /// Skill directories read by the agent CLIs: Claude Code, and the open Agent
 /// Skills location shared by Codex, Gemini CLI, OpenCode and others.
 const SKILL_BASES: &[&str] = &[".claude/skills", ".agents/skills"];
@@ -113,45 +120,48 @@ pub async fn start_ipc_server(
     };
     let _ = std::fs::set_permissions(&socket_path, std::fs::Permissions::from_mode(0o600));
 
+    let ctx = IpcCtx { app, state, browser, routines, chat };
+    // Remote workspaces (SSH, Docker) reach the same dispatch over HTTP
+    tokio::spawn(crate::bridge::serve(ctx.clone()));
+
     loop {
         match listener.accept().await {
             Ok((stream, _)) => {
-                tokio::spawn(handle_connection(
-                    stream,
-                    app.clone(),
-                    Arc::clone(&state),
-                    browser.clone(),
-                    routines.clone(),
-                    chat.clone(),
-                ));
+                tokio::spawn(handle_connection(stream, ctx.clone()));
             }
             Err(e) => eprintln!("[NarraTer IPC] Accept error: {}", e),
         }
     }
 }
 
-async fn handle_connection(
-    mut stream: tokio::net::UnixStream,
-    app: AppHandle,
-    state: Arc<Mutex<PtyStateInner>>,
-    browser: BrowserState,
-    routines: RoutinesState,
-    chat: ChatState,
-) {
+/// Everything a CLI request may need.
+#[derive(Clone)]
+pub struct IpcCtx {
+    pub app: AppHandle,
+    pub state: Arc<Mutex<PtyStateInner>>,
+    pub browser: BrowserState,
+    pub routines: RoutinesState,
+    pub chat: ChatState,
+}
+
+async fn handle_connection(mut stream: tokio::net::UnixStream, ctx: IpcCtx) {
     let mut buf = Vec::new();
     if stream.read_to_end(&mut buf).await.is_err() {
         return;
     }
+    let reply = dispatch(&ctx, &buf).await;
+    let _ = stream.write_all(reply.as_bytes()).await;
+}
 
-    let req: IpcRequest = match serde_json::from_slice(&buf) {
+/// Runs one CLI request (the JSON `cli_core` builds); returns what to print.
+pub async fn dispatch(ctx: &IpcCtx, buf: &[u8]) -> String {
+    let IpcCtx { app, state, browser, routines, chat } = ctx;
+    let req: IpcRequest = match serde_json::from_slice(buf) {
         Ok(r) => r,
-        Err(_) => {
-            let _ = stream.write_all(b"Error: invalid request format\n").await;
-            return;
-        }
+        Err(_) => return "Error: invalid request format\n".to_string(),
     };
 
-    let reply = match authenticate(&req, &state) {
+    match authenticate(&req, state) {
         Err(e) => e,
         Ok(()) => match req.mode.as_deref() {
             Some("ping") => "ok\n".to_string(),
@@ -161,39 +171,37 @@ async fn handle_connection(
             }
             Some("ask") => {
                 let timeout = req.timeout_secs.map(Duration::from_secs).unwrap_or(ASK_DEFAULT_TIMEOUT);
-                match ask_one(&state, &app, &req.from, req.to.as_deref().unwrap_or(""), req.msg.as_deref().unwrap_or(""), timeout).await {
+                match ask_one(state, app, &req.from, req.to.as_deref().unwrap_or(""), req.msg.as_deref().unwrap_or(""), timeout).await {
                     Ok(text) => with_newline(text),
                     Err(e) => with_newline(e),
                 }
             }
-            Some("batch") => handle_batch(&req, &app, &state).await,
-            Some("raw") => handle_raw(&req, &app, &state).await,
-            Some("check") => handle_check(&req, &state),
-            Some("canvas") => handle_canvas(&req, &app, &state).await,
+            Some("batch") => handle_batch(&req, app, state).await,
+            Some("raw") => handle_raw(&req, app, state).await,
+            Some("check") => handle_check(&req, state),
+            Some("canvas") => handle_canvas(&req, app, state).await,
             Some("chat") => {
                 let params = req.params.clone().unwrap_or(serde_json::Value::Null);
-                with_newline(crate::chat::run_cli(&chat, &app, &req.from, &params))
+                with_newline(crate::chat::run_cli(chat, app, &req.from, &params))
             }
             Some("workspace") => {
                 let params = req.params.clone().unwrap_or(serde_json::Value::Null);
                 // "yours" in `workspace list` is the caller's own scene
                 let mine = Some(state.lock().unwrap().names.scene_of(&req.from)).filter(|s| !s.is_empty());
-                with_newline(crate::workspaces::run_cli(&app, &state, &req.from, mine, &params))
+                with_newline(crate::workspaces::run_cli(app, state, &req.from, mine, &params))
             }
             Some("routine") => {
                 let params = req.params.clone().unwrap_or(serde_json::Value::Null);
-                with_newline(routines.run_cli(&app, &state, &req.from, &params).await)
+                with_newline(routines.run_cli(app, state, &req.from, &params).await)
             }
             Some("portal") => {
                 let verb = req.msg.as_deref().unwrap_or("");
                 let args = req.args.clone().unwrap_or_default();
-                with_newline(browser.run_cli(&app, &req.from, req.to.as_deref().unwrap_or(""), verb, &args).await)
+                with_newline(browser.run_cli(app, &req.from, req.to.as_deref().unwrap_or(""), verb, &args).await)
             }
             _ => "Error: unknown command — run `narrater help`\n".to_string(),
         },
-    };
-
-    let _ = stream.write_all(reply.as_bytes()).await;
+    }
 }
 
 fn with_newline(s: String) -> String {
@@ -241,6 +249,12 @@ fn resolve_target(inner: &PtyStateInner, from: &str, to: &str) -> Result<(String
         ));
     }
     if !inner.sessions.contains_key(&target_id) {
+        if inner.booting.contains(&target_id) {
+            return Err(format!(
+                "Error: '{}' is still starting (connecting to its workspace) — try again in a moment",
+                inner.address(&target_id, from)
+            ));
+        }
         return Err(format!("Error: '{}' is not running — ask the user to restart it on the canvas", to));
     }
     // Each side sees the other the way it would address it back
@@ -283,9 +297,24 @@ pub async fn ask_one(
     if msg.trim().is_empty() {
         return Err("Error: empty prompt".into());
     }
-    let (target_id, from_label, to_label) = {
-        let inner = state.lock().unwrap();
-        resolve_target(&inner, from, to)?
+    // A remote teammate still connecting (setup over SSH / docker exec) is
+    // waited for, like a local one booting
+    let boot_deadline = tokio::time::Instant::now() + BOOT_WAIT;
+    let (target_id, from_label, to_label) = loop {
+        let starting = {
+            let inner = state.lock().unwrap();
+            match resolve_target(&inner, from, to) {
+                Ok(r) => break r,
+                Err(e) => {
+                    let id = inner.names.resolve(from, to, |id| inner.connected(from, id));
+                    if id.is_some_and(|id| inner.booting.contains(&id)) { e } else { return Err(e) }
+                }
+            }
+        };
+        if tokio::time::Instant::now() >= boot_deadline {
+            return Err(starting);
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
     };
 
     // Ask-back: the target of this ask is blocked waiting on *us* — this

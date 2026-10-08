@@ -234,6 +234,15 @@ pub fn prepare(
         }
         return Ok(FloorInfo::plain("plain floor (--no-git): it shares the ground directory"));
     }
+    if let Some(env) = crate::workspaces::environment_of(scene) {
+        if copy {
+            return Err(format!("--copy isn't available in a remote workspace ({})", env.describe()));
+        }
+        return Ok(FloorInfo::plain(&format!(
+            "plain floor: this workspace runs on {} — floors there share its directory",
+            env.describe()
+        )));
+    }
     let (root, top) = match project_repo(root) {
         Ok(r) => r,
         Err(why) if copy => return Err(format!("--copy needs a git repository: {}", why)),
@@ -524,6 +533,9 @@ pub fn prepare_pr(
     program: Option<&str>,
     reflink: &str,
 ) -> Result<FloorInfo, String> {
+    if let Some(env) = crate::workspaces::environment_of(scene) {
+        return Err(format!("pull request floors need a local checkout — this workspace runs on {}", env.describe()));
+    }
     let (root, top) = project_repo(root).map_err(|why| format!("a pull request floor needs a git repository: {}", why))?;
     let (_, link) = parse_pr_ref(reference)?;
     let provider = provider_for(&top, link.as_deref());

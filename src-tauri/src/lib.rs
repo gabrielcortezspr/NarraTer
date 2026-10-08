@@ -1,6 +1,9 @@
+mod bridge;
 mod browser;
 mod canvas_bridge;
 mod chat;
+pub mod environments;
+pub mod cli_core;
 mod floors;
 mod fsops;
 mod ipc;
@@ -65,6 +68,13 @@ pub fn run() {
             names::link_add,
             names::links_remove_node,
             names::links_scenes,
+            workspaces::workspace_set_environment,
+            workspaces::environment_test,
+            workspaces::environment_ssh_hosts,
+            workspaces::environment_docker_containers,
+            workspaces::environment_docker_contexts,
+            workspaces::environment_sessions,
+            workspaces::environment_end_sessions,
             routines::routines_sleep,
             routines::routine_ui_create,
             routines::routine_set_enabled,

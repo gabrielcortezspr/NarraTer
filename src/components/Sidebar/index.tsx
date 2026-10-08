@@ -2,9 +2,11 @@ import { lazy, Suspense, useState, useRef, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen, Plus, Pencil, Trash2, Check, X,
-  ChevronLeft, ChevronRight, Keyboard, Users, Folder, FolderOpen, Square,
+  ChevronLeft, ChevronRight, Keyboard, Users, Folder, FolderOpen, Square, Server, Container,
 } from "lucide-react";
 import { toast } from "@/stores/toasts";
+import EnvironmentSheet from "@/components/EnvironmentSheet";
+import { describeEnvironment } from "@/lib/tauri";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import { useCanvasStore } from "@/stores/canvas";
 import { switchWorkspace as switchTo } from "@/lib/workspaceNav";
@@ -42,6 +44,8 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
+  /** Workspace whose Environment sheet is open */
+  const [envFor, setEnvFor] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const createInputRef = useRef<HTMLInputElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -175,6 +179,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
                     dir={layout.scenes[name]?.dir ?? undefined}
                     active={name === current}
                     running={running.has(name)}
+                    remote={describeEnvironment(layout.scenes[name]?.environment)}
                     isRenaming={renaming === name}
                     renameValue={renameValue}
                     renameInputRef={renaming === name ? renameInputRef : undefined}
@@ -305,6 +310,8 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
         </div>
       )}
 
+      {envFor && <EnvironmentSheet scene={envFor} onClose={() => setEnvFor(null)} />}
+
       {roleManagerOpen && (
         <Suspense fallback={null}>
           <RoleManager open={roleManagerOpen} onClose={() => setRoleManagerOpen(false)} />
@@ -347,6 +354,13 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
               />
             </div>
           )}
+          <button
+            onClick={() => { setEnvFor(contextMenu.name); setContextMenu(null); }}
+            title="Run this workspace's agents on this machine, an SSH server or a Docker container"
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors"
+          >
+            <Server size={12} /> Environment…
+          </button>
           {running.has(contextMenu.name) && (
             <button
               onClick={() => {
@@ -399,6 +413,8 @@ interface WorkspaceItemProps {
   active: boolean;
   /** Running in the background (its agents keep working) */
   running: boolean;
+  /** "ssh dev@box" / "docker app" when its agents run elsewhere */
+  remote: string | null;
   isRenaming: boolean;
   renameValue: string;
   renameInputRef?: React.RefObject<HTMLInputElement | null>;
@@ -410,7 +426,7 @@ interface WorkspaceItemProps {
 }
 
 function WorkspaceItem({
-  name, dir, active, running, isRenaming, renameValue, renameInputRef,
+  name, dir, active, running, remote, isRenaming, renameValue, renameInputRef,
   onRenameChange, onRenameSubmit, onRenameCancel, onClick, onContextMenu,
 }: WorkspaceItemProps) {
   if (isRenaming) {
@@ -437,7 +453,7 @@ function WorkspaceItem({
     <button
       onClick={onClick}
       onContextMenu={onContextMenu}
-      title={`${dir ? `${name} — ${dir}` : `${name} — no working directory (right-click to set one)`}${running ? " · running in the background" : ""}`}
+      title={`${dir ? `${name} — ${dir}` : `${name} — no working directory (right-click to set one)`}${remote ? ` · runs on ${remote}` : ""}${running ? " · running in the background" : ""}`}
       className={`relative flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs transition-colors text-left
         ${active
           ? "bg-[#8b5cf620] text-white"
@@ -454,6 +470,11 @@ function WorkspaceItem({
         }}
       />
       <span className="truncate">{name}</span>
+      {remote && (
+        <span className="ml-auto shrink-0 text-[#555]" title={`Runs on ${remote}`}>
+          {remote.startsWith("ssh") ? <Server size={10} /> : <Container size={10} />}
+        </span>
+      )}
     </button>
   );
 }

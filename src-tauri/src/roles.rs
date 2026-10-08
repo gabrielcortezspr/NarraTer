@@ -130,10 +130,10 @@ fn context_settings_json(project_dir: &Path) -> String {
     .unwrap_or_default()
 }
 
-/// Same convention as Maestri's role directories: writes
-/// `<project>/.narrater/roles/<key>/{CLAUDE.md,AGENTS.md}` (each CLI loads its
-/// own file from its cwd) and returns that directory, the agent's spawn cwd.
-pub fn install_role_dir(project_dir: &Path, spec: &RoleSpec, command: &str) -> Result<PathBuf, String> {
+/// A role's files, relative to the project: (`.narrater/roles/<key>`, the
+/// files in it with their content). Shared by the local install and the
+/// remote one (SSH / Docker workspaces).
+pub fn role_files(spec: &RoleSpec, project_dir: &Path, command: &str) -> Result<(String, Vec<(String, String)>), String> {
     let key: String = spec
         .key
         .chars()
@@ -142,8 +142,26 @@ pub fn install_role_dir(project_dir: &Path, spec: &RoleSpec, command: &str) -> R
     if key.is_empty() {
         return Err("Cannot install role: empty key".into());
     }
+    let content = build_role_content(spec, project_dir);
+    let mut files: Vec<(String, String)> =
+        ["CLAUDE.md", "AGENTS.md"].iter().map(|f| (f.to_string(), content.clone())).collect();
+    let command = command.to_lowercase();
+    for (keyword, settings_dir) in [("gemini", ".gemini"), ("qwen", ".qwen")] {
+        if command.contains(keyword) {
+            files.push((format!("{}/settings.json", settings_dir), context_settings_json(project_dir)));
+        }
+    }
+    Ok((format!(".narrater/roles/{}", key), files))
+}
+
+/// Same convention as Maestri's role directories: writes
+/// `<project>/.narrater/roles/<key>/{CLAUDE.md,AGENTS.md}` (each CLI loads its
+/// own file from its cwd) and returns that directory, the agent's spawn cwd.
+pub fn install_role_dir(project_dir: &Path, spec: &RoleSpec, command: &str) -> Result<PathBuf, String> {
+    let (rel, files) = role_files(spec, project_dir, command)?;
     let base = project_dir.join(".narrater");
-    let dir = base.join("roles").join(&key);
+    let dir = project_dir.join(&rel);
+    let key = rel.rsplit('/').next().unwrap_or_default().to_string();
     fs::create_dir_all(&dir)
         .map_err(|e| format!("Cannot install role \"{}\": could not create {} ({})", key, dir.display(), e))?;
     // Keep the generated files out of the user's git status
@@ -151,20 +169,13 @@ pub fn install_role_dir(project_dir: &Path, spec: &RoleSpec, command: &str) -> R
     if !ignore.exists() {
         let _ = fs::write(&ignore, "*\n");
     }
-
-    let content = build_role_content(spec, project_dir);
-    for file in ["CLAUDE.md", "AGENTS.md"] {
-        fs::write(dir.join(file), &content)
-            .map_err(|e| format!("Cannot install role \"{}\": could not write {} ({})", key, file, e))?;
-    }
-
-    let command = command.to_lowercase();
-    for (keyword, settings_dir) in [("gemini", ".gemini"), ("qwen", ".qwen")] {
-        if command.contains(keyword) {
-            let sdir = dir.join(settings_dir);
-            let _ = fs::create_dir_all(&sdir);
-            let _ = fs::write(sdir.join("settings.json"), context_settings_json(project_dir));
+    for (file, content) in files {
+        let path = dir.join(&file);
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
         }
+        fs::write(&path, &content)
+            .map_err(|e| format!("Cannot install role \"{}\": could not write {} ({})", key, file, e))?;
     }
     Ok(dir)
 }

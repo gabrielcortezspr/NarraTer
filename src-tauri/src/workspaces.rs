@@ -22,6 +22,10 @@ pub struct SceneMeta {
     pub group: Option<String>,
     #[serde(default)]
     pub folder: Option<String>,
+    /// Where its terminals run (absent: this machine). With SSH or Docker,
+    /// `dir` is a path over there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub environment: Option<crate::environments::Environment>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -426,7 +430,10 @@ pub fn workspaces_layout() -> Layout {
 /// Sets (or clears) a workspace's working directory.
 #[tauri::command]
 pub fn workspace_set_dir(name: String, dir: Option<String>) -> Result<Option<String>, String> {
+    let remote = environment_of(&name).is_some();
     let dir = match dir.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+        // A remote workspace's directory is a path over there: not checked here
+        Some(d) if remote => Some(d.to_string()),
         Some(d) => Some(existing_dir(d)?),
         None => None,
     };
@@ -519,4 +526,118 @@ mod tests {
         assert_eq!(edges[0]["target"], nodes[1]["id"]);
         assert_eq!(out["floors"][0]["branch"], Value::Null);
     }
+}
+
+// ---- Environments (SSH / Docker workspaces) ---------------------------------
+
+/// The remote environment a scene runs in (None: this machine).
+pub fn environment_of(scene: &str) -> Option<crate::environments::Environment> {
+    load().scenes.get(scene).and_then(|m| m.environment.clone()).filter(|e| e.is_remote())
+}
+
+/// Points a workspace at an environment (Local clears it). A workspace with
+/// git-isolated floors can't become remote — those worktrees are local.
+#[tauri::command]
+pub fn workspace_set_environment(
+    name: String,
+    environment: crate::environments::Environment,
+    dir: Option<String>,
+) -> Result<(), String> {
+    environment.validate()?;
+    if environment.is_remote() {
+        let scene = crate::scene::load_scene(name.clone()).unwrap_or_default();
+        if scene.floors.iter().any(|f| f.worktree.is_some()) {
+            return Err("this workspace has git-isolated floors — land or delete them before it becomes remote".into());
+        }
+    }
+    let old = environment_of(&name);
+    // A local directory must exist here; a remote one is a path over there
+    let dir = match dir.as_deref().map(str::trim) {
+        Some(d) if !d.is_empty() && !environment.is_remote() => Some(existing_dir(d)?),
+        other => other.map(str::to_string),
+    };
+    update(|l| {
+        let meta = l.scenes.entry(name.clone()).or_default();
+        meta.environment = environment.is_remote().then(|| environment.clone());
+        if let Some(d) = dir.as_deref().map(str::trim) {
+            meta.dir = (!d.is_empty()).then(|| d.to_string());
+        }
+        Ok(())
+    })?;
+    // The old place no longer serves this workspace: remove what was installed
+    if let Some(old) = old.filter(|o| Some(o) != Some(&environment)) {
+        if !load().scenes.values().any(|m| m.environment.as_ref() == Some(&old)) {
+            let skills = crate::ipc::skills();
+            std::thread::spawn(move || {
+                if let Err(e) = crate::environments::cleanup(&old, &skills) {
+                    eprintln!("[NarraTer] cleanup of {} failed: {}", old.describe(), e);
+                }
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Connects, installs, checks the requirements and the way back to the bridge.
+#[tauri::command]
+pub async fn environment_test(environment: crate::environments::Environment) -> Result<String, String> {
+    use crate::environments::{self as envs, Environment};
+    let env = environment.clone();
+    let summary = tauri::async_runtime::spawn_blocking(move || envs::test(&env, &crate::ipc::skills()))
+        .await
+        .map_err(|e| e.to_string())??;
+    let port = crate::bridge::port().ok_or("the bridge isn't running")?;
+    let bridge = match &environment {
+        Environment::Ssh { .. } => format!("unix:/tmp/narrater-probe-{}.sock", &uuid::Uuid::new_v4().simple().to_string()[..8]),
+        _ => {
+            let probe = environment.clone();
+            match tauri::async_runtime::spawn_blocking(move || envs::docker_gateway(&probe)).await.map_err(|e| e.to_string())?? {
+                Some(ip) => {
+                    crate::bridge::ensure_listener(&ip).await?;
+                    format!("tcp:{}:{}", ip, port)
+                }
+                None => format!("tcp:127.0.0.1:{}", port),
+            }
+        }
+    };
+    let env = environment.clone();
+    tauri::async_runtime::spawn_blocking(move || envs::probe_bridge(&env, &bridge, port))
+        .await
+        .map_err(|e| e.to_string())??;
+    Ok(format!("{} · bridge ✓", summary))
+}
+
+#[tauri::command]
+pub fn environment_ssh_hosts() -> Vec<String> {
+    crate::environments::ssh_hosts()
+}
+
+#[tauri::command]
+pub async fn environment_docker_containers(context: Option<String>) -> Result<Vec<crate::environments::ContainerInfo>, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::environments::docker_containers(context.as_deref()))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn environment_docker_contexts() -> Vec<String> {
+    tauri::async_runtime::spawn_blocking(crate::environments::docker_contexts).await.unwrap_or_default()
+}
+
+/// Persistent (tmux) sessions running in a workspace's environment.
+#[tauri::command]
+pub async fn environment_sessions(environment: crate::environments::Environment) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::environments::sessions(&environment))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn environment_end_sessions(
+    environment: crate::environments::Environment,
+    session: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::environments::end_sessions(&environment, session.as_deref()))
+        .await
+        .map_err(|e| e.to_string())?
 }

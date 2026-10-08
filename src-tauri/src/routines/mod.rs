@@ -309,7 +309,7 @@ async fn fire(routines: RoutinesState, pty: Arc<Mutex<PtyStateInner>>, app: AppH
 
     let outcome: Result<String, String> = async {
         // Target state and working directory
-        let (cwd, label) = match &r.target {
+        let (cwd, label, remote) = match &r.target {
             RoutineTarget::Terminal { id: tid, label } => {
                 let inner = pty.lock().unwrap();
                 let Some(s) = inner.sessions.get(tid) else {
@@ -318,9 +318,9 @@ async fn fire(routines: RoutinesState, pty: Arc<Mutex<PtyStateInner>>, app: AppH
                 if r.skip_if_busy && !manual && s.turn != TurnState::Idle {
                     return Err(format!("'{}' was busy", inner.label_of(tid)));
                 }
-                (s.project_dir.clone(), inner.label_of(tid))
+                (s.project_dir.clone(), inner.label_of(tid), s.remote.clone())
             }
-            RoutineTarget::Reminder => (dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")), "reminder".into()),
+            RoutineTarget::Reminder => (dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")), "reminder".into(), None),
         };
 
         let mut text = r.command.clone();
@@ -331,7 +331,20 @@ async fn fire(routines: RoutinesState, pty: Arc<Mutex<PtyStateInner>>, app: AppH
                 ("NARRATER_ROUTINE_NAME", r.name.clone()),
                 ("NARRATER_TERMINAL_NAME", label.clone()),
             ];
-            let output = pre_run(script, cwd, &env).await?;
+            // A terminal in an SSH / Docker workspace: the script runs over there
+            let output = match remote {
+                Some(remote) => {
+                    let (script, dir) = (script.to_string(), cwd.display().to_string());
+                    let vars: Vec<(&'static str, String)> = env.to_vec();
+                    tauri::async_runtime::spawn_blocking(move || {
+                        crate::environments::pre_run(&remote, &script, &dir, &vars)
+                            .map_err(|e| format!("pre-run failed: {}", e))
+                    })
+                    .await
+                    .map_err(|e| e.to_string())??
+                }
+                None => pre_run(script, cwd, &env).await?,
+            };
             text = text.replace("{{output}}", &output);
         }
 

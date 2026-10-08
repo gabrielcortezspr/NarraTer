@@ -490,10 +490,38 @@ demais skills reaproveitam. Ordem sugerida:
      num terminal. A câmera de cada workspace/andar é lembrada.
    - Rotinas: o agendador dispara as rotinas de todas as cenas vivas.
 
+8. ✅ **Workspaces em SSH e Docker** (2026-10-08, a partir da doc pública
+   themaestri.app/en/docs/ssh). Um workspace aponta para um servidor SSH
+   (OpenSSH do sistema, só chave, sem senha) ou um container Docker em
+   execução (`docker exec`; nunca cria/para o container nem monta nada), e
+   os agentes rodam lá:
+   - **Bridge** (porta 7433, ou outra livre): HTTP mínimo que só executa
+     pedidos com o token de um terminal vivo. O `narrater` remoto é um
+     wrapper `sh` + `curl` que posta o argv; o parse é o mesmo `cli_core` do
+     binário local. SSH chega por túnel reverso para um socket Unix remoto
+     por terminal; Docker, pelo gateway da rede do container.
+   - Setup remoto (uma vez por ambiente): wrapper em `~/.narrater/bin`,
+     skills em `~/.claude/skills` e `~/.agents/skills`; por terminal, os
+     arquivos de role no projeto remoto e um lançador em
+     `~/.narrater/launch/`. Trocar de ambiente remove o que foi instalado.
+   - **Sessão persistente** (tmux, `-L narrater`): sobrevive a queda de
+     conexão e ao fechamento do app; reconectar reanexa, e a bridge/token
+     atuais são publicados no ambiente global do tmux para o wrapper.
+   - Tela "Environment…" no menu do workspace: aba SSH (hosts do
+     `~/.ssh/config`), aba Docker (contextos e containers em execução),
+     diretório do projeto lá, Test (conexão, curl, bash, tmux e o caminho de
+     volta até a bridge, com o motivo quando o sshd recusa túneis) e lista
+     de sessões persistentes com "End".
+   - `ask` espera um colega remoto que ainda está conectando; pre-run de
+     rotinas roda no ambiente remoto; `say --file/--attach` busca o arquivo
+     lá; andares de workspace remoto são simples (sem worktree).
+   - Validado com containers descartáveis: um sshd (Alpine) e um container
+     Docker — list/ask/debug pelo CLI remoto, reconexão ao tmux mantendo o
+     shell, e o Test acusando `AllowTcpForwarding no`.
+
 Com isso, todas as skills do Maestri têm equivalente no NarraTer. O que
-segue diferente: tela Android por polling, acesso remoto/celular do Maestri
-Chat, e os workspaces em servidor SSH ou container Docker que a página Linux
-do Maestri anuncia.
+segue diferente: tela Android por polling e o acesso remoto/celular do
+Maestri Chat ("Maestri Remote").
 
 ---
 

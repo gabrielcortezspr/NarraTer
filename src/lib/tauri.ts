@@ -290,6 +290,47 @@ export interface WorkspaceMeta {
   dir?: string | null;
   group?: string | null;
   folder?: string | null;
+  /** Where its terminals run (absent: this machine) */
+  environment?: Environment | null;
+}
+
+/** Where a workspace's terminals run: this machine, an SSH server or a Docker container. */
+export type Environment =
+  | { kind: "local" }
+  | { kind: "ssh"; host: string; port?: number | null; user?: string | null; persistent?: boolean }
+  | {
+      kind: "docker";
+      container: string;
+      context?: string | null;
+      user?: string | null;
+      shell?: string | null;
+      persistent?: boolean;
+    };
+
+export interface ContainerInfo {
+  name: string;
+  image: string;
+  status: string;
+}
+
+/** Points a workspace at an environment; `dir` is the project directory over there. */
+export const workspaceSetEnvironment = (name: string, environment: Environment, dir: string | null) =>
+  invoke<void>("workspace_set_environment", { name, environment, dir });
+/** Connects, installs the CLI and skills, checks curl/bash/tmux; returns a summary. */
+export const environmentTest = (environment: Environment) => invoke<string>("environment_test", { environment });
+export const environmentSshHosts = () => invoke<string[]>("environment_ssh_hosts");
+export const environmentDockerContainers = (context: string | null) =>
+  invoke<ContainerInfo[]>("environment_docker_containers", { context });
+export const environmentDockerContexts = () => invoke<string[]>("environment_docker_contexts");
+export const environmentSessions = (environment: Environment) => invoke<string[]>("environment_sessions", { environment });
+export const environmentEndSessions = (environment: Environment, session: string | null) =>
+  invoke<void>("environment_end_sessions", { environment, session });
+
+/** "ssh dev@box", "docker app" — short label for badges. */
+export function describeEnvironment(env: Environment | null | undefined): string | null {
+  if (!env || env.kind === "local") return null;
+  if (env.kind === "ssh") return `ssh ${env.user ? `${env.user}@` : ""}${env.host}${env.port && env.port !== 22 ? `:${env.port}` : ""}`;
+  return `docker ${env.container}${env.context ? ` (${env.context})` : ""}`;
 }
 
 export interface WorkspacesLayout {

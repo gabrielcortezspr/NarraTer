@@ -197,6 +197,24 @@ Navigation: `Ctrl+Tab` cycles recent workspaces; the `Ctrl+Space` prefix
 then `n/p`, `1…9`, `l`, `w`, `o/O`, `f/F`, `?` (`src/components/WorkspaceNav`).
 Keys are captured before xterm, so they work from inside a terminal.
 
+## Remote workspaces (SSH, Docker)
+
+A workspace's `environment` (in `workspaces.json`) can be an SSH server or a
+running Docker container (`src-tauri/src/environments.rs`). Terminals of such
+a workspace are `ssh -tt … sh .narrater/launch/<key>.sh` or `docker exec -it
+… sh $HOME/.narrater/launch/<key>.sh`; setup installs the skills and the
+`narrater` wrapper (`assets/narrater-remote.sh`, sh + curl) over there. The
+wrapper posts its argv (NUL-separated, plus stdin for `say`) to the bridge
+(`src-tauri/src/bridge.rs`, HTTP on 127.0.0.1:7433 and on Docker gateways),
+which parses it with the shared `cli_core` and runs the same dispatch as the
+Unix socket — token-checked. SSH terminals reach the bridge through
+`-R /tmp/narrater-<rand>.sock:127.0.0.1:<port>` (`NARRATER_BRIDGE=unix:…`);
+containers through their network gateway (`tcp:<gw>:<port>`). With a
+persistent session the launcher runs the agent in `tmux -L narrater
+new-session -A -s narrater-<key>` and publishes `NARRATER_BRIDGE_<key>` /
+`NARRATER_TOKEN_<key>` in tmux's global environment, which the wrapper
+prefers — so a reattached shell keeps working after a reconnect.
+
 ## Flow
 
 ```

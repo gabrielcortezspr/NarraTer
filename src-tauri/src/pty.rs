@@ -95,6 +95,8 @@ pub struct PtySession {
     /// The project the terminal works on (its cwd, or the one its role
     /// directory points to) — where routine pre-run scripts run.
     pub project_dir: PathBuf,
+    /// The SSH server / Docker container it runs in (None: this machine)
+    pub remote: Option<crate::environments::Environment>,
 }
 
 impl PtySession {
@@ -111,7 +113,8 @@ impl PtySession {
 
     fn compute_turn(&self, now: Instant) -> TurnState {
         let since = now.saturating_duration_since(self.screen.last_change);
-        let fg = if self.is_shell() { self.foreground_busy() } else { None };
+        // Remote: the local process is ssh / docker — only the screen tells
+        let fg = if self.is_shell() && self.remote.is_none() { self.foreground_busy() } else { None };
         classify(&self.screen.footer(), since, self.is_shell(), fg)
     }
 }
@@ -136,6 +139,8 @@ pub struct PtyStateInner {
     pub ledger: VecDeque<LedgerEntry>,
     /// Terminals in Maestro mode (mirrored from the canvas) — may manage routines.
     pub maestros: HashSet<String>,
+    /// Remote terminals still starting (connecting, setting up): asks wait
+    pub booting: HashSet<String>,
 }
 
 impl PtyStateInner {
@@ -277,9 +282,74 @@ fn drain_utf8(buf: &mut Vec<u8>) -> String {
     }
 }
 
+/// A terminal of a remote workspace, ready to start: the local command
+/// (ssh / docker exec) and where the project is over there.
+struct RemoteLaunch {
+    argv: Vec<String>,
+    project_dir: String,
+    env: crate::environments::Environment,
+}
+
+/// Prepares a remote terminal: the bridge address it will use, setup (CLI
+/// wrapper, skills — once per environment), its role files and launcher.
+#[allow(clippy::too_many_arguments)]
+async fn prepare_remote(
+    env: crate::environments::Environment,
+    id: &str,
+    token: &str,
+    label: &str,
+    scene: &str,
+    cwd: Option<String>,
+    role: Option<RoleSpec>,
+    program: String,
+    args: Vec<String>,
+) -> Result<RemoteLaunch, String> {
+    use crate::environments::{self as envs, Environment};
+    let port = crate::bridge::port().ok_or("the bridge isn't running yet — try again in a moment")?;
+    // How the remote CLI reaches the bridge
+    let (bridge, socket) = match &env {
+        Environment::Ssh { .. } => {
+            let sock = format!("/tmp/narrater-{}.sock", &uuid::Uuid::new_v4().simple().to_string()[..12]);
+            (format!("unix:{}", sock), Some(sock))
+        }
+        _ => {
+            let probe = env.clone();
+            let gateway = tauri::async_runtime::spawn_blocking(move || envs::docker_gateway(&probe))
+                .await
+                .map_err(|e| e.to_string())??;
+            match gateway {
+                Some(ip) => {
+                    crate::bridge::ensure_listener(&ip).await?;
+                    (format!("tcp:{}:{}", ip, port), None)
+                }
+                None => (format!("tcp:127.0.0.1:{}", port), None),
+            }
+        }
+    };
+    let (id_s, token_s, label_s, scene_s) = (id.to_string(), token.to_string(), label.to_string(), scene.to_string());
+    let env2 = env.clone();
+    let project_dir = tauri::async_runtime::spawn_blocking(move || {
+        let info = envs::ensure_setup(&env2, &crate::ipc::skills(), false)?;
+        envs::prepare_launch(&env2, &info, &envs::Launch {
+            id: &id_s,
+            token: &token_s,
+            label: &label_s,
+            scene: &scene_s,
+            cwd: cwd.as_deref(),
+            role: role.as_ref(),
+            program: &program,
+            args: &args,
+            bridge: &bridge,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(RemoteLaunch { argv: envs::pty_command(&env, id, socket.as_deref(), port), project_dir, env })
+}
+
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub fn pty_spawn(
+pub async fn pty_spawn(
     id: String,
     command: String,
     args: Option<Vec<String>>,
@@ -293,48 +363,89 @@ pub fn pty_spawn(
     app_handle: AppHandle,
     state: State<'_, PtyState>,
 ) -> Result<String, String> {
-    let pty_system = native_pty_system();
-    let pair = pty_system
-        .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
-        .map_err(|e| e.to_string())?;
-
     let bypass_permissions = args.as_ref().is_some_and(|a| {
         a.iter().any(|s| s == "--dangerously-skip-permissions")
     });
 
     // With explicit args, `command` is the program; otherwise fall back to
     // whitespace-splitting the command string (custom agents, no quoting)
-    let mut cmd = match args {
-        Some(args) => {
-            let mut cmd = CommandBuilder::new(&command);
-            for arg in args {
-                cmd.arg(arg);
-            }
-            cmd
-        }
+    let (program, prog_args): (String, Vec<String>) = match args {
+        Some(args) => (command.clone(), args),
         None => {
             let mut parts = command.split_whitespace();
-            let program = parts.next().ok_or("empty command")?;
-            let mut cmd = CommandBuilder::new(program);
-            for arg in parts {
-                cmd.arg(arg);
-            }
-            cmd
+            let program = parts.next().ok_or("empty command")?.to_string();
+            (program, parts.map(str::to_string).collect())
         }
     };
-
-    // Working directory: the project the terminal works on. With a role, the
-    // agent starts inside `.narrater/roles/<key>/` so it loads the role's
-    // CLAUDE.md / AGENTS.md natively — the files point back to the project.
-    let project_dir = resolve_cwd(cwd.as_deref());
     let agent_type = agent_type.unwrap_or_else(|| "shell".to_string());
-    let spawn_dir = match role.as_ref().filter(|r| agent_type != "shell" && !r.instructions.trim().is_empty()) {
-        Some(r) => crate::roles::install_role_dir(&project_dir, r, &command)
-            .unwrap_or_else(|e| {
-                eprintln!("[NarraTer] {}", e);
-                project_dir.clone()
-            }),
-        None => project_dir.clone(),
+    let role = role.filter(|r| agent_type != "shell" && !r.instructions.trim().is_empty());
+
+    // Labels address agents in `narrater ask`; disambiguate duplicates in
+    // the scene so two "claude" terminals never clobber each other's route.
+    // Reserved before spawn so the child sees its own identity in the
+    // environment.
+    let scene = scene.unwrap_or_default();
+    let effective_label = {
+        let mut inner = state.0.lock().unwrap();
+        let base = label.unwrap_or_else(|| id.clone());
+        let name = inner.names.set(&id, &scene, &base);
+        inner.links.refresh_label(&id, &name);
+        name
+    };
+    let token = uuid::Uuid::new_v4().simple().to_string();
+
+    // A workspace on an SSH server or in a Docker container: the terminal is
+    // ssh / docker exec running the agent over there
+    let remote = match crate::workspaces::environment_of(&scene) {
+        Some(env) => {
+            state.0.lock().unwrap().booting.insert(id.clone());
+            let prepared = prepare_remote(
+                env, &id, &token, &effective_label, &scene, cwd.clone(), role.clone(), program.clone(), prog_args.clone(),
+            )
+            .await;
+            if prepared.is_err() {
+                state.0.lock().unwrap().booting.remove(&id);
+            }
+            match prepared {
+                Ok(r) => Some(r),
+                Err(e) => {
+                    state.0.lock().unwrap().names.remove(&id);
+                    return Err(e);
+                }
+            }
+        }
+        None => None,
+    };
+
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(PtySize { rows, cols, pixel_width: 0, pixel_height: 0 })
+        .map_err(|e| e.to_string())?;
+
+    let (mut cmd, project_dir, spawn_dir) = match &remote {
+        Some(r) => {
+            let mut cmd = CommandBuilder::new(&r.argv[0]);
+            cmd.args(&r.argv[1..]);
+            let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+            (cmd, PathBuf::from(&r.project_dir), home)
+        }
+        None => {
+            let mut cmd = CommandBuilder::new(&program);
+            cmd.args(&prog_args);
+            // Working directory: the project the terminal works on. With a
+            // role, the agent starts inside `.narrater/roles/<key>/` so it
+            // loads the role's CLAUDE.md / AGENTS.md natively — the files
+            // point back to the project.
+            let project_dir = resolve_cwd(cwd.as_deref());
+            let spawn_dir = match role.as_ref() {
+                Some(r) => crate::roles::install_role_dir(&project_dir, r, &command).unwrap_or_else(|e| {
+                    eprintln!("[NarraTer] {}", e);
+                    project_dir.clone()
+                }),
+                None => project_dir.clone(),
+            };
+            (cmd, project_dir, spawn_dir)
+        }
     };
     cmd.cwd(&spawn_dir);
 
@@ -358,26 +469,12 @@ pub fn pty_spawn(
     }
 
     cmd.env("NARRATER_SOCKET", crate::ipc::socket_path());
-
-    // Labels address agents in `narrater ask`; disambiguate duplicates in
-    // the scene so two "claude" terminals never clobber each other's route.
-    // Reserved before spawn so the child sees its own identity in the
-    // environment.
-    let scene = scene.unwrap_or_default();
-    let effective_label = {
-        let mut inner = state.0.lock().unwrap();
-        let base = label.unwrap_or_else(|| id.clone());
-        let name = inner.names.set(&id, &scene, &base);
-        inner.links.refresh_label(&id, &name);
-        name
-    };
     cmd.env("NARRATER_SCENE", &scene);
     cmd.env("NARRATER_ID", &id);
     cmd.env("NARRATER_LABEL", &effective_label);
-    let token = uuid::Uuid::new_v4().simple().to_string();
     cmd.env("NARRATER_TOKEN", &token);
 
-    if command == "claude" || command.ends_with("/claude") {
+    if remote.is_none() && (command == "claude" || command.ends_with("/claude")) {
         // No interactive dialogs on boot: the user creating the terminal in
         // NarraTer is the trust decision.
         pre_trust_claude_dir(&spawn_dir, bypass_permissions);
@@ -407,6 +504,7 @@ pub fn pty_spawn(
             });
             inner.ask_waiters.retain(|_, w| w.target_id != id);
         }
+        inner.booting.remove(&id);
         inner.sessions.insert(id.clone(), PtySession {
             writer: Box::new(writer),
             master: pair.master,
@@ -418,6 +516,7 @@ pub fn pty_spawn(
             delivering: false,
             token: token.clone(),
             project_dir: project_dir.clone(),
+            remote: remote.as_ref().map(|r| r.env.clone()),
         });
     }
 

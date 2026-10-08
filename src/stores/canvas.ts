@@ -8,6 +8,7 @@ import {
 import type { FloorMeta, FloorStatusLine, SceneData, SceneNode } from "@/lib/tauri";
 import { disposeTerminal, replaceTerminal, startTerminal, spawnOptsFor } from "@/lib/terminalManager";
 import type { AgentType } from "@/lib/agents";
+import { toast } from "@/stores/toasts";
 
 export interface TerminalNodeData extends Record<string, unknown> {
   agentType: AgentType;
@@ -379,6 +380,25 @@ function serialize(sl: SceneSlice): SceneData {
   };
 }
 
+/**
+ * Restarts every terminal of a live scene (it moved to another machine or
+ * container, or its directory changed). `retarget` moves the terminals that
+ * worked in the old directory (or had none) to the new one.
+ */
+export function restartSceneTerminals(scene: string, retarget?: { from: string | null; to: string | null }): void {
+  const sl = sliceOf(scene);
+  if (!sl) return;
+  for (const n of sl.nodes) {
+    if (n.type !== "terminal") continue;
+    let cwd = (n.data as TerminalNodeData).cwd;
+    const { from, to } = retarget ?? { from: null, to: null };
+    if (retarget && (!cwd || (from && (cwd === from || cwd.startsWith(`${from}/`))))) {
+      cwd = to ? (cwd && from ? to + cwd.slice(from.length) : to) : undefined;
+    }
+    useCanvasStore.getState().replaceTerminalAgent(n.id, { cwd });
+  }
+}
+
 /** Scenes linked to `name` by cross-workspace teammates wake with it. */
 async function wakeLinked(name: string): Promise<void> {
   try {
@@ -421,9 +441,13 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     if (!name || sliceOf(name)) return;
     let slice: SceneSlice;
     try {
+      // A missing file loads as an empty scene; an error here is a file that
+      // couldn't be read — never replace it with an empty canvas
       slice = hydrate(await loadScene(name));
-    } catch {
-      slice = { nodes: [], edges: [], floors: [], groundStatus: null };
+    } catch (e) {
+      console.error(`can't start "${name}":`, e);
+      toast.error(`Couldn't open workspace "${name}": ${e}`);
+      return;
     }
     if (sliceOf(name)) return; // woken meanwhile
     set({ background: { ...get().background, [name]: slice } });
@@ -754,19 +778,20 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     }
     set({ background, scene: name, nodes: [], edges: [], floors: [], groundStatus: null, hydrated: false, currentFloor: GROUND });
     let slice: SceneSlice;
-    let saved = true;
     try {
+      // A missing file loads as an empty scene (backend); an error is a file
+      // that couldn't be read: show nothing and don't auto-save over it
       slice = hydrate(await loadScene(name));
-    } catch {
-      // No saved scene yet — start empty
-      slice = { nodes: [], edges: [], floors: [], groundStatus: null };
-      saved = false;
+    } catch (e) {
+      console.error(`can't load "${name}":`, e);
+      toast.error(`Couldn't open workspace "${name}" — its file was left untouched: ${e}`);
+      return;
     }
     set({ ...slice, hydrated: true });
     syncConnections();
     startTerminals(slice.nodes, name);
     await routinesLoad(name).catch(console.error);
-    if (saved) await migrateScheduledPrompts();
+    await migrateScheduledPrompts();
     void wakeLinked(name);
   },
 
