@@ -30,7 +30,6 @@ const RAW_MAX_WAIT: Duration = Duration::from_secs(10);
 /// Ledger copies of replies are capped — the full text goes to the caller.
 const LEDGER_REPLY_CAP: usize = 4000;
 
-const CLI_SCRIPT: &str = include_str!("../assets/narrater.py");
 /// Skills installed for the agents: (directory name, SKILL.md content).
 const SKILLS: &[(&str, &str)] = &[
     ("narrater", include_str!("../assets/SKILL.md")),
@@ -558,11 +557,34 @@ fn write_file(path: &std::path::Path, content: &str, mode: u32) {
     let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
 }
 
-/// The `narrater` CLI every agent reaches through its shell tool.
+/// The `narrater` CLI every agent reaches through its shell tool: the
+/// `narrater-cli` binary shipped next to the app, copied (not linked — an
+/// AppImage's mount goes away) to ~/.local/bin/narrater. The copy goes
+/// through a temp file + rename, so an agent running the old one mid-call
+/// isn't disturbed ("text file busy").
 fn install_cli() {
-    if let Some(home) = dirs::home_dir() {
-        write_file(&home.join(".local/bin/narrater"), CLI_SCRIPT, 0o755);
+    let Some(home) = dirs::home_dir() else { return };
+    let Some(src) = std::env::current_exe().ok().and_then(|exe| Some(exe.parent()?.join("narrater-cli"))) else { return };
+    let dest = home.join(".local/bin/narrater");
+    if let Err(e) = install_binary(&src, &dest) {
+        eprintln!("[NarraTer] Could not install the CLI from {} to {}: {}", src.display(), dest.display(), e);
     }
+}
+
+fn install_binary(src: &std::path::Path, dest: &std::path::Path) -> std::io::Result<()> {
+    let bytes = std::fs::read(src)?;
+    if std::fs::read(dest).is_ok_and(|old| old == bytes) {
+        return Ok(());
+    }
+    let dir = dest.parent().unwrap_or(std::path::Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let tmp = dir.join(format!(".narrater-cli.{}.tmp", std::process::id()));
+    std::fs::write(&tmp, &bytes)?;
+    std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))?;
+    std::fs::rename(&tmp, dest).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e
+    })
 }
 
 /// Teaches the protocol to any agent CLI that supports skills — no vendor
@@ -603,6 +625,7 @@ fn remove_legacy_files() {
 mod tests {
     use super::*;
     use std::collections::{HashMap, HashSet, VecDeque};
+    use std::os::unix::fs::MetadataExt;
 
     fn inner_with(labels: &[(&str, &str)], connections: &[(&str, &str)]) -> PtyStateInner {
         PtyStateInner {
@@ -626,6 +649,28 @@ mod tests {
         assert!(resolve_target(&inner, "t1", "Ops").unwrap_err().contains("not connected"));
         // Connected (in either direction) but no live session
         assert!(resolve_target(&inner, "t1", "dev").unwrap_err().contains("not running"));
+    }
+
+    #[test]
+    fn cli_install_replaces_atomically_and_skips_identical() {
+        let dir = std::env::temp_dir().join(format!("narrater-cli-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (src, dest) = (dir.join("narrater-cli"), dir.join("bin/narrater"));
+        std::fs::write(&src, b"v1").unwrap();
+        install_binary(&src, &dest).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"v1");
+        assert_eq!(std::fs::metadata(&dest).unwrap().permissions().mode() & 0o777, 0o755);
+        // An old script in place (the Python CLI) is replaced
+        std::fs::write(&dest, b"#!/usr/bin/env python3").unwrap();
+        install_binary(&src, &dest).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"v1");
+        // Identical: untouched (same inode)
+        let ino = std::fs::metadata(&dest).unwrap().ino();
+        install_binary(&src, &dest).unwrap();
+        assert_eq!(std::fs::metadata(&dest).unwrap().ino(), ino);
+        // No temp files left behind
+        assert_eq!(std::fs::read_dir(dest.parent().unwrap()).unwrap().count(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

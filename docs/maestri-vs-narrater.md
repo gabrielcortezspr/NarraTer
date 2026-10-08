@@ -398,7 +398,7 @@ resolve**.
 | E7. Arestas direcionadas e reply grants | ✅ conexões não direcionadas; grants e `#id` removidos | `pty.rs` (`connected`) |
 | E8. Sessão presa ao tile | ✅ a cena inicia todos os terminais; o xterm só abre no primeiro attach; o fit ignora tiles ocultos (antes encolhia o PTY para 2×1) | `src/stores/canvas.ts`, `src/lib/terminalManager.ts` |
 | E9. Sem cwd por terminal | ✅ campo `cwd` na cena e no picker; pre-trust atômico só para o cwd real | `pty.rs`, `AgentPicker` |
-| E10. CLI e MCP frágeis | 🟡 MCP removido; CLI no formato do `maestri` com `debug`; ainda em Python | `assets/narrater.py` |
+| E10. CLI e MCP frágeis | ✅ MCP removido; CLI em Rust (`narrater-cli`, só std + serde_json, ~2 ms por chamada contra ~58 ms do Python), copiado para `~/.local/bin/narrater` no boot; paridade verificada com 103 linhas de comando contra o CLI Python antigo | `src-tauri/src/bin/narrater-cli/` |
 | E11. Lógica espalhada | 🟡 presets viraram dados (`agents.ts`), e protocolo/estado/entrega ficam no backend | — |
 | Extra | ✅ marcadores de sessão do processo pai (`CLAUDE_CODE_*`, `MAESTRI_*`) não vazam para os terminais | `pty.rs` |
 

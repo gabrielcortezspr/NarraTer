@@ -1,7 +1,11 @@
 # The `narrater` CLI and protocol
 
 Every terminal on the canvas can reach the agents and notes connected to it
-through the `narrater` CLI. It is installed at boot in `~/.local/bin`, and a
+through the `narrater` CLI — a small Rust binary (`narrater-cli`, std +
+serde_json only, `src-tauri/src/bin/narrater-cli/`) shipped next to the app
+and copied at boot to `~/.local/bin/narrater` (temp file + rename, skipped
+when identical). It only parses the command line and sends one JSON request
+over the app's socket; the logic lives in the app. A
 `narrater` skill teaching it is installed in `~/.claude/skills` and
 `~/.agents/skills`, so any agent CLI that supports skills (Claude Code, Codex,
 Gemini CLI, OpenCode…) knows how to use it. The command set mirrors Maestri's

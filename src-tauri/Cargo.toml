@@ -5,6 +5,7 @@ description = "NarraTer — spatial terminal canvas for Linux"
 authors = []
 edition = "2021"
 rust-version = "1.75"
+default-run = "narrater"
 
 [lib]
 name = "narrater_lib"
@@ -13,6 +14,12 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [[bin]]
 name = "narrater"
 path = "src/main.rs"
+
+# The `narrater` CLI agents call (std + serde_json only); the app installs it
+# to ~/.local/bin/narrater
+[[bin]]
+name = "narrater-cli"
+path = "src/bin/narrater-cli/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
