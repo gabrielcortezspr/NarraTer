@@ -337,9 +337,7 @@ fn cmd_portal(mut a: Args) {
 }
 
 fn cmd_recruit(mut a: Args) {
-    if a.value("--workspace").is_some() {
-        fail("Error: --workspace isn't supported yet — NarraTer runs one workspace at a time; recruit here or on a --floor");
-    }
+    let workspace = a.value("--workspace");
     let floor = a.value("--floor");
     let preset = a.value("--preset");
     let role = a.value("--role");
@@ -363,6 +361,7 @@ fn cmd_recruit(mut a: Args) {
             "dir": dir.unwrap_or_default(),
             "replace": replace.unwrap_or_default(),
             "floor": floor.unwrap_or_default(),
+            "workspace": workspace.unwrap_or_default(),
         }),
     );
 }

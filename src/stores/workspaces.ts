@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
 import { listScenes, saveScene, deleteScene, renameScene, workspacesLayout, workspaceSetDir } from "@/lib/tauri";
 import type { WorkspacesLayout } from "@/lib/tauri";
+import { useCanvasStore } from "@/stores/canvas";
 
 interface WorkspacesStore {
   list: string[];
@@ -60,6 +61,8 @@ export const useWorkspacesStore = create<WorkspacesStore>((set, get) => ({
 
   deleteWorkspace: async (name) => {
     if (name === "default") return;
+    // Running in the background? Its terminals stop first
+    useCanvasStore.getState().forgetScene(name);
     await deleteScene(name);
     set((s) => {
       const list = s.list.filter((w) => w !== name);
@@ -71,6 +74,7 @@ export const useWorkspacesStore = create<WorkspacesStore>((set, get) => ({
     const trimmed = newName.trim();
     if (!trimmed || oldName === "default" || get().list.includes(trimmed)) return;
     await renameScene(oldName, trimmed);
+    useCanvasStore.getState().renameLiveScene(oldName, trimmed);
     set((s) => ({
       list: s.list.map((w) => (w === oldName ? trimmed : w)),
       current: s.current === oldName ? trimmed : s.current,

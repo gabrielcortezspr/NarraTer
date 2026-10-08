@@ -23,6 +23,8 @@ export interface PtySpawnOptions {
   /** Project directory the terminal works on (defaults to $HOME). */
   cwd?: string;
   role?: RoleSpec;
+  /** Workspace (scene) the terminal belongs to — names are unique per scene. */
+  scene?: string;
 }
 
 export interface SceneNode {
@@ -261,6 +263,26 @@ export const routineRun = (id: string) => invoke<string>("routine_run", { id });
 
 /** Terminals in Maestro mode (gates Maestro-only CLI commands in the backend). */
 export const maestrosSync = (ids: string[]) => invoke<void>("maestros_sync", { ids });
+
+// ---- Live scenes and cross-workspace links ----
+
+/** One end of a cross-workspace link (`recruit --workspace`). */
+export interface LinkEnd {
+  id: string;
+  scene: string;
+  label: string;
+}
+export interface Link {
+  a: LinkEnd;
+  b: LinkEnd;
+}
+export const linksList = () => invoke<Link[]>("links_list");
+export const linkAdd = (a: LinkEnd, b: LinkEnd) => invoke<void>("link_add", { a, b });
+export const linksRemoveNode = (id: string) => invoke<boolean>("links_remove_node", { id });
+/** Scenes with terminals linked to `scene`'s. */
+export const linksScenes = (scene: string) => invoke<string[]>("links_scenes", { scene });
+export const routinesWake = (scene: string) => invoke<void>("routines_wake", { scene });
+export const routinesSleep = (scene: string) => invoke<void>("routines_sleep", { scene });
 
 // ---- Workspaces (sidebar layout) and floors ----
 

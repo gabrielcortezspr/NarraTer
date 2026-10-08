@@ -79,10 +79,41 @@ impl Routine {
     }
 }
 
+/// Routines of every live scene (several workspaces run at once); the panel
+/// shows the one on screen.
 #[derive(Default)]
 pub struct RoutinesInner {
-    scene: Option<String>,
-    routines: Vec<Routine>,
+    current: Option<String>,
+    scenes: HashMap<String, Vec<Routine>>,
+}
+
+impl RoutinesInner {
+    /// The scene a routine belongs to.
+    fn scene_of(&self, id: &str) -> Option<String> {
+        self.scenes.iter().find(|(_, rs)| rs.iter().any(|r| r.id == id)).map(|(s, _)| s.clone())
+    }
+
+    fn find_mut(&mut self, id: &str) -> Option<&mut Routine> {
+        self.scenes.values_mut().flat_map(|rs| rs.iter_mut()).find(|r| r.id == id)
+    }
+
+    fn current_mut(&mut self) -> Option<&mut Vec<Routine>> {
+        let scene = self.current.clone()?;
+        Some(self.scenes.entry(scene).or_default())
+    }
+}
+
+fn read_routines(scene: &str) -> Vec<Routine> {
+    let mut routines: Vec<Routine> = std::fs::read_to_string(routines_path(scene))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+        .and_then(|v| serde_json::from_value(v["routines"].clone()).ok())
+        .unwrap_or_default();
+    let now = Local::now();
+    for r in routines.iter_mut() {
+        arm(r, now);
+    }
+    routines
 }
 
 #[derive(Clone, Default)]
@@ -200,16 +231,19 @@ fn finish(r: &mut Routine) {
 }
 
 impl RoutinesState {
-    /// The scene the app has open (set when it loads its routines).
-    pub fn current_scene(&self) -> Option<String> {
-        self.0.lock().unwrap().scene.clone()
+    /// Makes sure `scene`'s routines are loaded (a scene woke up).
+    fn ensure(&self, scene: &str) {
+        let mut inner = self.0.lock().unwrap();
+        if !inner.scenes.contains_key(scene) {
+            inner.scenes.insert(scene.to_string(), read_routines(scene));
+        }
     }
 
-    fn save(&self) {
+    fn save(&self, scene: &str) {
         let inner = self.0.lock().unwrap();
-        let Some(scene) = &inner.scene else { return };
+        let Some(routines) = inner.scenes.get(scene) else { return };
         let _ = std::fs::create_dir_all(routines_dir());
-        let json = serde_json::json!({ "schemaVersion": 1, "routines": inner.routines });
+        let json = serde_json::json!({ "schemaVersion": 1, "routines": routines });
         if let Ok(text) = serde_json::to_string_pretty(&json) {
             if let Err(e) = std::fs::write(routines_path(scene), text) {
                 eprintln!("[NarraTer] could not save routines: {}", e);
@@ -217,12 +251,15 @@ impl RoutinesState {
         }
     }
 
+    /// The routines of the scene on screen.
     fn views(&self) -> Vec<RoutineView> {
-        self.0.lock().unwrap().routines.iter().map(view).collect()
+        let inner = self.0.lock().unwrap();
+        inner.current.as_ref().and_then(|c| inner.scenes.get(c)).map(|rs| rs.iter().map(view).collect()).unwrap_or_default()
     }
 
-    fn changed(&self, app: &AppHandle) {
-        self.save();
+    /// Saves `scene` and refreshes the panel.
+    fn changed(&self, app: &AppHandle, scene: &str) {
+        self.save(scene);
         let _ = app.emit("routines_changed", self.views());
     }
 }
@@ -262,10 +299,13 @@ async fn pre_run(script: &str, cwd: PathBuf, env: &[(&str, String)]) -> Result<S
 /// Fires routine `id` now. `manual` (`routine run`) queues even into a busy
 /// terminal. Returns the outcome line.
 async fn fire(routines: RoutinesState, pty: Arc<Mutex<PtyStateInner>>, app: AppHandle, id: String, manual: bool) -> String {
-    let Some(r) = routines.0.lock().unwrap().routines.iter().find(|r| r.id == id).cloned() else {
-        return "Error: routine not found".into();
+    let (r, scene) = {
+        let mut inner = routines.0.lock().unwrap();
+        let Some(scene) = inner.scene_of(&id) else {
+            return "Error: routine not found".into();
+        };
+        (inner.find_mut(&id).cloned().unwrap(), scene)
     };
-    let scene = routines.0.lock().unwrap().scene.clone().unwrap_or_default();
 
     let outcome: Result<String, String> = async {
         // Target state and working directory
@@ -318,7 +358,7 @@ async fn fire(routines: RoutinesState, pty: Arc<Mutex<PtyStateInner>>, app: AppH
     let now = Local::now();
     let line = {
         let mut inner = routines.0.lock().unwrap();
-        let Some(rec) = inner.routines.iter_mut().find(|x| x.id == id) else {
+        let Some(rec) = inner.find_mut(&id) else {
             return "Error: routine was deleted meanwhile".into();
         };
         let line = match &outcome {
@@ -346,11 +386,11 @@ async fn fire(routines: RoutinesState, pty: Arc<Mutex<PtyStateInner>>, app: AppH
         });
         line
     };
-    routines.changed(&app);
+    routines.changed(&app, &scene);
     line
 }
 
-/// Background scheduler: fires due routines of the loaded scene.
+/// Background scheduler: fires due routines of every live scene.
 pub async fn start_scheduler(app: AppHandle, routines: RoutinesState, pty: Arc<Mutex<PtyStateInner>>) {
     let mut interval = tokio::time::interval(TICK);
     loop {
@@ -359,7 +399,7 @@ pub async fn start_scheduler(app: AppHandle, routines: RoutinesState, pty: Arc<M
         let due: Vec<String> = {
             let mut inner = routines.0.lock().unwrap();
             let mut due = Vec::new();
-            for r in inner.routines.iter_mut().filter(|r| r.enabled) {
+            for r in inner.scenes.values_mut().flat_map(|rs| rs.iter_mut()).filter(|r| r.enabled) {
                 if r.until.as_deref().is_some_and(|u| schedule::past_until(u, now)) {
                     finish(r);
                     continue;
@@ -409,17 +449,13 @@ fn schedule_from(p: &Value, now: DateTime<Local>) -> Result<Option<Schedule>, St
     })
 }
 
-fn resolve_terminal(pty: &PtyStateInner, name: &str) -> Result<(String, String), String> {
+/// A running terminal of `from`'s scene, by name.
+fn resolve_terminal(pty: &PtyStateInner, from: &str, name: &str) -> Result<(String, String), String> {
+    let scene = pty.names.scene_of(from);
     let id = pty
-        .label_to_id
-        .get(name)
-        .cloned()
-        .or_else(|| {
-            let lower = name.to_lowercase();
-            let hits: Vec<&String> =
-                pty.label_to_id.iter().filter(|(l, _)| l.to_lowercase() == lower).map(|(_, id)| id).collect();
-            (hits.len() == 1).then(|| hits[0].clone())
-        })
+        .names
+        .resolve(from, name, |_| false)
+        .filter(|id| pty.names.scene_of(id) == scene)
         .ok_or_else(|| format!("no running terminal named '{}' in this scene", name))?;
     Ok((id.clone(), pty.label_of(&id)))
 }
@@ -432,10 +468,9 @@ fn target_from(p: &Value, pty: &PtyStateInner, from: &str) -> Result<Option<Rout
         return Ok(Some(RoutineTarget::Reminder));
     }
     if let Some(name) = s(p, "terminal") {
-        let (id, label) = resolve_terminal(pty, name)?;
+        let (id, label) = resolve_terminal(pty, from, name)?;
         return Ok(Some(RoutineTarget::Terminal { id, label }));
     }
-    let _ = from;
     Ok(None)
 }
 
@@ -542,24 +577,28 @@ impl RoutinesState {
         if !pty.lock().unwrap().maestros.contains(from) {
             return NOT_MAESTRO.into();
         }
-        if self.0.lock().unwrap().scene.is_none() {
-            return "Error: no scene loaded".into();
+        // The caller's own scene (it may run in the background)
+        let scene = pty.lock().unwrap().names.scene_of(from);
+        if scene.is_empty() {
+            return "Error: this terminal has no scene".into();
         }
+        self.ensure(&scene);
         let verb = s(p, "verb").unwrap_or("");
         let now = Local::now();
-        refresh_labels(self, &pty.lock().unwrap().labels);
+        refresh_labels(self, &pty.lock().unwrap().names);
         let result: Result<String, String> = match verb {
             "list" => {
-                let inner = self.0.lock().unwrap();
-                Ok(if inner.routines.is_empty() {
+                let mut inner = self.0.lock().unwrap();
+                let routines = inner.scenes.entry(scene.clone()).or_default();
+                Ok(if routines.is_empty() {
                     "(no routines in this scene — `narrater routine create` adds one)".into()
                 } else {
-                    inner.routines.iter().map(line).collect::<Vec<_>>().join("\n")
+                    routines.iter().map(line).collect::<Vec<_>>().join("\n")
                 })
             }
             "show" => {
                 let mut inner = self.0.lock().unwrap();
-                select(&mut inner.routines, p).map(|r| detail(r))
+                select(inner.scenes.entry(scene.clone()).or_default(), p).map(|r| detail(r))
             }
             "create" => {
                 let target = {
@@ -599,7 +638,7 @@ impl RoutinesState {
                     }
                     arm(&mut r, now);
                     let msg = format!("ok: created\n{}", line(&r));
-                    self.0.lock().unwrap().routines.push(r);
+                    self.0.lock().unwrap().scenes.entry(scene.clone()).or_default().push(r);
                     Ok(msg)
                 })()
             }
@@ -612,7 +651,7 @@ impl RoutinesState {
                 let mut inner = self.0.lock().unwrap();
                 (|| {
                     let (target, schedule) = (target?, schedule?);
-                    let r = select(&mut inner.routines, p)?;
+                    let r = select(inner.scenes.entry(scene.clone()).or_default(), p)?;
                     if let Some(n) = s(p, "new_name") {
                         r.name = n.to_string();
                     }
@@ -637,7 +676,7 @@ impl RoutinesState {
             }
             "enable" | "disable" => {
                 let mut inner = self.0.lock().unwrap();
-                select(&mut inner.routines, p).map(|r| {
+                select(inner.scenes.entry(scene.clone()).or_default(), p).map(|r| {
                     r.enabled = verb == "enable";
                     r.finished = false;
                     arm(r, now);
@@ -646,15 +685,16 @@ impl RoutinesState {
             }
             "delete" => {
                 let mut inner = self.0.lock().unwrap();
-                select(&mut inner.routines, p).map(|r| (r.id.clone(), r.name.clone())).map(|(id, name)| {
-                    inner.routines.retain(|r| r.id != id);
+                let routines = inner.scenes.entry(scene.clone()).or_default();
+                select(routines, p).map(|r| (r.id.clone(), r.name.clone())).map(|(id, name)| {
+                    routines.retain(|r| r.id != id);
                     format!("ok: routine '{}' deleted", name)
                 })
             }
             "run" => {
                 let id = {
                     let mut inner = self.0.lock().unwrap();
-                    select(&mut inner.routines, p).map(|r| r.id.clone())
+                    select(inner.scenes.entry(scene.clone()).or_default(), p).map(|r| r.id.clone())
                 };
                 match id {
                     Ok(id) => return fire(self.clone(), Arc::clone(pty), app.clone(), id, true).await,
@@ -666,7 +706,7 @@ impl RoutinesState {
         match result {
             Ok(text) => {
                 if verb != "list" && verb != "show" {
-                    self.changed(app);
+                    self.changed(app, &scene);
                 }
                 text
             }
@@ -677,26 +717,29 @@ impl RoutinesState {
 
 // ---- Tauri commands (canvas / sidebar) -----------------------------------
 
-/// Loads the routines of the scene that just opened (the scheduler only
-/// fires the current scene's routines — its terminals are the live ones).
+/// The scene on screen: its routines are loaded (if they weren't — a scene
+/// that keeps running in the background keeps its own) and shown.
 #[tauri::command]
 pub fn routines_load(scene: String, app: AppHandle, state: State<'_, RoutinesState>) -> Vec<RoutineView> {
-    let mut routines: Vec<Routine> = std::fs::read_to_string(routines_path(&scene))
-        .ok()
-        .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
-        .and_then(|v| serde_json::from_value(v["routines"].clone()).ok())
-        .unwrap_or_default();
-    let now = Local::now();
-    for r in routines.iter_mut() {
-        arm(r, now);
-    }
-    {
-        let mut inner = state.0.lock().unwrap();
-        inner.scene = Some(scene);
-        inner.routines = routines;
-    }
-    state.changed(&app);
+    state.ensure(&scene);
+    state.0.lock().unwrap().current = Some(scene.clone());
+    state.changed(&app, &scene);
     state.views()
+}
+
+/// A scene started running in the background: its routines fire too.
+#[tauri::command]
+pub fn routines_wake(scene: String, state: State<'_, RoutinesState>) {
+    state.ensure(&scene);
+}
+
+/// A background scene stopped: its routines stop with its terminals.
+#[tauri::command]
+pub fn routines_sleep(scene: String, state: State<'_, RoutinesState>) {
+    let mut inner = state.0.lock().unwrap();
+    if inner.current.as_deref() != Some(scene.as_str()) {
+        inner.scenes.remove(&scene);
+    }
 }
 
 #[tauri::command]
@@ -738,28 +781,44 @@ pub fn routine_ui_create(
         last_result: None,
     };
     arm(&mut r, Local::now());
-    state.0.lock().unwrap().routines.push(r);
-    state.changed(&app);
+    let scene = {
+        let mut inner = state.0.lock().unwrap();
+        let scene = inner.current.clone().ok_or("no scene open")?;
+        inner.current_mut().unwrap().push(r);
+        scene
+    };
+    state.changed(&app, &scene);
     Ok(())
 }
 
 #[tauri::command]
 pub fn routine_set_enabled(id: String, enabled: bool, app: AppHandle, state: State<'_, RoutinesState>) -> Result<(), String> {
-    {
+    let scene = {
         let mut inner = state.0.lock().unwrap();
-        let r = inner.routines.iter_mut().find(|r| r.id == id).ok_or("routine not found")?;
+        let scene = inner.scene_of(&id).ok_or("routine not found")?;
+        let r = inner.find_mut(&id).unwrap();
         r.enabled = enabled;
         r.finished = false;
         arm(r, Local::now());
-    }
-    state.changed(&app);
+        scene
+    };
+    state.changed(&app, &scene);
     Ok(())
 }
 
 #[tauri::command]
 pub fn routine_delete(id: String, app: AppHandle, state: State<'_, RoutinesState>) {
-    state.0.lock().unwrap().routines.retain(|r| r.id != id);
-    state.changed(&app);
+    let scene = {
+        let mut inner = state.0.lock().unwrap();
+        let scene = inner.scene_of(&id);
+        for rs in inner.scenes.values_mut() {
+            rs.retain(|r| r.id != id);
+        }
+        scene
+    };
+    if let Some(scene) = scene {
+        state.changed(&app, &scene);
+    }
 }
 
 #[tauri::command]
@@ -779,23 +838,25 @@ pub fn rename_scene(old: &str, new: &str, state: &RoutinesState) {
         let _ = std::fs::rename(from, to);
     }
     let mut inner = state.0.lock().unwrap();
-    if inner.scene.as_deref() == Some(old) {
-        inner.scene = Some(new.to_string());
+    if let Some(rs) = inner.scenes.remove(old) {
+        inner.scenes.insert(new.to_string(), rs);
+    }
+    if inner.current.as_deref() == Some(old) {
+        inner.current = Some(new.to_string());
     }
 }
 
 pub fn delete_scene(name: &str, state: &RoutinesState) {
     let _ = std::fs::remove_file(routines_path(name));
     let mut inner = state.0.lock().unwrap();
-    if inner.scene.as_deref() == Some(name) {
-        inner.routines.clear();
-    }
+    inner.scenes.remove(name);
 }
 
 /// Terminal labels for display, refreshed from the live sessions.
-pub fn refresh_labels(state: &RoutinesState, labels: &HashMap<String, String>) {
+pub fn refresh_labels(state: &RoutinesState, names: &crate::names::Names) {
+    let labels: HashMap<String, String> = names.all().into_iter().map(|(id, l, _)| (id, l)).collect();
     let mut inner = state.0.lock().unwrap();
-    for r in inner.routines.iter_mut() {
+    for r in inner.scenes.values_mut().flat_map(|rs| rs.iter_mut()) {
         if let RoutineTarget::Terminal { id, label } = &mut r.target {
             if let Some(l) = labels.get(id) {
                 label.clone_from(l);

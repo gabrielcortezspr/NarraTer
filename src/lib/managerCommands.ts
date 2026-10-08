@@ -1,4 +1,4 @@
-import { GROUND, floorOf, useCanvasStore } from "@/stores/canvas";
+import { GROUND, floorOf, sceneOfNode, sliceOf, useCanvasStore, type SceneSlice } from "@/stores/canvas";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import {
   FLOOR_STATES, createFloor, deleteFloorFully, describeStatus, findFloor, floorDir, floorName, landFloor,
@@ -6,7 +6,7 @@ import {
 } from "@/lib/floors";
 import { useRolesStore } from "@/stores/roles";
 import { toast } from "@/stores/toasts";
-import { fsListDir, systemNotify, type FloorState, type Role } from "@/lib/tauri";
+import { fsListDir, linkAdd, linksList, systemNotify, type FloorState, type Role } from "@/lib/tauri";
 import { AGENT_ORDER, AGENT_PRESETS, presetOf, type AgentType } from "@/lib/agents";
 import { findByName, freeSpot, labelOf, neighbors, reachOf, str, uniqueName, type CanvasRequest } from "@/lib/canvasReach";
 import type { AppNode, TerminalNodeData } from "@/stores/canvas";
@@ -33,7 +33,14 @@ interface Ctx {
   params: Record<string, unknown>;
   me: AppNode;
   meData: TerminalNodeData;
+  /** The caller's scene (on screen, or running in the background) */
+  scene: string;
+  /** Its contents, read when the request arrived */
+  sl: SceneSlice;
 }
+
+/** Fresh contents of the caller's scene (after a mutation). */
+const fresh = (ctx: Ctx) => sliceOf(ctx.scene) ?? ctx.sl;
 
 /** Preset by type key or label ("codex", "Gemini CLI"…), case-insensitive. */
 function findPreset(ref: string): AgentType | undefined {
@@ -100,6 +107,7 @@ function describe(d: TerminalNodeData): string {
 
 async function recruit(ctx: Ctx): Promise<string> {
   const store = useCanvasStore.getState();
+  const sl = ctx.sl;
   const agent = resolveAgent(ctx);
   if (typeof agent === "string") return agent;
   const roleRef = str(ctx.params.role);
@@ -117,7 +125,8 @@ async function recruit(ctx: Ctx): Promise<string> {
     if (!str(ctx.params.preset) && !str(ctx.params.command)) {
       return "Error: --replace swaps the agent, so it needs --preset (or --command)";
     }
-    const { agents } = reachOf(store.nodes, store.edges, ctx.req.from);
+    if (str(ctx.params.workspace).trim()) return "Error: --replace swaps the agent in place — --workspace doesn't apply";
+    const { agents } = reachOf(sl.nodes, sl.edges, ctx.req.from);
     const target = findByName(agents, replaceRef, "agent");
     if (typeof target === "string") return target;
     const oldName = labelOf(target);
@@ -127,10 +136,10 @@ async function recruit(ctx: Ctx): Promise<string> {
       skipPermissions: undefined,
       ...(role ? rolePatch(role) : {}),
       ...(dir ? { cwd: dir } : {}),
-      ...(name ? { label: uniqueName(store.nodes, "terminal", name, target.id) } : {}),
+      ...(name ? { label: uniqueName(sl.nodes, "terminal", name, target.id) } : {}),
     };
     store.replaceTerminalAgent(target.id, patch);
-    const now = useCanvasStore.getState().nodes.find((n) => n.id === target.id);
+    const now = fresh(ctx).nodes.find((n) => n.id === target.id);
     const d = now?.data as TerminalNodeData;
     return (
       `ok: '${oldName}' now runs ${describe(d)}${name ? ` as '${labelOf(now!)}'` : ""} — same node, ` +
@@ -138,19 +147,28 @@ async function recruit(ctx: Ctx): Promise<string> {
     );
   }
 
+  const floorRef = str(ctx.params.floor).trim();
+  // --workspace: the recruit joins another workspace — that project's agent
+  const wsRef = str(ctx.params.workspace).trim();
+  if (wsRef) {
+    const list = useWorkspacesStore.getState().list;
+    const ws = list.find((w) => w === wsRef) ?? list.find((w) => w.toLowerCase() === wsRef.toLowerCase());
+    if (!ws) return `Error: no workspace named '${wsRef}' — \`narrater workspace list\` shows them`;
+    if (ws !== ctx.scene) return recruitInWorkspace(ctx, ws, agent, role, dir, name, floorRef);
+  }
+
   // --floor: another level of this scene; on a git-isolated floor the
   // recruit works in the floor's worktree unless --dir says otherwise
-  const floorRef = str(ctx.params.floor).trim();
   let floorId = floorOf(ctx.me);
   if (floorRef) {
-    const f = findFloor(floorRef);
+    const f = findFloor(floorRef, ctx.scene);
     if (!f) return `Error: no floor named '${floorRef}' — \`narrater floor list\``;
     floorId = f === "ground" ? GROUND : f.id;
   }
-  const floorNodes = store.nodes.filter((n) => floorOf(n) === floorId);
-  const cwd = dir || (floorRef ? floorDir(floorId) ?? undefined : ctx.meData.cwd);
+  const floorNodes = sl.nodes.filter((n) => floorOf(n) === floorId);
+  const cwd = dir || (floorRef ? floorDir(floorId, ctx.scene) ?? undefined : ctx.meData.cwd);
 
-  const label = uniqueName(store.nodes, "terminal", name || presetOf(agent.agentType).label);
+  const label = uniqueName(sl.nodes, "terminal", name || presetOf(agent.agentType).label);
   const id = store.addTerminalNode(
     {
       ...agent,
@@ -160,9 +178,10 @@ async function recruit(ctx: Ctx): Promise<string> {
       floor: floorId === GROUND ? undefined : floorId,
     },
     freeSpot(floorNodes, ctx.me, RECRUIT_SIZE),
+    ctx.scene,
   );
-  store.addEdge({ id: `edge-${crypto.randomUUID().slice(0, 8)}`, source: ctx.req.from, target: id, type: "agent-pipe" });
-  const d = useCanvasStore.getState().nodes.find((n) => n.id === id)?.data as TerminalNodeData;
+  store.addEdge({ id: `edge-${crypto.randomUUID().slice(0, 8)}`, source: ctx.req.from, target: id, type: "agent-pipe" }, ctx.scene);
+  const d = fresh(ctx).nodes.find((n) => n.id === id)?.data as TerminalNodeData;
   const where = floorRef ? ` on floor '${floorRef}'${cwd ? ` (working in ${cwd})` : ""}` : "";
   return (
     `ok: recruited '${label}' (${describe(d)})${where}, connected to you. It may still be booting — ` +
@@ -170,15 +189,92 @@ async function recruit(ctx: Ctx): Promise<string> {
   );
 }
 
-function dismiss(ctx: Ctx): string {
+/**
+ * Recruits into another workspace (Maestri's `recruit --workspace`): the
+ * workspace starts running if it wasn't, the terminal joins its ground (or
+ * `--floor` there) working in that project's directory, and a
+ * cross-workspace link wires it to the caller — addressed as `Name @ Workspace`.
+ */
+async function recruitInWorkspace(
+  ctx: Ctx,
+  ws: string,
+  agent: { agentType: AgentType; command?: string },
+  role: Role | null,
+  dir: string,
+  name: string,
+  floorRef: string,
+): Promise<string> {
   const store = useCanvasStore.getState();
-  const { agents } = reachOf(store.nodes, store.edges, ctx.req.from);
-  const target = findByName(agents, str(ctx.params.name), "agent");
-  if (typeof target === "string") return target;
+  await store.wakeScene(ws);
+  const sl = sliceOf(ws);
+  if (!sl) return `Error: workspace '${ws}' couldn't be started`;
+  let floorId = GROUND;
+  if (floorRef) {
+    const f = findFloor(floorRef, ws);
+    if (!f) return `Error: workspace '${ws}' has no floor named '${floorRef}'`;
+    floorId = f === "ground" ? GROUND : f.id;
+  }
+  const cwd = dir || floorDir(floorId, ws) || undefined;
+  const floorNodes = sl.nodes.filter((n) => floorOf(n) === floorId);
+  // Next to the last thing on that floor, or at the origin of an empty one
+  const anchor = floorNodes[floorNodes.length - 1] ?? ({ position: { x: 0, y: 0 }, width: 0, height: 0 } as unknown as AppNode);
+  const label = uniqueName(sl.nodes, "terminal", name || presetOf(agent.agentType).label);
+  const id = store.addTerminalNode(
+    {
+      ...agent,
+      label,
+      ...(role ? rolePatch(role) : {}),
+      cwd,
+      floor: floorId === GROUND ? undefined : floorId,
+    },
+    floorNodes.length ? freeSpot(floorNodes, anchor, RECRUIT_SIZE) : { x: 80, y: 80 },
+    ws,
+  );
+  await linkAdd({ id: ctx.req.from, scene: ctx.scene, label: labelOf(ctx.me) }, { id, scene: ws, label });
+  const d = sliceOf(ws)?.nodes.find((n) => n.id === id)?.data as TerminalNodeData;
+  const floorPart = floorRef ? ` on floor '${floorRef}'` : "";
+  return (
+    `ok: recruited '${label}' (${describe(d)}) in workspace '${ws}'${floorPart}` +
+    `${cwd ? ` (working in ${cwd})` : ""}, linked to you — address it as \`${label} @ ${ws}\`. ` +
+    `It may still be booting — your first \`narrater ask "${label} @ ${ws}" "..."\` waits until it's ready.`
+  );
+}
+
+/** A teammate in another workspace linked to the caller, by `Name @ Workspace` or bare name. */
+async function remoteTeammate(ctx: Ctx, ref: string): Promise<{ id: string; label: string; scene: string } | null> {
+  const wanted = ref.trim().toLowerCase();
+  const [namePart, scenePart] = wanted.includes("@") ? wanted.split("@").map((x) => x.trim()) : [wanted, ""];
+  const links = await linksList().catch(() => []);
+  for (const l of links) {
+    const other = l.a.id === ctx.req.from ? l.b : l.b.id === ctx.req.from ? l.a : null;
+    if (!other) continue;
+    const node = sliceOf(other.scene)?.nodes.find((n) => n.id === other.id);
+    const label = node ? labelOf(node) : other.label;
+    if (label.toLowerCase() === namePart && (!scenePart || other.scene.toLowerCase() === scenePart)) {
+      return { id: other.id, label, scene: other.scene };
+    }
+  }
+  return null;
+}
+
+async function dismiss(ctx: Ctx): Promise<string> {
+  const store = useCanvasStore.getState();
+  const sl = ctx.sl;
+  const { agents } = reachOf(sl.nodes, sl.edges, ctx.req.from);
+  const ref = str(ctx.params.name);
+  const target = findByName(agents, ref, "agent");
+  if (typeof target === "string") {
+    // A teammate recruited into another workspace
+    const remote = await remoteTeammate(ctx, ref);
+    if (!remote) return target;
+    if (!sliceOf(remote.scene)) await store.wakeScene(remote.scene);
+    store.removeNode(remote.id);
+    return `ok: dismissed '${remote.label} @ ${remote.scene}'`;
+  }
   // Notes wired only to this agent lose their last link (only the user can rewire them)
-  const orphans = neighbors(store.edges, target.id)
-    .map((id) => store.nodes.find((n) => n.id === id))
-    .filter((n): n is AppNode => n?.type === "note" && neighbors(store.edges, n.id).length === 1)
+  const orphans = neighbors(sl.edges, target.id)
+    .map((id) => sl.nodes.find((n) => n.id === id))
+    .filter((n): n is AppNode => n?.type === "note" && neighbors(sl.edges, n.id).length === 1)
     .map(labelOf);
   store.removeNode(target.id);
   return (
@@ -231,7 +327,7 @@ async function roleCommand(ctx: Ctx): Promise<string> {
 
   if (action === "role_assign") {
     const store = useCanvasStore.getState();
-    const { agents } = reachOf(store.nodes, store.edges, ctx.req.from);
+    const { agents } = reachOf(ctx.sl.nodes, ctx.sl.edges, ctx.req.from);
     const target = findByName(agents, str(params.recruit), "agent");
     if (typeof target === "string") return target;
     const role = params.none === true ? null : await findRole(name);
@@ -266,7 +362,9 @@ async function roleCommand(ctx: Ctx): Promise<string> {
     }
     case "role_delete": {
       const store = useCanvasStore.getState();
-      const users = store.nodes.filter((n) => n.type === "terminal" && (n.data as TerminalNodeData).roleId === role.id);
+      // Roles are global: every live workspace's terminals count
+      const all = [store.nodes, ...Object.values(store.background).map((b) => b.nodes)].flat();
+      const users = all.filter((n) => n.type === "terminal" && (n.data as TerminalNodeData).roleId === role.id);
       if (users.length && params.force !== true) {
         return (
           `Error: role '${role.name}' is assigned to ${users.map((n) => `'${labelOf(n)}'`).join(", ")} — ` +
@@ -284,7 +382,7 @@ async function roleCommand(ctx: Ctx): Promise<string> {
 }
 
 function floorList(ctx: Ctx): string {
-  const { floors, nodes } = useCanvasStore.getState();
+  const { floors, nodes } = ctx.sl;
   const ws = useWorkspacesStore.getState();
   const count = (id: string) => nodes.filter((n) => floorOf(n) === id).length;
   const mine = floorOf(ctx.me);
@@ -298,7 +396,7 @@ function floorList(ctx: Ctx): string {
   // Status lines under each level that has one
   const levels = [GROUND, ...floors.map((f) => f.id)];
   return lines
-    .map((l, i) => (statusOf(levels[i]) ? `${l}\n    ${describeStatus(statusOf(levels[i]))}` : l))
+    .map((l, i) => (statusOf(levels[i], ctx.scene) ? `${l}\n    ${describeStatus(statusOf(levels[i], ctx.scene))}` : l))
     .join("\n");
 }
 
@@ -316,8 +414,8 @@ async function floorCreate(ctx: Ctx): Promise<string> {
       copyGround: ctx.params.copy_ground === true,
       copy: ctx.params.copy === true,
       pullRequest: pullRequest || undefined,
-    });
-    const isolated = useCanvasStore.getState().floors.find((f) => f.name === name)?.branch;
+    }, ctx.scene);
+    const isolated = fresh(ctx).floors.find((f) => f.name === name)?.branch;
     return (
       `ok: ${summary}. Staff it with \`narrater recruit "Name" --floor "${name}"\`` +
       (isolated ? "; land or delete it only when the user asks." : ".")
@@ -334,7 +432,7 @@ function groundOnlyTarget(ctx: Ctx, verb: string): { id: string; name: string } 
   }
   const ref = str(ctx.params.name).trim();
   if (!ref) return `Usage: narrater floor ${verb} "Name"`;
-  const f = findFloor(ref);
+  const f = findFloor(ref, ctx.scene);
   if (!f) return `Error: no floor named '${ref}' — \`narrater floor list\``;
   if (f === "ground") return `Error: the ground level can't be ${verb === "land" ? "landed" : "deleted"}`;
   return { id: f.id, name: f.name };
@@ -375,7 +473,7 @@ function floorStatusCmd(ctx: Ctx): string {
     if (!ctx.meData.maestro) {
       return "Error: only the Maestro can post another floor's status — drop --floor to post your own floor's";
     }
-    const f = findFloor(floorRef);
+    const f = findFloor(floorRef, ctx.scene);
     if (!f) return `Error: no floor named '${floorRef}' — \`narrater floor list\``;
     id = f === "ground" ? GROUND : f.id;
   }
@@ -384,10 +482,10 @@ function floorStatusCmd(ctx: Ctx): string {
   const progressRef = str(p.progress).trim();
 
   if (p.clear === true) {
-    useCanvasStore.getState().setFloorStatus(id, null);
+    useCanvasStore.getState().setFloorStatus(id, null, ctx.scene);
     return `ok: cleared the status of ${floorName(id)}`;
   }
-  if (!text && !stateRef && !progressRef) return `${floorName(id)}: ${describeStatus(statusOf(id))}`;
+  if (!text && !stateRef && !progressRef) return `${floorName(id)}: ${describeStatus(statusOf(id, ctx.scene))}`;
 
   if (stateRef && !FLOOR_STATES.includes(stateRef as FloorState)) {
     return `Error: --state takes ${FLOOR_STATES.join(", ")}`;
@@ -398,6 +496,7 @@ function floorStatusCmd(ctx: Ctx): string {
     id,
     { text: text || undefined, state: (stateRef || undefined) as FloorState | undefined, progress },
     labelOf(ctx.me),
+    ctx.scene,
   );
   return `ok: ${floorName(id)} ${describeStatus(line)}`;
 }
@@ -415,10 +514,12 @@ async function notify(ctx: Ctx): Promise<string> {
 }
 
 export async function handleManager(req: CanvasRequest): Promise<string> {
-  const me = useCanvasStore.getState().nodes.find((n) => n.id === req.from);
-  if (me?.type !== "terminal") return "Error: unknown terminal";
+  const scene = sceneOfNode(req.from);
+  const sl = sliceOf(scene);
+  const me = sl?.nodes.find((n) => n.id === req.from);
+  if (!sl || !scene || me?.type !== "terminal") return "Error: unknown terminal";
   const meData = me.data as TerminalNodeData;
-  const ctx: Ctx = { req, params: req.params ?? {}, me, meData };
+  const ctx: Ctx = { req, params: req.params ?? {}, me, meData, scene, sl };
   if (req.action === "floor_status") return floorStatusCmd(ctx);
   if (!meData.maestro) return NOT_MAESTRO;
 

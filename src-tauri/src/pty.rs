@@ -116,10 +116,13 @@ impl PtySession {
     }
 }
 
+#[derive(Default)]
 pub struct PtyStateInner {
     pub sessions: HashMap<String, PtySession>,
-    pub labels: HashMap<String, String>,
-    pub label_to_id: HashMap<String, String>,
+    /// Terminal names, unique per scene (several workspaces run at once)
+    pub names: crate::names::Names,
+    /// Cross-workspace links (`recruit --workspace`), persisted
+    pub links: crate::names::Links,
     /// In-flight asks, keyed by a request id.
     pub ask_waiters: HashMap<String, AskWaiter>,
     /// Agent ropes mirrored from the canvas. Undirected: an edge between two
@@ -139,10 +142,16 @@ impl PtyStateInner {
     pub fn connected(&self, a: &str, b: &str) -> bool {
         self.connections.contains(&(a.to_string(), b.to_string()))
             || self.connections.contains(&(b.to_string(), a.to_string()))
+            || self.links.linked(a, b)
     }
 
     pub fn label_of(&self, id: &str) -> String {
-        self.labels.get(id).cloned().unwrap_or_else(|| id.to_string())
+        self.names.label_of(id)
+    }
+
+    /// How `viewer` addresses `id` (`Name`, or `Name @ Workspace` across scenes).
+    pub fn address(&self, id: &str, viewer: &str) -> String {
+        self.names.address(id, viewer)
     }
 }
 
@@ -151,17 +160,7 @@ pub struct PtyState(pub Arc<Mutex<PtyStateInner>>);
 
 impl Default for PtyState {
     fn default() -> Self {
-        PtyState(Arc::new(Mutex::new(PtyStateInner {
-            sessions: HashMap::new(),
-            labels: HashMap::new(),
-            label_to_id: HashMap::new(),
-            ask_waiters: HashMap::new(),
-            connections: HashSet::new(),
-            inbox: HashMap::new(),
-            canvas_waiters: HashMap::new(),
-            ledger: VecDeque::new(),
-            maestros: HashSet::new(),
-        })))
+        PtyState(Arc::new(Mutex::new(PtyStateInner { links: crate::names::Links::load(), ..Default::default() })))
     }
 }
 
@@ -290,6 +289,7 @@ pub fn pty_spawn(
     agent_type: Option<String>,
     cwd: Option<String>,
     role: Option<RoleSpec>,
+    scene: Option<String>,
     app_handle: AppHandle,
     state: State<'_, PtyState>,
 ) -> Result<String, String> {
@@ -359,19 +359,19 @@ pub fn pty_spawn(
 
     cmd.env("NARRATER_SOCKET", crate::ipc::socket_path());
 
-    // Labels address agents in `narrater ask`; disambiguate duplicates so
-    // two "claude" terminals never clobber each other's route. Reserved before
-    // spawn so the child sees its own identity in the environment.
+    // Labels address agents in `narrater ask`; disambiguate duplicates in
+    // the scene so two "claude" terminals never clobber each other's route.
+    // Reserved before spawn so the child sees its own identity in the
+    // environment.
+    let scene = scene.unwrap_or_default();
     let effective_label = {
         let mut inner = state.0.lock().unwrap();
         let base = label.unwrap_or_else(|| id.clone());
-        let candidate = dedup_label(&inner.label_to_id, &id, &base);
-        if let Some(old) = inner.labels.insert(id.clone(), candidate.clone()) {
-            inner.label_to_id.remove(&old);
-        }
-        inner.label_to_id.insert(candidate.clone(), id.clone());
-        candidate
+        let name = inner.names.set(&id, &scene, &base);
+        inner.links.refresh_label(&id, &name);
+        name
     };
+    cmd.env("NARRATER_SCENE", &scene);
     cmd.env("NARRATER_ID", &id);
     cmd.env("NARRATER_LABEL", &effective_label);
     let token = uuid::Uuid::new_v4().simple().to_string();
@@ -386,9 +386,7 @@ pub fn pty_spawn(
     let child = match pair.slave.spawn_command(cmd) {
         Ok(c) => c,
         Err(e) => {
-            let mut inner = state.0.lock().unwrap();
-            inner.labels.remove(&id);
-            inner.label_to_id.remove(&effective_label);
+            state.0.lock().unwrap().names.remove(&id);
             return Err(e.to_string());
         }
     };
@@ -444,9 +442,7 @@ pub fn pty_spawn(
                         // Dropping the senders wakes pending asks with a clean error
                         inner.ask_waiters.retain(|_, w| w.target_id != id_clone && w.asker_id != id_clone);
                         inner.inbox.remove(&id_clone);
-                        if let Some(label) = inner.labels.remove(&id_clone) {
-                            inner.label_to_id.remove(&label);
-                        }
+                        inner.names.remove(&id_clone);
                         inner.sessions.remove(&id_clone).map(|s| s.child)
                     };
                     let code = child
@@ -507,14 +503,8 @@ pub fn pty_kill(id: String, state: State<'_, PtyState>) -> Result<(), String> {
 #[tauri::command]
 pub fn pty_update_label(id: String, label: String, state: State<'_, PtyState>) -> Result<(), String> {
     let mut inner = state.0.lock().unwrap();
-    if inner.label_to_id.get(&label).is_some_and(|owner| owner != &id) {
-        return Err(format!("Label '{}' is already used by another terminal", label));
-    }
-    if let Some(old_label) = inner.labels.get(&id).cloned() {
-        inner.label_to_id.remove(&old_label);
-    }
-    inner.labels.insert(id.clone(), label.clone());
-    inner.label_to_id.insert(label, id);
+    inner.names.rename(&id, &label)?;
+    inner.links.refresh_label(&id, &label);
     Ok(())
 }
 
@@ -739,17 +729,6 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
     }
 }
 
-/// Deduplicates a label with a -2, -3… suffix (unless the owner is already `id`).
-fn dedup_label(label_to_id: &HashMap<String, String>, id: &str, base: &str) -> String {
-    let mut candidate = base.to_string();
-    let mut n = 2;
-    while label_to_id.get(&candidate).is_some_and(|owner| owner != id) {
-        candidate = format!("{}-{}", base, n);
-        n += 1;
-    }
-    candidate
-}
-
 pub fn write_to_pty(state_arc: &Arc<Mutex<PtyStateInner>>, id: &str, data: &str) -> bool {
     let mut inner = state_arc.lock().unwrap();
     if let Some(session) = inner.sessions.get_mut(id) {
@@ -783,31 +762,12 @@ mod tests {
         assert_eq!(frame_message(&qmsg(None, "scheduled"), false), "scheduled");
     }
 
-    #[test]
-    fn dedup_label_suffixes_duplicates() {
-        let mut map = HashMap::new();
-        assert_eq!(dedup_label(&map, "t1", "claude"), "claude");
-        map.insert("claude".to_string(), "t1".to_string());
-        // The label's owner is this very id → keep it
-        assert_eq!(dedup_label(&map, "t1", "claude"), "claude");
-        // Another terminal with the same label → suffix
-        assert_eq!(dedup_label(&map, "t2", "claude"), "claude-2");
-        map.insert("claude-2".to_string(), "t2".to_string());
-        assert_eq!(dedup_label(&map, "t3", "claude"), "claude-3");
-    }
 
     #[test]
     fn connections_are_undirected() {
         let inner = PtyStateInner {
-            sessions: HashMap::new(),
-            labels: HashMap::new(),
-            label_to_id: HashMap::new(),
-            ask_waiters: HashMap::new(),
             connections: [("a".to_string(), "b".to_string())].into_iter().collect(),
-            inbox: HashMap::new(),
-            canvas_waiters: HashMap::new(),
-            ledger: VecDeque::new(),
-            maestros: HashSet::new(),
+            ..Default::default()
         };
         assert!(inner.connected("a", "b"));
         assert!(inner.connected("b", "a"));

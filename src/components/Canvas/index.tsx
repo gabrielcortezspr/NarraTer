@@ -12,6 +12,7 @@ import {
   type EdgeTypes,
   type Connection,
   type XYPosition,
+  type Viewport,
 } from "@xyflow/react";
 import { useShallow } from "zustand/react/shallow";
 import { scheduleTerminalZoomSync } from "@/lib/terminalManager";
@@ -25,6 +26,7 @@ import PortalTile from "@/components/PortalTile";
 import AgentNoteEdge from "@/components/AgentNoteEdge";
 import AgentPipeEdge from "@/components/AgentPipeEdge";
 import CommandPalette from "@/components/CommandPalette";
+import WorkspaceNav from "@/components/WorkspaceNav";
 import EdgeHistoryPanel from "@/components/EdgeHistoryPanel";
 import ChatPanel from "@/components/ChatPanel";
 import { useChatStore } from "@/stores/chat";
@@ -37,7 +39,6 @@ import { GROUND, floorOf, useCanvasStore } from "@/stores/canvas";
 import FloorBar from "@/components/FloorBar";
 import { floorDir } from "@/lib/floors";
 import { useLedgerStore } from "@/stores/ledger";
-import { useWorkspacesStore } from "@/stores/workspaces";
 import { useToolStore, PLACEMENT_TOOLS } from "@/stores/tool";
 import { saveNow } from "@/hooks/useAutoSave";
 import { useSketchStore } from "@/stores/sketch";
@@ -110,10 +111,9 @@ function CanvasInner() {
     const ids = new Set(visibleNodes.map((n) => n.id));
     return edges.filter((e) => ids.has(e.source) && ids.has(e.target));
   }, [edges, nodes.length, visibleNodes, currentFloor]);
-  const { current: currentWorkspace } = useWorkspacesStore();
   const { active: activeTool, setTool } = useToolStore();
   const undoSketch = useSketchStore((s) => s.undo);
-  const { screenToFlowPosition, fitView } = useReactFlow();
+  const { screenToFlowPosition, fitView, getViewport, setViewport } = useReactFlow();
 
   const drawMode = activeTool === "draw";
   const placementMode = PLACEMENT_TOOLS.has(activeTool);
@@ -127,16 +127,22 @@ function CanvasInner() {
     useCanvasStore.getState().snapshot();
   }, []);
 
-  // Frame the canvas once per scene load — a permanent fitView prop would
-  // re-frame on every structural node change instead.
+  // Frame the canvas the first time a workspace/floor shows up — a permanent
+  // fitView prop would re-frame on every structural node change instead.
+  // Coming back to one restores the camera where it was left (fast switching
+  // between workspaces shouldn't make you look for your place again).
+  const scene = useCanvasStore((s) => s.scene);
   const fitDoneFor = useRef<string | null>(null);
+  const cameras = useRef(new Map<string, Viewport>());
   useEffect(() => {
-    const key = `${currentWorkspace}@${currentFloor}`;
+    const key = `${scene}@${currentFloor}`;
     if (hydrated && fitDoneFor.current !== key) {
+      if (fitDoneFor.current) cameras.current.set(fitDoneFor.current, getViewport());
       fitDoneFor.current = key;
-      requestAnimationFrame(() => fitView({ padding: 0.2 }));
+      const saved = cameras.current.get(key);
+      requestAnimationFrame(() => (saved ? setViewport(saved) : fitView({ padding: 0.2 })));
     }
-  }, [hydrated, currentWorkspace, currentFloor, fitView]);
+  }, [hydrated, scene, currentFloor, fitView, getViewport, setViewport]);
 
   // New nodes spawn at the center of the current viewport, slightly jittered
   // so consecutive spawns don't stack exactly.
@@ -404,6 +410,7 @@ function CanvasInner() {
         </Suspense>
       )}
 
+      <WorkspaceNav />
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}

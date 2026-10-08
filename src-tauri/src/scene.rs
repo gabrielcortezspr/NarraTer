@@ -165,8 +165,13 @@ pub fn list_scenes() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub fn delete_scene(name: String, routines_state: State<'_, RoutinesState>) -> Result<(), String> {
+pub fn delete_scene(
+    name: String,
+    routines_state: State<'_, RoutinesState>,
+    pty: State<'_, crate::pty::PtyState>,
+) -> Result<(), String> {
     routines::delete_scene(&name, &routines_state);
+    pty.0.lock().unwrap().links.delete_scene(&name);
     crate::workspaces::forget_scene(&name);
     let path = scenes_dir().join(format!("{}.json", name));
     if path.exists() {
@@ -176,8 +181,18 @@ pub fn delete_scene(name: String, routines_state: State<'_, RoutinesState>) -> R
 }
 
 #[tauri::command]
-pub fn rename_scene(old_name: String, new_name: String, routines_state: State<'_, RoutinesState>) -> Result<(), String> {
+pub fn rename_scene(
+    old_name: String,
+    new_name: String,
+    routines_state: State<'_, RoutinesState>,
+    pty: State<'_, crate::pty::PtyState>,
+) -> Result<(), String> {
     routines::rename_scene(&old_name, &new_name, &routines_state);
+    {
+        let mut inner = pty.0.lock().unwrap();
+        inner.names.rename_scene(&old_name, &new_name);
+        inner.links.rename_scene(&old_name, &new_name);
+    }
     crate::workspaces::rename_scene_meta(&old_name, &new_name);
     let dir = scenes_dir();
     let old_path = dir.join(format!("{}.json", old_name));

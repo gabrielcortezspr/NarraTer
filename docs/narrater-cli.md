@@ -178,6 +178,25 @@ refuses the land. **Deleting** from the chip keeps the branch;
 to restore it), and a dirty worktree needs `--force`. Both CLI verbs run only
 from a terminal on Ground.
 
+## Live workspaces
+
+Several workspaces run at once (Maestri Pro's model). The canvas store keeps
+the scene on screen in its top-level fields and the others that are running
+in `background`; switching scenes stashes one and restores the other — no
+terminal stops. Every CLI request is served against the caller's own scene
+(`sceneOfNode(req.from)`), so agents off screen keep using notes, recruit,
+floors and portals. The backend names terminals per scene (`names.rs`):
+`Dev` here and `Dev` elsewhere are different agents, and `Dev @ Frontend`
+addresses across scenes. `recruit --workspace` wakes the target scene (from
+disk, in the background) and records a cross-workspace link in
+`~/.config/narrater/links.json`; links count as connections, and opening a
+scene wakes the scenes linked to it. Routines fire for every live scene.
+"Stop agents" in a workspace's sidebar menu puts a background scene to sleep.
+
+Navigation: `Ctrl+Tab` cycles recent workspaces; the `Ctrl+Space` prefix
+then `n/p`, `1…9`, `l`, `w`, `o/O`, `f/F`, `?` (`src/components/WorkspaceNav`).
+Keys are captured before xterm, so they work from inside a terminal.
+
 ## Flow
 
 ```

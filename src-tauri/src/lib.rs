@@ -4,6 +4,7 @@ mod chat;
 mod floors;
 mod fsops;
 mod ipc;
+mod names;
 mod pty;
 mod roles;
 mod routines;
@@ -59,6 +60,12 @@ pub fn run() {
             pty::maestros_sync,
             routines::routines_load,
             routines::routines_list,
+            routines::routines_wake,
+            names::links_list,
+            names::link_add,
+            names::links_remove_node,
+            names::links_scenes,
+            routines::routines_sleep,
             routines::routine_ui_create,
             routines::routine_set_enabled,
             routines::routine_delete,

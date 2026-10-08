@@ -2,13 +2,12 @@ import { lazy, Suspense, useState, useRef, useEffect, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BookOpen, Plus, Pencil, Trash2, Check, X,
-  ChevronLeft, ChevronRight, Keyboard, Users, Folder, FolderOpen,
+  ChevronLeft, ChevronRight, Keyboard, Users, Folder, FolderOpen, Square,
 } from "lucide-react";
 import { toast } from "@/stores/toasts";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import { useCanvasStore } from "@/stores/canvas";
-import { saveNow } from "@/hooks/useAutoSave";
-import { useSketchStore } from "@/stores/sketch";
+import { switchWorkspace as switchTo } from "@/lib/workspaceNav";
 import { useRolesStore } from "@/stores/roles";
 import RoutinesPanel from "@/components/RoutinesPanel";
 const RoleManager = lazy(() => import("@/components/RoleManager"));
@@ -25,11 +24,12 @@ interface Props {
 }
 
 export default function Sidebar({ collapsed, onToggle }: Props) {
-  const { list, current, setCurrent, createWorkspace, deleteWorkspace, renameWorkspace, layout, setDir } =
+  const { list, current, createWorkspace, deleteWorkspace, renameWorkspace, layout, setDir } =
     useWorkspacesStore();
   const [dirValue, setDirValue] = useState<string | null>(null);
-  const loadScene = useCanvasStore((s) => s.loadScene);
-  const clearSketch = useSketchStore((s) => s.clear);
+  // Workspaces running in the background (their agents keep working)
+  const runningKey = useCanvasStore((s) => Object.keys(s.background).sort().join("\n"));
+  const running = new Set(runningKey ? runningKey.split("\n") : []);
   const { roles, loaded, load: loadRoles } = useRolesStore();
   const [roleManagerOpen, setRoleManagerOpen] = useState(false);
 
@@ -65,19 +65,10 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
     return () => window.removeEventListener("mousedown", handler);
   }, [contextMenu]);
 
-  const switchWorkspace = useCallback(
-    async (name: string) => {
-      if (name === current) return;
-      // saveNow (not saveScene directly): cancels the auto-save timer — a
-      // timer firing after the load would write the new canvas into the old file.
-      await saveNow();
-      await loadScene(name);
-      setCurrent(name);
-      clearSketch();
-      setContextMenu(null);
-    },
-    [current, loadScene, setCurrent, clearSketch]
-  );
+  const switchWorkspace = useCallback(async (name: string) => {
+    setContextMenu(null);
+    await switchTo(name);
+  }, []);
 
   const handleCreate = async () => {
     const trimmed = newName.trim();
@@ -183,6 +174,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
                     name={name}
                     dir={layout.scenes[name]?.dir ?? undefined}
                     active={name === current}
+                    running={running.has(name)}
                     isRenaming={renaming === name}
                     renameValue={renameValue}
                     renameInputRef={renaming === name ? renameInputRef : undefined}
@@ -301,6 +293,8 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
               ["D", "Draw"],
               ["Ctrl+S", "Save"],
               ["Delete", "Remove"],
+              ["Ctrl+Tab", "Recent workspace"],
+              ["Ctrl+Space ?", "All shortcuts"],
             ].map(([key, label]) => (
               <div key={key} className="flex items-center justify-between mb-0.5">
                 <span className="text-[10px] font-mono text-[#8b5cf6]">{key}</span>
@@ -353,6 +347,21 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
               />
             </div>
           )}
+          {running.has(contextMenu.name) && (
+            <button
+              onClick={() => {
+                const name = contextMenu.name;
+                setContextMenu(null);
+                useCanvasStore.getState().sleepScene(name)
+                  .then(() => toast.success(`'${name}' stopped — its agents start again when you open it`))
+                  .catch((e) => toast.error(String(e)));
+              }}
+              title="This workspace keeps running in the background — stop its terminals and routines"
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors"
+            >
+              <Square size={12} /> Stop agents
+            </button>
+          )}
           {contextMenu.name !== "default" && (
           <button
             onClick={() => startRename(contextMenu.name)}
@@ -388,6 +397,8 @@ interface WorkspaceItemProps {
   /** Working directory (tooltip) */
   dir?: string;
   active: boolean;
+  /** Running in the background (its agents keep working) */
+  running: boolean;
   isRenaming: boolean;
   renameValue: string;
   renameInputRef?: React.RefObject<HTMLInputElement | null>;
@@ -399,7 +410,7 @@ interface WorkspaceItemProps {
 }
 
 function WorkspaceItem({
-  name, dir, active, isRenaming, renameValue, renameInputRef,
+  name, dir, active, running, isRenaming, renameValue, renameInputRef,
   onRenameChange, onRenameSubmit, onRenameCancel, onClick, onContextMenu,
 }: WorkspaceItemProps) {
   if (isRenaming) {
@@ -426,7 +437,7 @@ function WorkspaceItem({
     <button
       onClick={onClick}
       onContextMenu={onContextMenu}
-      title={dir ? `${name} — ${dir}` : `${name} — no working directory (right-click to set one)`}
+      title={`${dir ? `${name} — ${dir}` : `${name} — no working directory (right-click to set one)`}${running ? " · running in the background" : ""}`}
       className={`relative flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs transition-colors text-left
         ${active
           ? "bg-[#8b5cf620] text-white"
@@ -437,7 +448,10 @@ function WorkspaceItem({
       {active && <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded-full bg-accent" />}
       <span
         className="w-1.5 h-1.5 rounded-full shrink-0"
-        style={{ background: active ? "#8b5cf6" : "transparent", border: active ? "none" : "1px solid #333" }}
+        style={{
+          background: active ? "#8b5cf6" : running ? "#4ade80" : "transparent",
+          border: active || running ? "none" : "1px solid #333",
+        }}
       />
       <span className="truncate">{name}</span>
     </button>

@@ -442,9 +442,8 @@ demais skills reaproveitam. Ordem sugerida:
    `--floor` só para o Maestro), `floor land` com `--into/--delete-branch/
    --keep-floor` (conflito detectado por `merge-tree` antes de mudar algo;
    também no menu *Land…* do chip) e `floor delete` com `--keep-branch/
-   --force`, ambos só a partir do térreo. Diferença que fica: o NarraTer
-   roda uma cena por vez, então `recruit --workspace` ainda não existe.
-   Depois: `floor create --pull-request` (via `gh`/`glab`: branch do próprio
+   --force`, ambos só a partir do térreo (`recruit --workspace` veio
+   depois, no item 7). Depois: `floor create --pull-request` (via `gh`/`glab`: branch do próprio
    repositório com upstream, ou cópia `pr-N` de fork; recusas por PR
    fechado, já em andar, alterado durante o fetch, branch local divergente
    ou com outro upstream; status de review/checks e merge no menu do chip)
@@ -466,10 +465,35 @@ demais skills reaproveitam. Ordem sugerida:
    `narrater-chat`). Validado com um Claude real, que carregou a skill, fez
    `recall` da thread nova, mandou progresso e respondeu via `say`.
 
+7. ✅ **Paridade com o Maestri Pro** (2026-10-08). O site
+   (themaestri.app, também a página /linux) lista o que o Pro acrescenta ao
+   plano grátis: "Workspaces ilimitados", "Navegue entre workspaces com
+   atalhos viciantes" (atalhos "estilo tmux" para saltar entre terminais e
+   workspaces) e uso em até 2 dispositivos (licença — não se aplica). O
+   NarraTer nunca limitou workspaces, mas parava os agentes de uma cena ao
+   trocar de cena. Agora:
+   - **Workspaces rodando juntos**: a cena que sai da tela continua viva
+     em segundo plano (terminais, portais, rotinas); o store guarda a cena
+     visível e um mapa `background`, e toda requisição do CLI é atendida
+     contra a cena de quem chamou. Nomes são únicos por cena no backend
+     (`names.rs`), e `Nome @ Workspace` endereça entre cenas. Ponto verde
+     na sidebar e "Stop agents" para parar uma cena em segundo plano.
+   - **`recruit --workspace`**: o recruta entra em outro workspace (térreo
+     ou `--floor` lá), trabalha no diretório daquele projeto e fica ligado
+     a quem recrutou por uma ligação persistida em `links.json`; ao abrir
+     uma cena, as cenas ligadas a ela acordam. `ask/check/dismiss` aceitam
+     `Nome @ Workspace`, e o `list` mostra o colega remoto.
+   - **Atalhos**: `Ctrl+Tab` (seletor por uso recente, estilo alt-tab) e o
+     prefixo `Ctrl+Space` + `n/p` (próximo/anterior), `1…9`, `l` (último),
+     `w` (seletor com filtro), `o/O` (próximo terminal, com foco), `f/F`
+     (andar), `?` (ajuda). Capturados antes do xterm, funcionam com o foco
+     num terminal. A câmera de cada workspace/andar é lembrada.
+   - Rotinas: o agendador dispara as rotinas de todas as cenas vivas.
+
 Com isso, todas as skills do Maestri têm equivalente no NarraTer. O que
-segue diferente: uma cena aberta por vez (sem `recruit --workspace`), tela
-Android por polling e acesso remoto/celular do Maestri Chat, que ficou de
-fora.
+segue diferente: tela Android por polling, acesso remoto/celular do Maestri
+Chat, e os workspaces em servidor SSH ou container Docker que a página Linux
+do Maestri anuncia.
 
 ---
 

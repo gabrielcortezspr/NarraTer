@@ -1,4 +1,4 @@
-import { GROUND, useCanvasStore } from "@/stores/canvas";
+import { GROUND, sliceOf, useCanvasStore } from "@/stores/canvas";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import { toast } from "@/stores/toasts";
 import {
@@ -22,33 +22,47 @@ export interface CreateFloorOpts {
   pullRequest?: string;
 }
 
+// Every function takes the scene it works on (default: the one on screen) —
+// agents of scenes running in the background use them too.
+
+const sceneName = (scene?: string) => scene ?? useCanvasStore.getState().scene;
+const floorsOf = (scene?: string) => sliceOf(scene)?.floors ?? [];
+/** A floor by id, in whichever live scene has it. */
+const floorById = (id: string) =>
+  [useCanvasStore.getState().floors, ...Object.values(useCanvasStore.getState().background).map((b) => b.floors)]
+    .flat()
+    .find((f) => f.id === id);
+const sceneOfFloor = (id: string) => {
+  const s = useCanvasStore.getState();
+  if (s.floors.some((f) => f.id === id)) return s.scene;
+  return Object.entries(s.background).find(([, b]) => b.floors.some((f) => f.id === id))?.[0];
+};
+/** A scene's working directory. */
+export const sceneDir = (scene?: string) => useWorkspacesStore.getState().dirOf(sceneName(scene));
+
 /** Working directory of a floor: its worktree, else the scene's directory. */
-export function floorDir(floorId: string): string | null {
-  const scene = useWorkspacesStore.getState();
-  const sceneDir = scene.dirOf(scene.current);
-  if (floorId === GROUND) return sceneDir;
-  return useCanvasStore.getState().floors.find((f) => f.id === floorId)?.dir ?? sceneDir;
+export function floorDir(floorId: string, scene?: string): string | null {
+  if (floorId === GROUND) return sceneDir(scene);
+  return floorsOf(scene).find((f) => f.id === floorId)?.dir ?? sceneDir(scene);
 }
 
-export function findFloor(name: string): FloorMeta | "ground" | undefined {
+export function findFloor(name: string, scene?: string): FloorMeta | "ground" | undefined {
   const wanted = name.trim().toLowerCase();
   if (wanted === "ground") return "ground";
-  return useCanvasStore.getState().floors.find((f) => f.name.toLowerCase() === wanted);
+  return floorsOf(scene).find((f) => f.name.toLowerCase() === wanted);
 }
 
-const nameTaken = (name: string) => name.toLowerCase() === "ground" || !!findFloor(name);
-
-/** Creates a floor on the open scene; returns its name and a one-line summary. */
-export async function createFloor(opts: CreateFloorOpts): Promise<{ name: string; summary: string }> {
+/** Creates a floor on `scene` (default: on screen); returns its name and a one-line summary. */
+export async function createFloor(opts: CreateFloorOpts, scene?: string): Promise<{ name: string; summary: string }> {
+  const nameTaken = (n: string) => n.toLowerCase() === "ground" || !!findFloor(n, scene);
   let name = opts.name.trim();
   if (!name && !opts.pullRequest) throw new Error("the floor needs a name");
   if (name && nameTaken(name)) throw new Error(`a floor named '${name}' already exists`);
-  const ws = useWorkspacesStore.getState();
-  const root = ws.dirOf(ws.current);
+  const root = sceneDir(scene);
   const info = await floorPrepare({
-    root, scene: ws.current, name, branch: opts.branch, existingBranch: opts.existingBranch, noGit: opts.noGit,
+    root, scene: sceneName(scene), name, branch: opts.branch, existingBranch: opts.existingBranch, noGit: opts.noGit,
     copy: opts.copy, pullRequest: opts.pullRequest,
-    takenPrs: useCanvasStore.getState().floors.flatMap((f) => (f.pull_request ? [f.pull_request.number] : [])),
+    takenPrs: floorsOf(scene).flatMap((f) => (f.pull_request ? [f.pull_request.number] : [])),
   });
   if (!name) {
     const base = info.name ?? `#${info.pull_request?.number}`;
@@ -64,7 +78,7 @@ export async function createFloor(opts: CreateFloorOpts): Promise<{ name: string
     ...(info.copy ? { copy: true } : {}),
     ...(info.pull_request ? { pull_request: info.pull_request } : {}),
   };
-  useCanvasStore.getState().addFloor(floor, opts.copyGround ? { retargetFrom: root } : undefined);
+  useCanvasStore.getState().addFloor(floor, opts.copyGround ? { retargetFrom: root } : undefined, sceneName(scene));
   const kind = info.copy ? "a copy of the repository" : "git-isolated worktree";
   const pr = info.pull_request ? ` reviewing pull request #${info.pull_request.number} (${info.pull_request.url})` : "";
   const summary = info.branch
@@ -78,7 +92,7 @@ export async function createFloor(opts: CreateFloorOpts): Promise<{ name: string
  * commits stay in the repository. `force` discards uncommitted changes.
  */
 export async function deleteFloor(id: string, force: boolean): Promise<void> {
-  const floor = useCanvasStore.getState().floors.find((f) => f.id === id);
+  const floor = floorById(id);
   if (!floor) return;
   if (floor.worktree) await floorRemove(floor.worktree, force);
   useCanvasStore.getState().removeFloor(id);
@@ -86,7 +100,7 @@ export async function deleteFloor(id: string, force: boolean): Promise<void> {
 
 /** Does the floor's worktree have uncommitted changes? */
 export async function floorIsDirty(id: string): Promise<boolean> {
-  const floor = useCanvasStore.getState().floors.find((f) => f.id === id);
+  const floor = floorById(id);
   if (!floor?.worktree) return false;
   return (await floorStatus(floor.worktree)).dirty;
 }
@@ -98,12 +112,12 @@ const STATUS_MAX = 120;
 
 export function floorName(id: string): string {
   if (id === GROUND) return "Ground";
-  return useCanvasStore.getState().floors.find((f) => f.id === id)?.name ?? id;
+  return floorById(id)?.name ?? id;
 }
 
-export function statusOf(id: string): FloorStatusLine | null {
-  const s = useCanvasStore.getState();
-  return id === GROUND ? s.groundStatus : s.floors.find((f) => f.id === id)?.status ?? null;
+/** Status line of a floor (any live scene), or of `scene`'s ground. */
+export function statusOf(id: string, scene?: string): FloorStatusLine | null {
+  return id === GROUND ? sliceOf(scene)?.groundStatus ?? null : floorById(id)?.status ?? null;
 }
 
 /** "2/5", "40%" or "0.4" → display form ("2/5", "40%"); null when invalid. */
@@ -135,8 +149,9 @@ export function postStatus(
   id: string,
   update: { text?: string; state?: FloorState; progress?: string | null },
   by: string,
+  scene?: string,
 ): FloorStatusLine {
-  const prev = statusOf(id);
+  const prev = statusOf(id, scene);
   const text = (update.text ?? prev?.text ?? "").replace(/\s+/g, " ").trim();
   const line: FloorStatusLine = {
     text: text.length > STATUS_MAX ? `${text.slice(0, STATUS_MAX - 1)}…` : text,
@@ -144,9 +159,11 @@ export function postStatus(
     progress: update.progress === undefined ? prev?.progress ?? null : update.progress,
     at: Date.now(),
   };
-  useCanvasStore.getState().setFloorStatus(id, line);
+  useCanvasStore.getState().setFloorStatus(id, line, scene);
   if (NOTIFY_STATES.has(line.state) && prev?.state !== line.state) {
-    const title = `NarraTer · ${floorName(id)} is ${line.state}`;
+    // From a workspace off screen, say which one
+    const where = sceneName(scene) !== useCanvasStore.getState().scene ? ` (${sceneName(scene)})` : "";
+    const title = `NarraTer · ${floorName(id)}${where} is ${line.state}`;
     const body = `${by}: ${line.text || line.state}`;
     (line.state === "blocked" ? toast.error : toast.success)(`${floorName(id)} · ${line.state} — ${line.text}`);
     systemNotify(title, body).catch(() => {});
@@ -166,13 +183,12 @@ export interface LandOpts {
  * nothing changed, on uncommitted work or a conflicting merge.
  */
 export async function landFloor(id: string, opts: LandOpts): Promise<string> {
-  const floor = useCanvasStore.getState().floors.find((f) => f.id === id);
+  const floor = floorById(id);
   if (!floor) throw new Error("no such floor");
   if (!floor.worktree || !floor.branch) {
     throw new Error(`'${floor.name}' is a plain floor — it has no branch to land; delete it instead`);
   }
-  const ws = useWorkspacesStore.getState();
-  const summary = await floorLand({ worktree: floor.worktree, branch: floor.branch, root: ws.dirOf(ws.current), ...opts });
+  const summary = await floorLand({ worktree: floor.worktree, branch: floor.branch, root: sceneDir(sceneOfFloor(id)), ...opts });
   if (!opts.keepFloor) useCanvasStore.getState().removeFloor(id);
   return summary;
 }
@@ -183,7 +199,7 @@ export async function landFloor(id: string, opts: LandOpts): Promise<string> {
  * changed, when the worktree has uncommitted work and force is off.
  */
 export async function deleteFloorFully(id: string, keepBranch: boolean, force: boolean): Promise<string> {
-  const floor = useCanvasStore.getState().floors.find((f) => f.id === id);
+  const floor = floorById(id);
   if (!floor) throw new Error("no such floor");
   const summary = floor.worktree
     ? await floorDelete({ worktree: floor.worktree, branch: floor.branch ?? null, keepBranch, force })

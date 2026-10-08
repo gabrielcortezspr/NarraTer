@@ -17,14 +17,16 @@ Recruit only when `narrater list` shows nobody whose role covers the task, and t
 
 ## Commands
 
-### `narrater recruit "Name" [--preset P] [--role R] [--command C] [--dir PATH]`
+### `narrater recruit "Name" [--preset P] [--role R] [--floor F] [--workspace W] [--command C] [--dir PATH]`
 
 Spawns a terminal next to you, names it and connects it to you. Returns once it exists; your first `narrater ask` to it waits until the agent has booted.
 
 - **Name** — invent a short codename (don't pull from a fixed list, don't reuse the role name; it may hint at the recruit's vibe). Vary names across teams.
 - **--preset** — `narrater preset list` shows them (Claude Code, Codex, Gemini CLI, OpenCode, Shell, Custom). Omitted: a copy of yourself. Mixing vendors is fine — every agent speaks the same `narrater` protocol.
 - **--role** — an existing role (`narrater role list`, or `narrater role create` first). The recruit boots inside `.narrater/roles/<id>/` with the role as its CLAUDE.md / AGENTS.md.
-- **--command** — override the program (rarely needed). **--dir** — another working directory (must exist); default: yours.
+- **--floor** — place the recruit on another floor of this workspace (`narrater floor list`; `"Ground"` for the ground level). Without `--dir`, a git-isolated floor's recruit works in that floor's own checkout. The connection spans floors: `ask`, `check` and `dismiss` work the same.
+- **--workspace** — place the recruit in another workspace (its ground level, or `--floor` there; `narrater workspace list` shows them). The recruit starts in that workspace's directory and runs where that workspace runs, since it is that project's agent — the workspace starts running if it wasn't open. You address it as `Name @ Workspace`, exactly as `narrater list` prints it; `ask`, `check` and `dismiss` take that address.
+- **--command** — override the program (rarely needed). **--dir** — another working directory (must exist); default: yours (or the floor's / workspace's when you pass those).
 
 ### `narrater recruit ["New Name"] --preset P --replace "Old"`
 

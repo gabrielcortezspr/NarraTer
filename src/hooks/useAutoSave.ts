@@ -40,6 +40,22 @@ export function saveNow(): Promise<void> {
   return persist();
 }
 
+// Scenes running in the background change too (their agents write notes,
+// recruit…): saved on their own debounce.
+const dirtyBackground = new Set<string>();
+let bgTimer: ReturnType<typeof setTimeout> | null = null;
+
+function persistBackground(): void {
+  bgTimer = null;
+  const names = [...dirtyBackground];
+  dirtyBackground.clear();
+  for (const name of names) {
+    useCanvasStore.getState().saveScene(name).catch((err) => {
+      console.error(`auto-save of "${name}" failed:`, err);
+    });
+  }
+}
+
 // Watches the canvas store and persists changes with a debounce. The
 // `hydrated` gate (on both sides of the transition) keeps the load itself
 // from triggering a save.
@@ -47,7 +63,16 @@ export function useAutoSave() {
   useEffect(
     () =>
       useCanvasStore.subscribe((s, prev) => {
-        if (!s.hydrated || !prev.hydrated) return;
+        if (s.background !== prev.background) {
+          for (const [name, sl] of Object.entries(s.background)) {
+            if (prev.background[name] !== sl) dirtyBackground.add(name);
+          }
+          if (dirtyBackground.size) {
+            if (bgTimer) clearTimeout(bgTimer);
+            bgTimer = setTimeout(persistBackground, DEBOUNCE_MS);
+          }
+        }
+        if (!s.hydrated || !prev.hydrated || s.scene !== prev.scene) return;
         if (s.nodes === prev.nodes && s.edges === prev.edges && s.floors === prev.floors && s.groundStatus === prev.groundStatus) return;
         usePersistenceStore.getState().set("dirty");
         if (timer) clearTimeout(timer);

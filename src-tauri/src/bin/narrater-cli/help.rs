@@ -35,7 +35,7 @@ Usage:
   narrater portal devices                          List Android devices, emulators and AVDs
   narrater portal create --simulator ID ["Name"]   Open a portal on an Android device or AVD (boots it)
                                                    Run `narrater help portal` for every portal command
-  narrater recruit "Name" [--preset P] [--role R] [--floor F] [--command C] [--dir PATH]
+  narrater recruit "Name" [--preset P] [--role R] [--floor F] [--workspace W] [--command C] [--dir PATH]
                                                    (Maestro only) Spawn a teammate, auto-connected to you
   narrater recruit ["New Name"] --preset P --replace "Old"
                                                    (Maestro only) Swap which agent runs on a teammate, in place
@@ -206,7 +206,7 @@ Workflow: snapshot → act with refs → snapshot again to verify (refs go stale
 when the page changes). Prefer snapshot + refs over screenshot + coordinates.
 Only portals connected to you are reachable (`narrater list`)."#,
         "recruit" => r#"Usage:
-  narrater recruit "Name" [--preset P] [--role R] [--command C] [--dir PATH]
+  narrater recruit "Name" [--preset P] [--role R] [--floor F] [--workspace W] [--command C] [--dir PATH]
   narrater recruit ["New Name"] --preset P --replace "Old"
 
 (Maestro only) Spawns a new terminal on the canvas next to you, names it and
@@ -224,6 +224,11 @@ ask it instead of recruiting a duplicate.
   --command  override the program; matching a preset's program uses that preset
   --floor    put it on another floor of this workspace ("Ground" for the
              ground level); without --dir it works in that floor's worktree
+  --workspace  put it in another workspace (its ground, or --floor there;
+             `narrater workspace list` shows them). It starts in that
+             workspace's directory and runs with it — the workspace starts
+             running if it wasn't. You address it as `Name @ Workspace`,
+             exactly as `narrater list` prints it
   --dir      working directory (must exist); default: yours
 
 --replace swaps the agent running on an existing teammate in place: the node,

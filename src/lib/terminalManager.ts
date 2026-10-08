@@ -31,9 +31,11 @@ export interface SpawnOpts {
   skipPermissions?: boolean;
   /** Project directory the terminal works on. */
   cwd?: string;
+  /** Workspace (scene) it belongs to. */
+  scene?: string;
 }
 
-export function spawnOptsFor(data: TerminalNodeData): SpawnOpts {
+export function spawnOptsFor(data: TerminalNodeData, scene?: string): SpawnOpts {
   return {
     agentType: data.agentType ?? "shell",
     command: data.command,
@@ -43,6 +45,7 @@ export function spawnOptsFor(data: TerminalNodeData): SpawnOpts {
     instructions: data.instructions,
     skipPermissions: data.skipPermissions,
     cwd: data.cwd,
+    scene,
   };
 }
 
@@ -151,7 +154,7 @@ export function scheduleTerminalZoomSync(zoom: number): void {
 
 async function spawnInto(id: string, mt: ManagedTerminal): Promise<void> {
   const { addSession, setRunning, setExited } = useTerminalsStore.getState();
-  const { agentType, command, label, roleId, roleName, instructions, skipPermissions, cwd } = mt.opts;
+  const { agentType, command, label, roleId, roleName, instructions, skipPermissions, cwd, scene } = mt.opts;
   addSession(id);
 
   // Roles must be resolved before the spawn args are built — scenes can
@@ -175,7 +178,7 @@ async function spawnInto(id: string, mt: ManagedTerminal): Promise<void> {
   const { command: cmd, args } = getSpawnSpec(agentType, command, skipPermissions, orchestrator);
   try {
     const effectiveLabel = await ptySpawn({
-      id, command: cmd, args, cols: mt.term.cols, rows: mt.term.rows, label, agentType, cwd, role,
+      id, command: cmd, args, cols: mt.term.cols, rows: mt.term.rows, label, agentType, cwd, role, scene,
     });
     setRunning(id);
     if (effectiveLabel && effectiveLabel !== label) {
@@ -237,6 +240,11 @@ export function startTerminal(id: string, opts: SpawnOpts): void {
 }
 
 /** Attaches the terminal to the tile's element (and starts it if it wasn't). */
+/** Puts keyboard focus in a terminal (keyboard navigation between agents). */
+export function focusTerminal(id: string): void {
+  terminals.get(id)?.term.focus();
+}
+
 export function attachTerminal(id: string, parent: HTMLElement): void {
   const mt = terminals.get(id);
   if (!mt) return;

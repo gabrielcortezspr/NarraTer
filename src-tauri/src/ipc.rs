@@ -176,7 +176,9 @@ async fn handle_connection(
             }
             Some("workspace") => {
                 let params = req.params.clone().unwrap_or(serde_json::Value::Null);
-                with_newline(crate::workspaces::run_cli(&app, &state, &req.from, routines.current_scene(), &params))
+                // "yours" in `workspace list` is the caller's own scene
+                let mine = Some(state.lock().unwrap().names.scene_of(&req.from)).filter(|s| !s.is_empty());
+                with_newline(crate::workspaces::run_cli(&app, &state, &req.from, mine, &params))
             }
             Some("routine") => {
                 let params = req.params.clone().unwrap_or(serde_json::Value::Null);
@@ -225,20 +227,9 @@ fn resolve_target(inner: &PtyStateInner, from: &str, to: &str) -> Result<(String
         return Err("Error: no agent name given — run `narrater list` for the exact names".into());
     }
     let target_id = inner
-        .label_to_id
-        .get(to)
-        .cloned()
+        .names
+        .resolve(from, to, |id| inner.connected(from, id))
         .or_else(|| inner.sessions.contains_key(to).then(|| to.to_string()))
-        .or_else(|| {
-            let lower = to.to_lowercase();
-            let hits: Vec<&String> = inner
-                .label_to_id
-                .iter()
-                .filter(|(label, _)| label.to_lowercase() == lower)
-                .map(|(_, id)| id)
-                .collect();
-            (hits.len() == 1).then(|| hits[0].clone())
-        })
         .ok_or_else(|| format!("Error: no agent named '{}' — run `narrater list` for the exact names", to))?;
     if target_id == from {
         return Err("Error: that's you — pick a connected agent from `narrater list`".into());
@@ -246,13 +237,14 @@ fn resolve_target(inner: &PtyStateInner, from: &str, to: &str) -> Result<(String
     if !inner.connected(from, &target_id) {
         return Err(format!(
             "Error: '{}' is not connected to you — only agents connected on the canvas can be reached (see `narrater list`)",
-            inner.label_of(&target_id)
+            inner.address(&target_id, from)
         ));
     }
     if !inner.sessions.contains_key(&target_id) {
         return Err(format!("Error: '{}' is not running — ask the user to restart it on the canvas", to));
     }
-    Ok((target_id.clone(), inner.label_of(from), inner.label_of(&target_id)))
+    // Each side sees the other the way it would address it back
+    Ok((target_id.clone(), inner.address(from, &target_id), inner.address(&target_id, from)))
 }
 
 fn notice_ask_back(from_label: &str) -> String {
@@ -628,17 +620,16 @@ mod tests {
     use std::os::unix::fs::MetadataExt;
 
     fn inner_with(labels: &[(&str, &str)], connections: &[(&str, &str)]) -> PtyStateInner {
-        PtyStateInner {
-            sessions: HashMap::new(),
-            labels: labels.iter().map(|(id, l)| (id.to_string(), l.to_string())).collect(),
-            label_to_id: labels.iter().map(|(id, l)| (l.to_string(), id.to_string())).collect(),
-            ask_waiters: HashMap::new(),
+        let mut inner = PtyStateInner {
             connections: connections.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect::<HashSet<_>>(),
-            inbox: HashMap::new(),
-            canvas_waiters: HashMap::new(),
-            ledger: VecDeque::new(),
-            maestros: HashSet::new(),
+            ..Default::default()
+        };
+        for (id, label) in labels {
+            // "Name@Scene" puts a terminal in another scene (default: "S")
+            let (label, scene) = label.split_once('@').unwrap_or((label, "S"));
+            inner.names.set(id, scene, label);
         }
+        inner
     }
 
     #[test]
@@ -649,6 +640,24 @@ mod tests {
         assert!(resolve_target(&inner, "t1", "Ops").unwrap_err().contains("not connected"));
         // Connected (in either direction) but no live session
         assert!(resolve_target(&inner, "t1", "dev").unwrap_err().contains("not running"));
+    }
+
+    #[test]
+    fn resolve_target_across_workspaces() {
+        let mut inner = inner_with(&[("t1", "Lead"), ("t2", "Dev@Front"), ("t3", "Dev")], &[]);
+        inner.links.add(
+            crate::names::LinkEnd { id: "t1".into(), scene: "S".into(), label: "Lead".into() },
+            crate::names::LinkEnd { id: "t2".into(), scene: "Front".into(), label: "Dev".into() },
+        );
+        // Bare "Dev" is this scene's Dev (not connected); the linked one is "Dev @ Front"
+        assert!(resolve_target(&inner, "t1", "Dev").unwrap_err().contains("not connected"));
+        let err = resolve_target(&inner, "t1", "Dev @ Front").unwrap_err();
+        assert!(err.contains("not running"), "{}", err);
+        // The linked end sees the caller across scenes, and vice versa
+        assert_eq!(inner.address("t1", "t2"), "Lead @ S");
+        assert_eq!(inner.address("t2", "t1"), "Dev @ Front");
+        // From Front, its recruiter is reachable by bare name too
+        assert!(resolve_target(&inner, "t2", "Lead").unwrap_err().contains("not running"));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 import { listen } from "@tauri-apps/api/event";
-import { floorOf, syncPortals, useCanvasStore } from "@/stores/canvas";
+import { floorOf, sceneOfNode, sliceOf, syncPortals, useCanvasStore, type SceneSlice } from "@/stores/canvas";
 import { useTerminalsStore } from "@/stores/terminals";
-import { canvasRespond, portalOpen } from "@/lib/tauri";
+import { canvasRespond, linksList, portalOpen } from "@/lib/tauri";
 import { presetOf } from "@/lib/agents";
 import { findByName, freeSpot, labelOf, reachOf, str, uniqueName, type CanvasRequest } from "@/lib/canvasReach";
 import { handleManager, MANAGER_ACTIONS } from "@/lib/managerCommands";
@@ -36,11 +36,26 @@ const STATUS_TEXT: Record<string, string> = {
 };
 
 /** " · on floor X" when the agent lives on another floor than `from`. */
-function floorNote(n: AppNode, fromFloor: string): string {
+function floorNote(sl: SceneSlice, n: AppNode, fromFloor: string): string {
   const f = floorOf(n);
   if (f === fromFloor) return "";
-  const name = f === "ground" ? "Ground" : useCanvasStore.getState().floors.find((x) => x.id === f)?.name ?? f;
+  const name = f === "ground" ? "Ground" : sl.floors.find((x) => x.id === f)?.name ?? f;
   return ` · on floor ${name}`;
+}
+
+/** Teammates in other workspaces linked to `from` (`recruit --workspace`). */
+async function remoteAgentLines(from: string): Promise<string[]> {
+  const links = await linksList().catch(() => []);
+  const out: string[] = [];
+  for (const l of links) {
+    const other = l.a.id === from ? l.b : l.b.id === from ? l.a : null;
+    if (!other) continue;
+    const node = sliceOf(other.scene)?.nodes.find((n) => n.id === other.id);
+    const label = node ? labelOf(node) : other.label;
+    const line = node ? agentLine(node).slice(labelOf(node).length) : " · not running (its workspace isn't open)";
+    out.push(`  - ${label} @ ${other.scene}${line}`);
+  }
+  return out;
 }
 
 function agentLine(n: AppNode): string {
@@ -50,8 +65,10 @@ function agentLine(n: AppNode): string {
   return `${labelOf(n)} (${kind}) · ${status}${d.roleName ? ` · role: ${d.roleName}` : ""}`;
 }
 
-function listFor(nodes: AppNode[], edges: AppEdge[], from: string): string {
+async function listFor(sl: SceneSlice, from: string): Promise<string> {
+  const { nodes, edges } = sl;
   const me = nodes.find((n) => n.id === from);
+  const remote = await remoteAgentLines(from);
   const maestro = (me?.data as TerminalNodeData | undefined)?.maestro === true;
   const { agents, notes, portals } = reachOf(nodes, edges, from);
   const out: string[] = [];
@@ -63,9 +80,9 @@ function listFor(nodes: AppNode[], edges: AppEdge[], from: string): string {
     );
   }
   out.push("", "Agents:");
-  if (agents.length === 0) out.push("  (none connected — ask the user to connect agents on the canvas)");
+  if (agents.length === 0 && remote.length === 0) out.push("  (none connected — ask the user to connect agents on the canvas)");
   agents.forEach((a) => {
-    out.push(`  - ${agentLine(a)}${me ? floorNote(a, floorOf(me)) : ""}`);
+    out.push(`  - ${agentLine(a)}${me ? floorNote(sl, a, floorOf(me)) : ""}`);
     // A Maestro also sees each teammate's own wiring (before a --replace or a rewire)
     if (maestro) {
       const theirs = reachOf(nodes, edges, a.id);
@@ -73,6 +90,7 @@ function listFor(nodes: AppNode[], edges: AppEdge[], from: string): string {
       theirs.notes.filter((e) => e.depth === 0).forEach((e) => out.push(`      ↳ note: ${labelOf(e.node)}`));
     }
   });
+  out.push(...remote);
   if (portals.length) {
     out.push("", "Portals:");
     portals.forEach((p) => {
@@ -111,15 +129,15 @@ function numbered(content: string, offset = 1, limit?: number): string {
 }
 
 /** Replaces the content; an automatically named note follows its first line. */
-function setNoteContent(note: AppNode, content: string): string {
+function setNoteContent(sl: SceneSlice, note: AppNode, content: string): string {
   const store = useCanvasStore.getState();
   const old = (note.data as NoteNodeData).content ?? "";
   const label = labelOf(note);
-  const wasAuto = label === autoName(old) || label === uniqueNoteName(store.nodes, autoName(old), note.id);
+  const wasAuto = label === autoName(old) || label === uniqueNoteName(sl.nodes, autoName(old), note.id);
   const patch: Record<string, unknown> = { content };
   let renamed = "";
   if (wasAuto) {
-    const next = uniqueNoteName(store.nodes, autoName(content), note.id);
+    const next = uniqueNoteName(sl.nodes, autoName(content), note.id);
     if (next !== label) {
       patch.label = next;
       renamed = ` — renamed to '${next}' (its first line changed; use that name from now on)`;
@@ -151,11 +169,13 @@ const DEVICE_SIZE = { width: 380, height: 760 };
 /** How long `portal create --simulator` waits before answering "still booting". */
 const DEVICE_WAIT_MS = 8000;
 
-async function devicePortalCreate(req: CanvasRequest, me: AppNode, device: string, rawName: string): Promise<string> {
+async function devicePortalCreate(
+  req: CanvasRequest, scene: string | undefined, sl: SceneSlice, me: AppNode, device: string, rawName: string,
+): Promise<string> {
   const store = useCanvasStore.getState();
-  const label = uniqueName(store.nodes, "portal", rawName || "Device");
-  const id = store.addPortalNode(freeSpot(store.nodes, me, DEVICE_SIZE), "", label, device);
-  store.addEdge({ id: `edge-${crypto.randomUUID().slice(0, 8)}`, source: req.from, target: id, type: "default" });
+  const label = uniqueName(sl.nodes, "portal", rawName || "Device");
+  const id = store.addPortalNode(freeSpot(sl.nodes, me, DEVICE_SIZE), "", label, device, scene);
+  store.addEdge({ id: `edge-${crypto.randomUUID().slice(0, 8)}`, source: req.from, target: id, type: "default" }, scene);
   await syncPortals();
   // Booting an AVD takes a while: answer once it's up, or say it's booting
   const opened = portalOpen(id, undefined, undefined, undefined, device).then(() => "ready" as const);
@@ -173,19 +193,21 @@ async function devicePortalCreate(req: CanvasRequest, me: AppNode, device: strin
   return `ok: portal '${label}' created and connected to you, but the device ${outcome}`;
 }
 
-async function portalCreate(req: CanvasRequest, params: Record<string, unknown>): Promise<string> {
+async function portalCreate(
+  req: CanvasRequest, scene: string | undefined, sl: SceneSlice, params: Record<string, unknown>,
+): Promise<string> {
   const store = useCanvasStore.getState();
-  const me = store.nodes.find((n) => n.id === req.from);
+  const me = sl.nodes.find((n) => n.id === req.from);
   if (me?.type !== "terminal") return "Error: unknown terminal";
   const simulator = str(params.simulator).trim();
-  if (simulator) return devicePortalCreate(req, me, simulator, str(params.name).trim());
+  if (simulator) return devicePortalCreate(req, scene, sl, me, simulator, str(params.name).trim());
   const url = normalizeUrl(str(params.url));
   if (!url) return 'Usage: narrater portal create URL ["Name"] [--size WxH]';
   const size = parseSize(str(params.size));
   if (typeof size === "string") return size;
-  const label = uniqueName(store.nodes, "portal", str(params.name).trim() || "Portal");
-  const id = store.addPortalNode(freeSpot(store.nodes, me, PORTAL_SIZE), url, label);
-  store.addEdge({ id: `edge-${crypto.randomUUID().slice(0, 8)}`, source: req.from, target: id, type: "default" });
+  const label = uniqueName(sl.nodes, "portal", str(params.name).trim() || "Portal");
+  const id = store.addPortalNode(freeSpot(sl.nodes, me, PORTAL_SIZE), url, label, undefined, scene);
+  store.addEdge({ id: `edge-${crypto.randomUUID().slice(0, 8)}`, source: req.from, target: id, type: "default" }, scene);
   // The backend must know the portal (and the link) before the next command
   await syncPortals();
   try {
@@ -206,27 +228,31 @@ function edgeTypeFor(a: AppNode, b: AppNode): string {
 function handleRequest(req: CanvasRequest): string | Promise<string> {
   if (MANAGER_ACTIONS.has(req.action)) return handleManager(req);
   const store = useCanvasStore.getState();
-  const { nodes, edges } = store;
+  // The caller's own scene — on screen or running in the background
+  const scene = sceneOfNode(req.from);
+  const sl = sliceOf(scene);
+  if (!sl) return "Error: unknown terminal";
+  const { nodes, edges } = sl;
   const params = req.params ?? {};
   const reach = () => reachOf(nodes, edges, req.from);
   const reachableNote = (name: string) => findByName(reach().notes.map((e) => e.node), name, "note");
 
   switch (req.action) {
     case "list":
-      return listFor(nodes, edges, req.from);
+      return listFor(sl, req.from);
 
     case "note_create": {
       const content = str(params.content);
       const given = str(params.name).trim();
       const name = uniqueNoteName(nodes, given || autoName(content));
       const stack = reach().notes.filter((e) => e.depth === 0).length;
-      const id = store.addNoteNode(notePosition(nodes, req.from, stack), { content, label: name });
+      const id = store.addNoteNode(notePosition(nodes, req.from, stack), { content, label: name }, scene);
       store.addEdge({
         id: `edge-${crypto.randomUUID().slice(0, 8)}`,
         source: id,
         target: req.from,
         type: "agent-note",
-      });
+      }, scene);
       return `ok: note '${name}' created and connected to you`;
     }
 
@@ -241,7 +267,7 @@ function handleRequest(req: CanvasRequest): string | Promise<string> {
     case "note_write": {
       const note = reachableNote(str(params.name));
       if (typeof note === "string") return note;
-      const renamed = setNoteContent(note, str(params.content));
+      const renamed = setNoteContent(sl, note, str(params.content));
       return `ok: note '${labelOf(note)}' written${renamed}`;
     }
 
@@ -254,7 +280,7 @@ function handleRequest(req: CanvasRequest): string | Promise<string> {
       const count = content.split(oldText).length - 1;
       if (count === 0) return `Error: text not found in '${labelOf(note)}' — read it first (\`narrater note read\`)`;
       if (count > 1) return `Error: the text appears ${count} times in '${labelOf(note)}' — include more context to make it unique`;
-      const renamed = setNoteContent(note, content.replace(oldText, () => str(params.new)));
+      const renamed = setNoteContent(sl, note, content.replace(oldText, () => str(params.new)));
       return `ok: note '${labelOf(note)}' edited${renamed}`;
     }
 
@@ -266,7 +292,7 @@ function handleRequest(req: CanvasRequest): string | Promise<string> {
     }
 
     case "portal_create":
-      return portalCreate(req, params);
+      return portalCreate(req, scene, sl, params);
 
     case "portal_close": {
       const portal = findByName(reach().portals, str(params.name), "portal");
@@ -295,7 +321,7 @@ function handleRequest(req: CanvasRequest): string | Promise<string> {
         source: a.id,
         target: b.id,
         type: edgeTypeFor(a, b),
-      });
+      }, scene);
       return `ok: connected '${labelOf(a)}' ⇄ '${labelOf(b)}' — tell them about it, they are not notified`;
     }
 
