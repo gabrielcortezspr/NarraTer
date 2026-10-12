@@ -12,7 +12,7 @@ cenários se repetem entre sessões, para dar para comparar versões.
 
 | Data | Relatório | Versão testada | Resumo |
 |---|---|---|---|
-| 2026-10-12 | [Agentes Claude Code reais](2026-10-12-claude-code-reais.md) | `9d23932` → `16cee0e` | 12 cenários; 2 bugs achados e corrigidos |
+| 2026-10-12 | [Agentes Claude Code reais](2026-10-12-claude-code-reais.md) | `9d23932` → `28b05d0` | 14 cenários; 3 bugs achados e corrigidos |
 
 ## Método
 

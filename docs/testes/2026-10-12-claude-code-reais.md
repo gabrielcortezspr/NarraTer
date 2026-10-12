@@ -7,7 +7,7 @@ Método em [README.md](README.md).
 
 | Item | Valor |
 |---|---|
-| NarraTer | branch `feat/maestri-parity`, build debug; commits `0812446` a `16cee0e` |
+| NarraTer | branch `feat/maestri-parity`, build debug; commits `0812446` a `28b05d0` |
 | Agente | Claude Code 2.1.296, Opus 5.5 (esforço alto), plano Claude Pro |
 | Permissões | *auto mode* do Claude Code (padrão do usuário), sem `--dangerously-skip-permissions` |
 | Sistema | Linux, GNOME (Wayland), app em X11 via XWayland |
@@ -29,11 +29,15 @@ Método em [README.md](README.md).
 | 10 | Cadeia de três agentes | Alice ↔ Bob ↔ Carol | ✅ | 32 s |
 | 11 | Barreira da cadeia | Alice → Carol (sem ligação) | ✅ recusa clara | 4 s |
 | 12 | Maestro monta e dispensa um time | Maestro → recrutas | ✅ (aviso indevido corrigido) | 1 min 41 s; 19 s |
+| 13 | New Floor pelo compositor | Usuário → Maestro → recruta no andar | ✅ | 48 s |
+| 14 | Sugestão apagada lida como mensagem | Maestro lendo um recruta | ❌ → ✅ após correção | — |
 
-Dois bugs apareceram e foram corrigidos na mesma sessão:
+Três bugs apareceram e foram corrigidos na mesma sessão:
 - **`ask` contaminado pela fila** (cenário 4), corrigido em `9d23932`;
 - **aviso "exited with code 1" ao dispensar recrutas** (cenário 12),
-  corrigido em `16cee0e`.
+  corrigido em `16cee0e`;
+- **sugestão apagada do Claude Code lida como mensagem** (cenário 14),
+  corrigido em `11f6d34`.
 
 ## Cenários
 
@@ -196,6 +200,46 @@ nome. O nó saía do canvas antes de o processo morrer, e o aviso tratava o
 encerramento intencional como falha. **Correção (`16cee0e`):** só avisa se
 o terminal ainda está em alguma cena aberta. No reteste, nenhum aviso.
 
+### 13. New Floor pelo compositor
+
+**Montagem:** um repositório git com um bug proposital (`soma` devolve
+`a - b`), o workspace apontando para ele, e um Claude com o modo Maestro.
+Pela interface, como um usuário faria: Ctrl+Shift+P no Maestro, o texto "A
+funcao soma em calc.py esta errada: devolve a - b. Corrija para a + b e
+adicione um teste simples em test_calc.py que rode com python3.", o botão
+**New floor** ligado e Send.
+
+**Resultado (48 s):** o Maestro criou o andar "Fix Soma Calc" (worktree no
+branch `fix-soma-calc`), recrutou um agente para o andar (que se chamou
+"Pinheiro") e passou a tarefa. O recruta corrigiu, escreveu o teste, rodou
+e commitou (`d91a718`). O Maestro relatou e deixou o andar em `review`:
+"O floor está em review. Não fiz land nem merge… Quando quiser, eu faço o
+land com narrater floor land "Fix Soma Calc" --into main."
+
+**Conferido no git:** a `main` continua com `return a - b`; o worktree do
+andar tem a correção e o `test_calc.py`, que passa com `python3` e com
+`pytest` (2 testes). Num terminal que não é Maestro, o botão aparece
+desabilitado.
+
+### 14. Sugestão apagada lida como mensagem
+
+**O que aconteceu (no cenário 13):** o Maestro escreveu "O Pinheiro tem uma
+mensagem pendente pedindo para adicioná-la ao .gitignore. Se não foi você
+que escreveu, pode descartar." Ninguém tinha escrito nada: era a sugestão
+de próximo prompt que o Claude Code mostra em cinza no campo de entrada
+("adiciona __pycache__ ao .gitignore"), com o cursor antes dela. O NarraTer
+lia a tela como texto puro e entregava essa sugestão ao Maestro como se
+fosse texto digitado. O Maestro foi prudente e não agiu, mas um agente
+menos cuidadoso poderia agir sobre um pedido que ninguém fez.
+
+**Causa:** capturando a saída do Claude Code num PTY, o texto do campo de
+prompt sugerido vem com o atributo *dim* (SGR 2), à direita do cursor.
+
+**Correção (`11f6d34`):** ao ler a tela para `ask` e `check`, o texto dim
+na linha do cursor, depois dele, fica de fora. **Reteste:** com a sugestão
+"mostre o conteúdo do calc.py" visível no terminal, o `check` mostra só
+`❯`; um texto digitado com `--raw` continua aparecendo.
+
 ## Conclusões
 
 - O protocolo funciona com agentes que **não foram programados para ele**:
@@ -204,8 +248,12 @@ o terminal ainda está em alguma cena aberta. No reteste, nenhum aviso.
 - A topologia do canvas é respeitada e entendida pelos agentes: eles
   roteiam por intermediários quando não há ligação direta e não contornam
   as recusas.
-- Os dois problemas achados apareceram só com agentes reais e uso
-  concorrente; os testes com agentes simulados não os pegariam.
+- Os três problemas achados apareceram só com agentes reais (uso
+  concorrente, dispensa de recrutas, sugestões da TUI); os testes com
+  agentes simulados não os pegariam.
+- Um agente coordenador (Maestro) consegue receber uma tarefa do usuário,
+  isolar o trabalho num andar com branch próprio, delegar a um recruta e
+  parar no ponto em que a decisão é do usuário.
 
 ## Próximos testes sugeridos
 

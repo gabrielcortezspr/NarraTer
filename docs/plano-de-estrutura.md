@@ -91,7 +91,7 @@ copiados à mão.
 ## Fase 5 · Prioridades de feature
 
 Ordenadas pela relevância para a comunicação entre agentes:
-1. **New Floor no composer** (próxima): o usuário descreve uma tarefa, e um
+1. ✅ **New Floor no composer** (feita em 2026-10-12): o usuário descreve uma tarefa, e um
    agente Maestro cria um andar para ela e recruta quem vai trabalhar lá.
 2. **Agentes de fornecedores diferentes** conversando (Codex, Gemini CLI):
    é a tese central, "agnóstico de fornecedor", e ainda não tem teste real.
@@ -105,7 +105,8 @@ Ordenadas pela relevância para a comunicação entre agentes:
 ## Ordem de execução
 
 1. ✅ Push para a `main`, relatório dos testes de 2026-10-12 e este plano.
-2. New Floor, testada com agentes reais como na sessão de 2026-10-12.
+2. ✅ New Floor, testada com agentes reais (cenário 13 do relatório de
+   2026-10-12; de quebra, o bug da sugestão apagada, cenário 14).
 3. Fases 1 a 3 numa sessão curta; a New Floor vira o primeiro cenário
    escrito no formato novo.
 4. Fase 4 em paralelo, a cada sessão de testes.
