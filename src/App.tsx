@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import Canvas from "@/components/Canvas";
 import Sidebar from "@/components/Sidebar";
-import { useCanvasStore } from "@/stores/canvas";
+import { liveSlices, useCanvasStore } from "@/stores/canvas";
 import { useWorkspacesStore } from "@/stores/workspaces";
 import { useRolesStore } from "@/stores/roles";
 import { useTerminalsStore } from "@/stores/terminals";
@@ -44,9 +44,11 @@ export default function App() {
     listen<{ id: string; code: number }>("pty_exit", (event) => {
       const { id, code } = event.payload;
       useTerminalsStore.getState().setExited(id, code);
-      if (code !== 0) {
-        const node = useCanvasStore.getState().nodes.find((n) => n.id === id);
-        const label = (node?.data as { label?: string } | undefined)?.label ?? id;
+      // A terminal no longer on any live scene was removed on purpose
+      // (closed, dismissed): its exit isn't news
+      const node = liveSlices().flatMap(([, sl]) => sl.nodes).find((n) => n.id === id);
+      if (code !== 0 && node) {
+        const label = (node.data as { label?: string }).label ?? id;
         toast.warning(`"${label}" exited with code ${code}`);
       }
     }).then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
