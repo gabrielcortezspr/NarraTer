@@ -274,6 +274,17 @@ export const routineRun = (id: string) => invoke<string>("routine_run", { id });
 /** Terminals in Maestro mode (gates Maestro-only CLI commands in the backend). */
 export const maestrosSync = (ids: string[]) => invoke<void>("maestros_sync", { ids });
 
+// ---- Prompt composer ----
+
+/** Queues a prompt for a terminal: how many prompts are ahead of it, and whether it waits for the agent to go idle. */
+export const composerSend = (terminalId: string, text: string) =>
+  invoke<{ ahead: number; waiting: boolean }>("composer_send", { terminalId, text });
+/** Saves a pasted image where the terminal's agent can open it; returns that path. */
+export const composerAttach = (terminalId: string, dataBase64: string, ext: string) =>
+  invoke<string>("composer_attach", { terminalId, dataBase64, ext });
+/** Saves the clipboard's image for the terminal (WebKitGTK pastes images empty); null: no image there. */
+export const composerPasteImage = (terminalId: string) => invoke<string | null>("composer_paste_image", { terminalId });
+
 // ---- Backups ----
 
 export interface BackupInfo {

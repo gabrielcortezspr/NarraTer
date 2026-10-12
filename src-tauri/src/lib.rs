@@ -2,6 +2,7 @@ mod bridge;
 mod browser;
 mod canvas_bridge;
 mod chat;
+mod composer;
 pub mod environments;
 pub mod cli_core;
 mod floors;
@@ -70,6 +71,9 @@ pub fn run() {
             names::links_remove_node,
             names::links_scenes,
             preferences::preferences_get,
+            composer::composer_send,
+            composer::composer_attach,
+            composer::composer_paste_image,
             scene::scene_backups,
             scene::scene_restore_backup,
             preferences::preferences_set,

@@ -29,6 +29,7 @@ import CommandPalette from "@/components/CommandPalette";
 import WorkspaceNav from "@/components/WorkspaceNav";
 import EdgeHistoryPanel from "@/components/EdgeHistoryPanel";
 import ChatPanel from "@/components/ChatPanel";
+import Composer from "@/components/Composer";
 import { useChatStore } from "@/stores/chat";
 import EmptyState from "@/components/EmptyState";
 
@@ -375,6 +376,7 @@ function CanvasInner() {
 
       {/* NarraTer Chat with the agent whose chat button was clicked */}
       <ChatPanel />
+      <Composer />
 
       {/* Welcome screen when the canvas is empty */}
       <EmptyState onTerminal={openTerminalPicker} />

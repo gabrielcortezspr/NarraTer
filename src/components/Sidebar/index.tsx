@@ -301,6 +301,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
               ["D", "Draw"],
               ["Ctrl+S", "Save"],
               ["Delete", "Remove"],
+              ["Ctrl+Shift+P", "Prompt composer"],
               ["Ctrl+Tab", "Recent workspace"],
               ["Ctrl+Space ?", "All shortcuts"],
             ].map(([key, label]) => (

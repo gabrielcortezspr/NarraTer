@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useCallback, useState } from "react";
 import { Handle, Position, NodeResizer, useStore } from "@xyflow/react";
-import { X, GripVertical, FolderOpen, Clock, Plug, RotateCcw, Crown, MessageSquare } from "lucide-react";
+import { X, GripVertical, FolderOpen, Clock, Plug, RotateCcw, Crown, MessageSquare, SquarePen } from "lucide-react";
+import { useComposerStore } from "@/stores/composer";
 import { useChatStore } from "@/stores/chat";
 import { attachTerminal, detachTerminal, ensureTerminal, fitTerminal, respawnTerminal, spawnOptsFor } from "@/lib/terminalManager";
 import { presetOf } from "@/lib/agents";
@@ -263,6 +264,13 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
 
         {/* Open in editor */}
         <div className="relative nodrag">
+          <IconButton
+            title="Write a prompt (Ctrl+Shift+P) — @ mentions, pasted screenshots, a draft per terminal"
+            intent="info"
+            onClick={() => useComposerStore.getState().open(id)}
+          >
+            <SquarePen size={12} />
+          </IconButton>
           <IconButton title="Open in editor" intent="info" onClick={() => setShowEditorMenu((v) => !v)}>
             <FolderOpen size={12} />
           </IconButton>

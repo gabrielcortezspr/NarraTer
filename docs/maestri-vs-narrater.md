@@ -533,6 +533,31 @@ demais skills reaproveitam. Ordem sugerida:
      válido); gravação atômica; "Backups…" no menu do workspace restaura,
      guardando a versão atual como backup.
 
+10. ✅ **Compositor de prompts flutuante** (2026-10-11), no modelo do
+    composer do Maestri: escrever o prompt de um terminal fora dele.
+    - `Ctrl+Shift+P` (também de dentro do xterm) abre o compositor para o
+      terminal com foco ou selecionado; o botão de lápis no cabeçalho do
+      tile faz o mesmo. Texto em várias linhas; `Ctrl+Enter` envia, `Esc`
+      fecha.
+    - **Rascunho por terminal**, guardado entre fechamentos e reinícios.
+    - **Menções com `@`**: agentes, notas e portais ligados ao terminal e
+      colegas de outros workspaces (`Nome @ Workspace`). Ao enviar, o
+      prompt ganha um rodapé com o comando `narrater` de cada menção
+      (shells recebem o texto puro).
+    - **Screenshots colados**: a imagem vai para `narrater/drops` (ou
+      `/tmp/narrater-drops` num workspace SSH/Docker) e o caminho entra no
+      prompt. O WebKitGTK entrega à página um paste vazio para imagens; o
+      backend então lê a área de transferência por `wl-paste` ou `xclip`.
+    - Entrega pela mesma fila das mensagens entre agentes: o prompt é
+      digitado quando o agente fica ocioso, e o aviso diz se foi direto ou
+      se ficou na fila.
+    - Validado no app real (instância isolada): `Ctrl+Shift+P` de dentro do
+      terminal, menções com espaço no nome, comando de várias linhas no
+      shell, fila com o shell ocupado, rascunhos separados e imagem colada
+      gravada byte a byte. Não validado ponta a ponta: o anexo num
+      workspace remoto (usa o mesmo `environments::run` dos outros
+      comandos remotos).
+
 Com isso, todas as skills do Maestri têm equivalente no NarraTer. O que
 segue diferente: tela Android por polling e o acesso remoto/celular do
 Maestri Chat ("Maestri Remote").

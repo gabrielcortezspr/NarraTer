@@ -23,6 +23,7 @@ export const NAV_SHORTCUTS: Array<[string, string]> = [
   ["Ctrl+Space  o / O", "Next / previous terminal (focuses it)"],
   ["Ctrl+Space  f / F", "Next / previous floor"],
   ["Ctrl+Space  ?", "This list"],
+  ["Ctrl+Shift+P", "Prompt composer for the focused terminal"],
 ];
 
 type Overlay =
