@@ -397,9 +397,9 @@ pub async fn ask_one(
             _ = tokio::time::sleep(POLL) => {
                 let snapshot = {
                     let inner = state.lock().unwrap();
-                    inner.sessions.get(&target_id).map(|s| (s.turn, s.screen.text()))
+                    inner.sessions.get(&target_id).map(|s| (s.turn, s.screen.text(), s.last_idle.clone()))
                 };
-                let Some((turn, screen)) = snapshot else {
+                let Some((turn, screen, last_idle)) = snapshot else {
                     break Err(format!("Error: '{}' exited before finishing", to_label));
                 };
                 if delivered_at.elapsed() >= MIN_TURN {
@@ -408,6 +408,12 @@ pub async fn ask_one(
                         TurnState::Attention => break Ok(notice_attention(&to_label, &screen)),
                         TurnState::Working => {}
                     }
+                }
+                // Our turn ended between polls and a queued prompt already
+                // started the next one: answer with the screen at its end
+                // (the settle window rules out an idle right after delivery)
+                if let Some((_, text)) = last_idle.filter(|(at, _)| *at > delivered_at) {
+                    break Ok(text);
                 }
                 if Instant::now() >= deadline {
                     break Err(notice_not_finished(&to_label));

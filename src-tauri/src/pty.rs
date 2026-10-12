@@ -85,6 +85,10 @@ pub struct PtySession {
     /// Headless emulator mirroring the PTY: screen text, paste mode, activity.
     pub screen: ScreenModel,
     pub turn: TurnState,
+    /// When the last turn ended (→ idle) and the screen at that moment. The
+    /// next queued prompt goes in on the same tick, so an `ask` polling for
+    /// idle could otherwise miss its turn's end and read the next one.
+    pub last_idle: Option<(Instant, String)>,
     /// "shell" or an agent type — shells take bare commands and get their busy
     /// state from the foreground process group.
     pub agent_type: String,
@@ -602,6 +606,7 @@ pub async fn pty_spawn(
             child,
             screen: ScreenModel::new(rows, cols),
             turn: TurnState::Working,
+            last_idle: None,
             agent_type,
             delivering: false,
             token: token.clone(),
@@ -863,6 +868,9 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
                 let turn = if s.delivering { TurnState::Working } else { s.compute_turn(now) };
                 if turn != s.turn {
                     s.turn = turn;
+                    if turn == TurnState::Idle {
+                        s.last_idle = Some((now, s.screen.text()));
+                    }
                     transitions.push((id.clone(), turn));
                 }
             }
