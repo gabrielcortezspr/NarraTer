@@ -37,11 +37,13 @@ const SKILLS: &[(&str, &str)] = &[
     ("narrater", include_str!("../assets/SKILL.md")),
     ("narrater-manager", include_str!("../assets/SKILL-manager.md")),
     ("narrater-portal", include_str!("../assets/SKILL-portal.md")),
-    ("narrater-portal-devices", include_str!("../assets/SKILL-portal-devices.md")),
     ("narrater-routines", include_str!("../assets/SKILL-routines.md")),
     ("narrater-workspace", include_str!("../assets/SKILL-workspace.md")),
     ("narrater-chat", include_str!("../assets/SKILL-chat.md")),
 ];
+/// Skills NarraTer no longer ships (Android device portals were dropped):
+/// removed wherever an older version installed them.
+pub const RETIRED_SKILLS: &[&str] = &["narrater-portal-devices"];
 /// The skills, as (name, SKILL.md) — also installed in remote workspaces.
 pub fn skills() -> Vec<(&'static str, &'static str)> {
     SKILLS.to_vec()
@@ -615,6 +617,9 @@ fn install_skills() {
     for base in SKILL_BASES {
         for (name, content) in SKILLS {
             write_file(&home.join(base).join(name).join("SKILL.md"), content, 0o644);
+        }
+        for name in RETIRED_SKILLS {
+            let _ = std::fs::remove_dir_all(home.join(base).join(name));
         }
     }
 }

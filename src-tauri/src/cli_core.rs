@@ -275,12 +275,8 @@ impl Cli<'_, '_> {
         match verb.as_str() {
             "create" => {
                 let size = a.value("--size")?;
-                if let Some(sim) = a.value("--simulator")? {
-                    if a.len() > 1 {
-                        return Err(r#"Usage: narrater portal create --simulator ID ["Name"]"#.into());
-                    }
-                    let name = if a.len() > 0 { a.get(0) } else { "" };
-                    return self.canvas("portal_create", json!({ "simulator": sim, "name": name }));
+                if let Some(flag) = a.0.iter().find(|x| x.starts_with("--")) {
+                    return Err(format!("Error: unknown flag {} — run `narrater help portal`", flag));
                 }
                 if a.len() == 0 || a.len() > 2 {
                     return Err(r#"Usage: narrater portal create URL ["Name"] [--size WxH]"#.into());
@@ -289,7 +285,6 @@ impl Cli<'_, '_> {
                 return self
                     .canvas("portal_create", json!({ "url": a.get(0), "name": name, "size": size.unwrap_or_default() }));
             }
-            "devices" => return self.portal_request("", "devices", &[]),
             "close" => {
                 if a.len() != 1 {
                     return Err(r#"Usage: narrater portal close "Portal""#.into());
@@ -726,6 +721,7 @@ mod tests {
         assert!(run(&["ask", "Dev", "x", "--timeout", "abc"]).unwrap_err().contains("--timeout"));
         assert!(run(&["bogus"]).unwrap_err().contains("Unknown command"));
         assert!(run(&["floor", "create", "X", "--bogus"]).unwrap_err().contains("unknown flag"));
+        assert!(run(&["portal", "create", "--simulator", "Pixel_7"]).unwrap_err().contains("unknown flag --simulator"));
     }
 
     #[test]

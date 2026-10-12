@@ -79,27 +79,6 @@ over the DevTools Protocol (a minimal client in `browser/cdp.rs`).
   wire to agents.
 - Without Chrome, the tile and the CLI say so plainly; nothing else breaks.
 
-## Android device portals
-
-A portal can show an **Android emulator or phone** instead of a browser tab
-(`src-tauri/src/browser/device.rs`, `android.rs`), driven over `adb` from the
-SDK (`$ANDROID_HOME`, `$ANDROID_SDK_ROOT` or `~/Android/Sdk`).
-
-- `narrater portal devices` lists phones, running emulators and Android
-  Studio's AVDs; `narrater portal create --simulator ID ["Name"]` opens a
-  portal on a serial or an AVD — a stopped AVD is **booted headless** (its
-  settings untouched; extra emulator flags via `$NARRATER_EMULATOR_ARGS`) and
-  stopped again when no portal uses it (it also dies with the app).
-- The tile shows the screen (`screencap` polled ~4 fps while visible,
-  downscaled JPEG) and turns clicks into taps, drags into swipes (with the
-  real gesture duration), the wheel into scrolls, keys and paste into
-  `input keyevent` / `input text`; Back/Home/Recents in the header.
-- Agents get the maestri-portal-devices verbs: `snapshot` (the
-  `uiautomator` tree as `@eN` refs in device pixels; clickable rows are named
-  after their texts), `click/tap`, `type` (ASCII), `key`, `scroll`, `swipe`,
-  `drag`, `button`, `home`, `lock`, `launch`, `terminate`, `navigate`,
-  `screenshot`, `info`. Browser-only verbs are refused, not ignored.
-
 ## NarraTer Chat
 
 Talk to an agent without its terminal (`src-tauri/src/chat.rs`,

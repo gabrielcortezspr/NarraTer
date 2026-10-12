@@ -32,8 +32,6 @@ Usage:
   narrater portal type "Portal" [@e2] "text"       Type into the focused (or given) element
   narrater portal key "Portal" "Enter"             Press a key (ctrl+a, shift+tab…)
   narrater portal navigate "Portal" "url"          Go to a URL (also: info, screenshot, text, html, evaluate…)
-  narrater portal devices                          List Android devices, emulators and AVDs
-  narrater portal create --simulator ID ["Name"]   Open a portal on an Android device or AVD (boots it)
                                                    Run `narrater help portal` for every portal command
   narrater recruit "Name" [--preset P] [--role R] [--floor F] [--workspace W] [--command C] [--dir PATH]
                                                    (Maestro only) Spawn a teammate, auto-connected to you
@@ -193,14 +191,6 @@ Dates are local; --to includes that whole day. Attachments have stable ids:
   narrater portal resize "Portal" 390 844            set the CSS viewport (responsive QA)
   narrater portal ua "Portal" [preset]               ios, android, firefox-android, edge-android,
                                                      chrome, firefox, edge, desktop; omit to read
-
-Android devices (emulators or phones over adb):
-  narrater portal devices                            phones, running emulators, Android Studio AVDs
-  narrater portal create --simulator ID ["Name"]     portal on a device (serial) or AVD (booted if needed)
-  On a device portal: snapshot (accessibility tree, device pixels), click/tap,
-  type, key (Enter, back…), scroll, swipe, button home|back|recents|menu|power|
-  volumeup|volumedown, home, lock, launch|terminate PACKAGE, navigate URL,
-  screenshot, info. Browser-only commands are refused.
 
 Workflow: snapshot → act with refs → snapshot again to verify (refs go stale
 when the page changes). Prefer snapshot + refs over screenshot + coordinates.

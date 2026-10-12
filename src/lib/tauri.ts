@@ -53,8 +53,6 @@ export interface SceneNode {
   path?: string;
   // portal
   url?: string;
-  /** Device portal: AVD name or adb serial */
-  device?: string;
   // filetree
   expanded_paths?: string[];
 }
@@ -218,23 +216,17 @@ export interface PortalEntry {
   id: string;
   label: string;
   url: string;
-  /** Device portal: AVD name or adb serial */
-  device?: string;
 }
 
 /** Mirrors canvas portals and their [portalId, terminalId] links to the backend. */
 export const portalsSync = (portals: PortalEntry[], links: Array<[string, string]>) =>
   invoke<void>("portals_sync", { portals, links });
 
-export const portalOpen = (id: string, url?: string, width?: number, height?: number, device?: string) =>
-  invoke<void>("portal_open", { id, url, width, height, device });
+export const portalOpen = (id: string, url?: string, width?: number, height?: number) =>
+  invoke<void>("portal_open", { id, url, width, height });
 
-/** Tile on screen: open the tab (or connect the device, booting an AVD) and stream it. */
-export const portalAttach = (id: string, url?: string, device?: string) =>
-  invoke<void>("portal_attach", { id, url, device });
-/** Device portal input in device pixels: tap {x,y}, swipe {x1,y1,x2,y2,ms}, key {key}, text {text}. */
-export const deviceInput = (id: string, kind: "tap" | "swipe" | "key" | "text", params: Record<string, unknown>) =>
-  invoke<void>("device_input", { id, kind, params });
+/** Tile on screen: open the tab and stream it. */
+export const portalAttach = (id: string, url?: string) => invoke<void>("portal_attach", { id, url });
 export const portalDetach = (id: string) => invoke<void>("portal_detach", { id });
 export const portalNavigate = (id: string, url: string) => invoke<void>("portal_navigate", { id, url });
 /** -1 back, 1 forward, 0 reload. */

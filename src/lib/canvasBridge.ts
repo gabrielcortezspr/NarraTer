@@ -95,11 +95,7 @@ async function listFor(sl: SceneSlice, from: string): Promise<string> {
     out.push("", "Portals:");
     portals.forEach((p) => {
       const d = p.data as PortalNodeData;
-      out.push(
-        d.device
-          ? `  - ${labelOf(p)} · Android device ${d.device}`
-          : `  - ${labelOf(p)} · ${d.url || "(blank)"}${d.title ? ` · ${d.title}` : ""}`
-      );
+      out.push(`  - ${labelOf(p)} · ${d.url || "(blank)"}${d.title ? ` · ${d.title}` : ""}`);
     });
   }
   out.push("", "Notes:");
@@ -165,48 +161,18 @@ function normalizeUrl(raw: string): string {
   return /^(localhost|127\.)/.test(t) ? `http://${t}` : `https://${t}`;
 }
 
-const DEVICE_SIZE = { width: 380, height: 760 };
-/** How long `portal create --simulator` waits before answering "still booting". */
-const DEVICE_WAIT_MS = 8000;
-
-async function devicePortalCreate(
-  req: CanvasRequest, scene: string | undefined, sl: SceneSlice, me: AppNode, device: string, rawName: string,
-): Promise<string> {
-  const store = useCanvasStore.getState();
-  const label = uniqueName(sl.nodes, "portal", rawName || "Device");
-  const id = store.addPortalNode(freeSpot(sl.nodes, me, DEVICE_SIZE), "", label, device, scene);
-  store.addEdge({ id: `edge-${crypto.randomUUID().slice(0, 8)}`, source: req.from, target: id, type: "default" }, scene);
-  await syncPortals();
-  // Booting an AVD takes a while: answer once it's up, or say it's booting
-  const opened = portalOpen(id, undefined, undefined, undefined, device).then(() => "ready" as const);
-  const outcome = await Promise.race([
-    opened.catch((e) => `failed: ${e}`),
-    new Promise<"booting">((r) => setTimeout(() => r("booting"), DEVICE_WAIT_MS)),
-  ]);
-  if (outcome === "ready") return `ok: portal '${label}' opened on ${device}, connected to you`;
-  if (outcome === "booting") {
-    return (
-      `ok: portal '${label}' created on ${device}, connected to you — the device is still booting; ` +
-      `the next \`narrater portal … "${label}"\` command waits until it's ready`
-    );
-  }
-  return `ok: portal '${label}' created and connected to you, but the device ${outcome}`;
-}
-
 async function portalCreate(
   req: CanvasRequest, scene: string | undefined, sl: SceneSlice, params: Record<string, unknown>,
 ): Promise<string> {
   const store = useCanvasStore.getState();
   const me = sl.nodes.find((n) => n.id === req.from);
   if (me?.type !== "terminal") return "Error: unknown terminal";
-  const simulator = str(params.simulator).trim();
-  if (simulator) return devicePortalCreate(req, scene, sl, me, simulator, str(params.name).trim());
   const url = normalizeUrl(str(params.url));
   if (!url) return 'Usage: narrater portal create URL ["Name"] [--size WxH]';
   const size = parseSize(str(params.size));
   if (typeof size === "string") return size;
   const label = uniqueName(sl.nodes, "portal", str(params.name).trim() || "Portal");
-  const id = store.addPortalNode(freeSpot(sl.nodes, me, PORTAL_SIZE), url, label, undefined, scene);
+  const id = store.addPortalNode(freeSpot(sl.nodes, me, PORTAL_SIZE), url, label, scene);
   store.addEdge({ id: `edge-${crypto.randomUUID().slice(0, 8)}`, source: req.from, target: id, type: "default" }, scene);
   // The backend must know the portal (and the link) before the next command
   await syncPortals();

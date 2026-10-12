@@ -450,13 +450,11 @@ demais skills reaproveitam. Ordem sugerida:
    e `--copy` (cópia instantânea por reflink, que pode usar o branch do
    térreo; o land traz o trabalho de volta por fetch). Em disco sem reflink
    (ext4) o `--copy` é recusado, como no Maestri fora do APFS.
-5. ✅ **maestri-portal-devices → portais Android** (feito: `portal devices`,
-   `portal create --simulator` com boot headless do AVD e desligamento quando
-   nenhum portal usa; tela no tile por `screencap` com toque, swipe, teclas e
-   texto; `snapshot` do `uiautomator` com refs; `click/type/key/scroll/swipe/
-   drag/button/launch/terminate/navigate/screenshot/info`; verbos de browser
-   recusados; skill `narrater-portal-devices`). Limite: a tela vem por
-   polling (~4 fps), sem scrcpy.
+5. ⛔ **maestri-portal-devices → fora do escopo** (removido em 2026-10-12).
+   O NarraTer foca em comunicação entre agentes, em terminais no PC. Os
+   portais Android (adb, emulador, `portal devices`, `--simulator`, skill
+   `narrater-portal-devices`) existiram e foram retirados; o app apaga a
+   skill antiga de `~/.claude/skills` e `~/.agents/skills`, local e remoto.
 6. ✅ **maestri-chat → NarraTer Chat** (feito: painel por agente com 7
    threads por cor, cabeçalho de chat entregue no terminal, `narrater say`
    com `--progress/--file/--attach`, imagens inline e deduplicação,
@@ -558,9 +556,10 @@ demais skills reaproveitam. Ordem sugerida:
       workspace remoto (usa o mesmo `environments::run` dos outros
       comandos remotos).
 
-Com isso, todas as skills do Maestri têm equivalente no NarraTer. O que
-segue diferente: tela Android por polling e o acesso remoto/celular do
-Maestri Chat ("Maestri Remote").
+Com isso, todas as skills do Maestri dentro do foco do NarraTer (agentes
+em terminais no PC) têm equivalente. Ficam fora, de propósito: dispositivos
+móveis (maestri-portal-devices) e o acesso pelo celular ao Maestri Chat
+("Maestri Remote").
 
 ---
 

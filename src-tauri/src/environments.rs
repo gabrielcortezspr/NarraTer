@@ -304,6 +304,9 @@ pub fn ensure_setup(env: &Environment, skills: &[(&str, &str)], force: bool) -> 
             script.push_str(&format!("mkdir -p {}\n", dir));
             script.push_str(&write_file(&format!("{}/SKILL.md", dir), content));
         }
+        for name in crate::ipc::RETIRED_SKILLS {
+            script.push_str(&format!("rm -rf \"$HOME\"/{}\n", sh_quote(&format!("{}/{}", base, name))));
+        }
     }
     script.push_str(
         "printf 'home=%s\\nuser=%s\\nhost=%s\\n' \"$HOME\" \"$(id -un 2>/dev/null || whoami)\" \"$(hostname 2>/dev/null || uname -n)\"\n\

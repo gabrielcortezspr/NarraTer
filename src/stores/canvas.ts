@@ -54,8 +54,6 @@ export interface PortalNodeData extends Record<string, unknown> {
   label: string;
   /** Page title, live from the browser (not persisted). */
   title?: string;
-  /** Device portal: AVD name or adb serial (absent: a browser tab). */
-  device?: string;
 }
 
 export type AppNode =
@@ -161,7 +159,7 @@ interface CanvasStore {
   moveNode: (id: string, position: XYPosition) => void;
   addFileTreeNode: (position?: XYPosition, rootPath?: string) => string;
   addAttachmentNode: (position: XYPosition, path: string) => string;
-  addPortalNode: (position?: XYPosition, url?: string, label?: string, device?: string, scene?: string) => string;
+  addPortalNode: (position?: XYPosition, url?: string, label?: string, scene?: string) => string;
   /** Lights the note's "live" badge for a moment (an agent just wrote it). */
   flashNoteLive: (noteId: string) => void;
   removeNode: (id: string) => void;
@@ -198,7 +196,7 @@ function toNode(n: SceneNode, base: NodeBase): AppNode {
     return {
       ...base,
       type: "portal" as const,
-      data: { url: n.url ?? "", label: n.label ?? "Portal", ...(n.device ? { device: n.device } : {}) },
+      data: { url: n.url ?? "", label: n.label ?? "Portal" },
     };
   }
   return {
@@ -368,7 +366,6 @@ function serialize(sl: SceneSlice): SceneData {
           : n.type === "attachment" ? (n.data as AttachmentNodeData).path
           : undefined,
         url: n.type === "portal" ? (n.data as PortalNodeData).url : undefined,
-        device: n.type === "portal" ? (n.data as PortalNodeData).device : undefined,
         expanded_paths: n.type === "filetree" ? (n.data as FileTreeNodeData).expandedPaths : undefined,
         instructions: tdata?.instructions,
         schedule_command: tdata?.scheduleCommand,
@@ -762,7 +759,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     return id;
   },
 
-  addPortalNode: (position, url, label, device, scene) => {
+  addPortalNode: (position, url, label, scene) => {
     if (isOnScreen(scene)) get().snapshot();
     const id = `portal-${crypto.randomUUID().slice(0, 8)}`;
     nodeCounter++;
@@ -770,9 +767,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       id,
       type: "portal",
       position: position ?? { x: 200 + nodeCounter * 20, y: 200 + nodeCounter * 20 },
-      data: { url: url ?? "", label: label ?? uniquePortalLabel(sliceOf(scene)?.nodes ?? []), ...(device ? { device } : {}) },
-      // A phone is portrait
-      style: device ? { width: 380, height: 760 } : { width: 720, height: 520 },
+      data: { url: url ?? "", label: label ?? uniquePortalLabel(sliceOf(scene)?.nodes ?? []) },
+      style: { width: 720, height: 520 },
     };
     addToScene(scene, newNode);
     return id;
@@ -886,7 +882,7 @@ export function syncPortals(): Promise<void> {
     .filter((n) => n.type === "portal")
     .map((n) => {
       const d = n.data as PortalNodeData;
-      return { id: n.id, label: d.label, url: d.url, ...(d.device ? { device: d.device } : {}) };
+      return { id: n.id, label: d.label, url: d.url };
     });
   const links: Array<[string, string]> = edges.flatMap((e): Array<[string, string]> =>
     portalIds.has(e.source) && terminalIds.has(e.target) ? [[e.source, e.target]]

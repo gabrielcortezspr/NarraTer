@@ -6,7 +6,6 @@ import type { PortalNodeData } from "@/stores/canvas";
 import { openUrl, portalAttach, portalDetach, portalHistory, portalInput, portalNavigate } from "@/lib/tauri";
 import { onPortalFrame, onPortalState } from "@/lib/portalBus";
 import type { Node, NodeProps } from "@xyflow/react";
-import DevicePortalTile from "./DevicePortalTile";
 
 type PortalNode = Node<PortalNodeData, "portal">;
 
@@ -28,7 +27,7 @@ function modifiersOf(e: { altKey: boolean; ctrlKey: boolean; metaKey: boolean; s
 /** Editing commands for ctrl/cmd shortcuts — headless Chrome won't run them by itself. */
 const SHORTCUT_COMMANDS: Record<string, string> = { a: "selectAll", c: "copy", x: "cut", z: "undo" };
 
-function BrowserPortalTile({ id, data, selected }: NodeProps<PortalNode>) {
+function PortalTile({ id, data, selected }: NodeProps<PortalNode>) {
   const updateNodeData = useCanvasStore((s) => s.updateNodeData);
   const removeNode = useCanvasStore((s) => s.removeNode);
 
@@ -260,11 +259,6 @@ function BrowserPortalTile({ id, data, selected }: NodeProps<PortalNode>) {
       <Handle type="source" position={Position.Right} style={{ background: ACCENT, border: "none", width: 8, height: 8 }} />
     </div>
   );
-}
-
-/** A portal shows a browser tab, or an Android device when it names one. */
-function PortalTile(props: NodeProps<PortalNode>) {
-  return props.data.device ? <DevicePortalTile {...props} /> : <BrowserPortalTile {...props} />;
 }
 
 export default memo(PortalTile);
