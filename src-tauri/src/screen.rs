@@ -92,9 +92,35 @@ impl ScreenModel {
         self.parser.screen().bracketed_paste()
     }
 
-    /// Rendered visible screen, trailing blank lines removed.
+    /// Rendered visible screen, trailing blank lines removed. Faint text
+    /// right of the cursor is left out: TUIs (Claude Code…) draw a suggested
+    /// next prompt there, and an agent reading the screen took it for a
+    /// message someone had typed.
     pub fn text(&self) -> String {
-        trim_screen(&self.parser.screen().contents())
+        let screen = self.parser.screen();
+        let (cur_row, cur_col) = screen.cursor_position();
+        let cols = screen.size().1;
+        let ghost = {
+            let mut cells = (cur_col..cols).filter_map(|c| screen.cell(cur_row, c)).filter(|c| c.has_contents());
+            let mut any = false;
+            cells.all(|c| {
+                any = true;
+                c.dim()
+            }) && any
+        };
+        if !ghost {
+            return trim_screen(&screen.contents());
+        }
+        // Same layout as `contents()` (wrapped rows joined), cursor row cut
+        let mut out = String::new();
+        for (row, (full, cut)) in screen.rows(0, cols).zip(screen.rows(0, cur_col)).enumerate() {
+            let row = row as u16;
+            out.push_str(if row == cur_row { &cut } else { &full });
+            if !screen.row_wrapped(row) {
+                out.push('\n');
+            }
+        }
+        trim_screen(&out)
     }
 
     /// Lowercased last non-empty lines — where TUIs draw spinners and menus.
@@ -207,6 +233,25 @@ mod tests {
 
     const LONG: Duration = Duration::from_secs(5);
     const SHORT: Duration = Duration::from_millis(200);
+
+    #[test]
+    fn faint_suggestion_after_the_cursor_is_not_screen_text() {
+        // Claude Code's input box: "❯ " then a dim suggested prompt, the cursor on its first letter
+        let mut m = ScreenModel::new(4, 40);
+        m.feed("● done\r\n❯ \x1b[2madd it to .gitignore\x1b[22m\x1b[2;3H".as_bytes());
+        assert_eq!(m.text(), "● done\n❯");
+        // Typed text stays, even with a dim hint after it
+        let mut m = ScreenModel::new(4, 40);
+        m.feed("❯ fix the bug\x1b[2m (suggestion)\x1b[22m\x1b[1;14H".as_bytes());
+        assert_eq!(m.text(), "❯ fix the bug");
+        let mut m = ScreenModel::new(4, 40);
+        m.feed("❯ fix the bug".as_bytes());
+        assert_eq!(m.text(), "❯ fix the bug");
+        // Faint text elsewhere on screen is kept
+        let mut m = ScreenModel::new(4, 40);
+        m.feed("\x1b[2m⎿ loaded\x1b[22m\r\n❯ ".as_bytes());
+        assert_eq!(m.text(), "⎿ loaded\n❯");
+    }
 
     #[test]
     fn model_renders_and_tracks_bracketed_paste() {
