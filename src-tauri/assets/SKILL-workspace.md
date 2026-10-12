@@ -1,6 +1,6 @@
 ---
 name: narrater-workspace
-description: Create NarraTer workspaces and floors from the command line, optionally cloning an existing workspace as a starting point; file workspaces into sidebar groups and folders; land or delete a floor when its work is done; post a floor's status. Use inside NarraTer when the user asks to provision, spin up or scaffold a new workspace or project environment, or an isolated floor (a git worktree on its own branch) for risky or experimental work, or to land, merge back or remove a floor — and whenever you are working on a task on a floor, to keep its status current.
+description: Create NarraTer workspaces and floors from the command line, optionally cloning an existing workspace as a starting point; file workspaces into sidebar groups and folders; land or delete a floor when its work is done; post a floor's status. Use inside NarraTer when the user asks to provision, spin up or scaffold a new workspace or project environment, or an isolated floor (a git worktree on its own branch) for risky or experimental work, or to land, merge back or remove a floor — and whenever you are working on a task on a floor, to keep its status current. Also use it whenever a prompt carries the `<narrater-create-floor />` tag (the composer's New floor action).
 ---
 
 # NarraTer workspace provisioning
@@ -21,6 +21,14 @@ When you work on a task on a floor, keep that floor's status current with `narra
 - Floors are the exception: `narrater floor land` and `narrater floor delete` change the user's project (a merge into their branch, a deleted worktree and branch). **Run them only when the user asks, or after confirming with them** — a floor reporting `review` is ready for the user to decide, not a signal to land it yourself. Both run **from a terminal on the ground level** only.
 - Creation is silent: nothing changes on the user's screen. A new workspace appears in the sidebar; its terminals start when the user opens it.
 - The directory must already exist — create it (and `git init` if wanted) before `workspace create`.
+
+## A New Floor request
+
+The user's prompt composer has a **New floor** action. A prompt sent with it ends with the tag `<narrater-create-floor skill="narrater-workspace" />`: the user wants a floor of its own for the task the prompt describes.
+
+1. Create it: `narrater floor create "Name"`, the name being the task in two to four words (the branch is derived from it). Add no other flags unless the prompt asks for them. If the task is reviewing a pull request, use `--pull-request` with its number or link instead of a name.
+2. If the prompt also asks for the work to be done, recruit a teammate onto the new floor to do it — `narrater recruit "Name" --floor "Floor"` (narrater-manager skill) — and hand it the task, instead of doing it yourself from where you are.
+3. Reply with the floor's name and branch (and who you recruited, if anyone).
 
 ## Commands
 

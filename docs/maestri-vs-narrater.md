@@ -556,6 +556,20 @@ demais skills reaproveitam. Ordem sugerida:
       workspace remoto (usa o mesmo `environments::run` dos outros
       comandos remotos).
 
+11. ✅ **New Floor no compositor** (2026-10-12), a partir da skill
+    `maestri-workspace` ("A New Floor mention"). Num terminal Maestro, o
+    botão **New floor** do compositor manda o prompt com a marca
+    `<narrater-create-floor skill="narrater-workspace" />`; a skill
+    `narrater-workspace` ensina o agente a criar o andar com um nome tirado
+    da tarefa (ou `--pull-request` para revisar um PR), recrutar um colega
+    para o andar quando há trabalho a fazer, e responder com nome e branch.
+    Fora do modo Maestro o botão aparece desabilitado (`floor create` e
+    `recruit` são só do Maestro). A aparência do botão é desenho nosso.
+    Validado com um Claude Code real: andar `fix-soma-calc` criado como
+    worktree, recruta corrigiu o bug e commitou, `main` intocada, andar
+    deixado em `review` sem land (relatório em
+    `docs/testes/2026-10-12-claude-code-reais.md`, cenário 13).
+
 Com isso, todas as skills do Maestri dentro do foco do NarraTer (agentes
 em terminais no PC) têm equivalente. Ficam fora, de propósito: dispositivos
 móveis (maestri-portal-devices) e o acesso pelo celular ao Maestri Chat

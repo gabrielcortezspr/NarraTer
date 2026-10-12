@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AtSign, Globe, ImagePlus, Send, StickyNote, TerminalSquare, X } from "lucide-react";
+import { AtSign, Globe, ImagePlus, Layers, Send, StickyNote, TerminalSquare, X } from "lucide-react";
 import { useCanvasStore, type AppNode, type TerminalNodeData } from "@/stores/canvas";
 import { useComposerStore } from "@/stores/composer";
 import { toast } from "@/stores/toasts";
@@ -11,7 +11,11 @@ import { composerAttach, composerPasteImage, composerSend, linksList } from "@/l
 // (agents, notes, portals, teammates in other workspaces), pasted
 // screenshots — and send it with Ctrl+Enter; it's typed in when the agent
 // is idle. Each terminal keeps its draft. Ctrl+Shift+P opens it for the
-// focused or selected terminal.
+// focused or selected terminal. "New floor" (Maestro terminals) asks the
+// agent to give the task a floor of its own.
+
+/** Marks a prompt sent with "New floor" — the narrater-workspace skill acts on it. */
+const NEW_FLOOR_TAG = '<narrater-create-floor skill="narrater-workspace" />';
 
 interface Mention {
   name: string;
@@ -48,6 +52,7 @@ export default function Composer() {
   const [remote, setRemote] = useState<Mention[]>([]);
   const [popup, setPopup] = useState<{ query: string; start: number; index: number } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [newFloor, setNewFloor] = useState(false);
 
   // Ctrl+Shift+P: open for the focused/selected terminal (works from inside xterm)
   useEffect(() => {
@@ -68,6 +73,7 @@ export default function Composer() {
   }, [open, close]);
 
   useEffect(() => {
+    setNewFloor(false);
     if (!target) return;
     requestAnimationFrame(() => {
       const el = areaRef.current;
@@ -136,17 +142,19 @@ export default function Composer() {
     const footer = !isShell && used.length
       ? `\n\n(Referenced on the canvas: ${used.map((m) => `${m.kind} "${m.name}" — \`${m.hint}\``).join("; ")})`
       : "";
+    const floorTag = newFloor && data.maestro ? `\n\n${NEW_FLOOR_TAG}` : "";
     setBusy(true);
     try {
-      const { ahead, waiting } = await composerSend(target, body + footer);
+      const { ahead, waiting } = await composerSend(target, body + footer + floorTag);
       setDraft(target, "");
       close();
+      const what = floorTag ? "New floor task" : "Prompt";
       toast.success(
         ahead
-          ? `Queued for ${data.label} — ${ahead} prompt(s) ahead; sent when it's idle`
+          ? `${what} queued for ${data.label} — ${ahead} prompt(s) ahead; sent when it's idle`
           : waiting
-            ? `Queued for ${data.label} — sent when it's idle`
-            : `Sent to ${data.label}`,
+            ? `${what} queued for ${data.label} — sent when it's idle`
+            : `${what} sent to ${data.label}`,
       );
     } catch (e) {
       toast.error(String(e));
@@ -260,13 +268,33 @@ export default function Composer() {
             <span className="flex items-center gap-1"><ImagePlus size={10} /> paste an image</span>
             <span>Esc closes · draft kept</span>
           </span>
-          <button
-            onClick={() => void send()}
-            disabled={busy || !text.trim()}
-            className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#8b5cf6] text-white disabled:opacity-40"
-          >
-            <Send size={11} /> Send <span className="text-[#ddd6fe]">Ctrl+↵</span>
-          </button>
+          <span className="flex items-center gap-2">
+            {!isShell && (
+              <button
+                onClick={() => setNewFloor((v) => !v)}
+                disabled={!data.maestro}
+                title={
+                  data.maestro
+                    ? "New floor: the agent creates a floor for this task and recruits a teammate there to do it"
+                    : "New floor needs Maestro mode on this terminal (the crown in its header)"
+                }
+                className={`flex items-center gap-1 px-2 py-1 rounded-md border disabled:opacity-40 ${
+                  newFloor && data.maestro
+                    ? "border-[#8b5cf6] bg-[#8b5cf633] text-[#ddd6fe]"
+                    : "border-[#2a2a2a] text-[#777] hover:text-white"
+                }`}
+              >
+                <Layers size={11} /> New floor
+              </button>
+            )}
+            <button
+              onClick={() => void send()}
+              disabled={busy || !text.trim()}
+              className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#8b5cf6] text-white disabled:opacity-40"
+            >
+              <Send size={11} /> Send <span className="text-[#ddd6fe]">Ctrl+↵</span>
+            </button>
+          </span>
         </div>
       </div>
     </div>
