@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/retomar.sh\" 2>/dev/null || true",
+            "timeout": 15,
+            "statusMessage": "Lendo onde o trabalho parou…"
+          }
+        ]
+      }
+    ]
+  }
+}
