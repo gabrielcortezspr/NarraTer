@@ -46,8 +46,21 @@ impl TurnState {
     }
 }
 
+/// Keeps the window title (OSC 0/2) the program sets: several agent CLIs
+/// signal their turn state there (Claude Code puts `✳` in front at rest).
+#[derive(Default)]
+struct TitleCallbacks {
+    title: String,
+}
+
+impl vt100::Callbacks for TitleCallbacks {
+    fn set_window_title(&mut self, _: &mut vt100::Screen, title: &[u8]) {
+        self.title = String::from_utf8_lossy(title).into_owned();
+    }
+}
+
 pub struct ScreenModel {
-    parser: vt100::Parser,
+    parser: vt100::Parser<TitleCallbacks>,
     dirty: bool,
     hash: u64,
     pub last_change: Instant,
@@ -58,7 +71,7 @@ pub struct ScreenModel {
 
 impl ScreenModel {
     pub fn new(rows: u16, cols: u16) -> Self {
-        let parser = vt100::Parser::new(rows.max(1), cols.max(1), SCROLLBACK);
+        let parser = vt100::Parser::new_with_callbacks(rows.max(1), cols.max(1), SCROLLBACK, TitleCallbacks::default());
         let hash = hash_text(&parser.screen().contents());
         ScreenModel { parser, dirty: false, hash, last_change: Instant::now(), has_output: false }
     }
@@ -81,11 +94,24 @@ impl ScreenModel {
             return;
         }
         self.dirty = false;
-        let h = hash_text(&self.parser.screen().contents());
+        // A title change is activity too (spinners animate there)
+        let h = hash_text(&(self.parser.screen().contents() + "\u{0}" + &self.parser.callbacks().title));
         if h != self.hash {
             self.hash = h;
             self.last_change = now;
         }
+    }
+
+    /// Counts as on-screen activity: a shell's foreground job is running, so
+    /// the turn only settles SHELL_SETTLE after the job ends (and the prompt
+    /// is redrawn), not on a screen that merely hasn't repainted yet.
+    pub fn mark_active(&mut self, now: Instant) {
+        self.last_change = now;
+    }
+
+    /// The window title last set by the program (OSC 0/2), or "".
+    pub fn title(&self) -> &str {
+        &self.parser.callbacks().title
     }
 
     pub fn bracketed_paste(&self) -> bool {
@@ -121,6 +147,36 @@ pub fn footer_of(s: &str) -> String {
     lines[start..].join("\n").to_lowercase()
 }
 
+/// After the title says the agent is at rest, the screen must stay unchanged
+/// this long (the final answer and footer repaint with the title).
+pub const TITLE_SETTLE: Duration = Duration::from_millis(400);
+
+/// What an agent's window title (OSC 0/2) says about its turn. The glyph set
+/// follows Orca's catalog (`src/shared/agent-title-glyphs.ts`, MIT) and was
+/// checked against Claude Code 2.1.299 transcripts (`turn_eval`): `✳` at
+/// rest, `◐◑◒◓` while working.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TitleSignal {
+    Working,
+    Idle,
+    Attention,
+    /// No known glyph: the title says nothing about the turn.
+    Unknown,
+}
+
+pub fn title_signal(title: &str) -> TitleSignal {
+    let Some(c) = title.trim_start().chars().next() else { return TitleSignal::Unknown };
+    match c as u32 {
+        // Braille and quarter-circle spinners; Gemini ✦ (working), ⏲ (silent work)
+        0x2800..=0x28FF | 0x25D0..=0x25D3 | 0x2726 | 0x23F2 => TitleSignal::Working,
+        // Gemini ✋: waiting for a permission
+        0x270B => TitleSignal::Attention,
+        // Claude Code ✳, Gemini ◇: at rest
+        0x2733 | 0x25C7 => TitleSignal::Idle,
+        _ => TitleSignal::Unknown,
+    }
+}
+
 /// Spinner lines of TUI agents while a turn runs (Claude Code, Codex, …).
 fn is_busy_footer(footer: &str) -> bool {
     const BUSY: &[&str] = &["esc to interrupt", "ctrl+c to interrupt", "ctrl-c to interrupt"];
@@ -143,18 +199,37 @@ fn is_attention_footer(footer: &str) -> bool {
 }
 
 /// Turn state from what's on screen.
-/// - `since_change`: time since the screen content last changed (delivering
-///   a prompt bumps it, so a just-prompted agent never reads as idle);
+/// - `title`: the window title (agents that report their state there settle
+///   faster: TITLE_SETTLE instead of SETTLE);
+/// - `since_change`: time since the screen content (or title) last changed
+///   (delivering a prompt bumps it, so a just-prompted agent never reads as idle);
 /// - `fg_busy`: shells only — a foreground job other than the shell itself.
-pub fn classify(footer: &str, since_change: Duration, is_shell: bool, fg_busy: Option<bool>) -> TurnState {
+pub fn classify(footer: &str, title: &str, since_change: Duration, is_shell: bool, fg_busy: Option<bool>) -> TurnState {
     if is_shell {
         if fg_busy == Some(true) || since_change < SHELL_SETTLE {
             return TurnState::Working;
         }
         return TurnState::Idle;
     }
-    if is_busy_footer(footer) && since_change < STALE_BUSY {
+    let busy_footer = is_busy_footer(footer);
+    if busy_footer && since_change < STALE_BUSY {
         return TurnState::Working;
+    }
+    match title_signal(title) {
+        // A spinning title animates (each frame is a change): stale like a busy footer
+        TitleSignal::Working if since_change < STALE_BUSY => return TurnState::Working,
+        // The title itself says it waits for a permission
+        TitleSignal::Attention => return TurnState::Attention,
+        TitleSignal::Idle if !busy_footer => {
+            // A menu under a resting title: two signals agree, no quiet needed —
+            // Claude Code blinks a bullet every 0.6 s while it waits, so the
+            // screen never stays unchanged for SETTLE (turn_eval, D11)
+            if is_attention_footer(footer) {
+                return TurnState::Attention;
+            }
+            return if since_change < TITLE_SETTLE { TurnState::Working } else { TurnState::Idle };
+        }
+        _ => {}
     }
     if since_change < SETTLE {
         return TurnState::Working;
@@ -163,6 +238,30 @@ pub fn classify(footer: &str, since_change: Duration, is_shell: bool, fg_busy: O
         return TurnState::Attention;
     }
     TurnState::Idle
+}
+
+/// Is a job other than the shell in the foreground of `shell_pid`'s
+/// terminal? Read from /proc: the terminal's foreground process group
+/// (`tpgid`) differs from the shell's own group while a job runs. Works for
+/// a shell inside tmux, where the PTY's own foreground is the tmux client.
+/// None when the process is gone or /proc is unreadable.
+pub fn foreground_busy(shell_pid: i32) -> Option<bool> {
+    let stat = std::fs::read_to_string(format!("/proc/{}/stat", shell_pid)).ok()?;
+    // Fields after the parenthesised command name: state ppid pgrp session tty_nr tpgid
+    let rest = &stat[stat.rfind(')')? + 1..];
+    let f: Vec<&str> = rest.split_whitespace().collect();
+    let pgrp: i32 = f.get(2)?.parse().ok()?;
+    let tpgid: i32 = f.get(5)?.parse().ok()?;
+    Some(tpgid > 0 && tpgid != pgrp)
+}
+
+/// The pid of the shell running in a tmux session's (first) pane.
+pub fn tmux_pane_pid(tmux: &str, socket: &str, session: &str) -> Option<i32> {
+    let out = std::process::Command::new(tmux)
+        .args(["-L", socket, "display-message", "-p", "-t", session, "#{pane_pid}"])
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
 }
 
 /// One step of a prompt delivery: bytes to write after `delay_ms`.
@@ -239,39 +338,39 @@ mod tests {
     #[test]
     fn spinner_footer_is_working_until_stale() {
         let f = footer_of("answer\n✻ Thinking… (12s · esc to interrupt)\n> \n? for shortcuts");
-        assert_eq!(classify(&f, Duration::from_secs(3), false, None), TurnState::Working);
-        assert_eq!(classify(&f, Duration::from_secs(30), false, None), TurnState::Idle);
+        assert_eq!(classify(&f, "", Duration::from_secs(3), false, None), TurnState::Working);
+        assert_eq!(classify(&f, "", Duration::from_secs(30), false, None), TurnState::Idle);
     }
 
     #[test]
     fn settle_window_keeps_agent_working() {
         let f = footer_of("> \n? for shortcuts");
-        assert_eq!(classify(&f, SHORT, false, None), TurnState::Working);
-        assert_eq!(classify(&f, LONG, false, None), TurnState::Idle);
+        assert_eq!(classify(&f, "", SHORT, false, None), TurnState::Working);
+        assert_eq!(classify(&f, "", LONG, false, None), TurnState::Idle);
     }
 
     #[test]
     fn permission_menus_need_attention() {
         let claude = "Do you want to proceed?\n❯ 1. Yes\n  2. Yes, and don't ask again\n  3. No, and tell Claude what to do differently (esc)";
-        assert_eq!(classify(&footer_of(claude), LONG, false, None), TurnState::Attention);
+        assert_eq!(classify(&footer_of(claude), "", LONG, false, None), TurnState::Attention);
         let codex = "Would you like to run the following command?\n› 1. Yes, proceed (y)\n  2. No (esc)";
-        assert_eq!(classify(&footer_of(codex), LONG, false, None), TurnState::Attention);
+        assert_eq!(classify(&footer_of(codex), "", LONG, false, None), TurnState::Attention);
         let gemini = "Allow execution?\n● 1. Allow once\n  2. Allow always";
-        assert_eq!(classify(&footer_of(gemini), LONG, false, None), TurnState::Attention);
-        assert_eq!(classify(&footer_of("Overwrite file? (y/n)"), LONG, false, None), TurnState::Attention);
+        assert_eq!(classify(&footer_of(gemini), "", LONG, false, None), TurnState::Attention);
+        assert_eq!(classify(&footer_of("Overwrite file? (y/n)"), "", LONG, false, None), TurnState::Attention);
     }
 
     #[test]
     fn plain_question_in_an_answer_is_idle() {
         let f = footer_of("I fixed the bug.\nWould you like me to also add tests?\n> \n? for shortcuts");
-        assert_eq!(classify(&f, LONG, false, None), TurnState::Idle);
+        assert_eq!(classify(&f, "", LONG, false, None), TurnState::Idle);
     }
 
     #[test]
     fn shell_busy_comes_from_foreground_job() {
-        assert_eq!(classify("$", LONG, true, Some(true)), TurnState::Working);
-        assert_eq!(classify("$", LONG, true, Some(false)), TurnState::Idle);
-        assert_eq!(classify("$", SHORT, true, Some(false)), TurnState::Working);
+        assert_eq!(classify("$", "", LONG, true, Some(true)), TurnState::Working);
+        assert_eq!(classify("$", "", LONG, true, Some(false)), TurnState::Idle);
+        assert_eq!(classify("$", "", SHORT, true, Some(false)), TurnState::Working);
     }
 
     #[test]
@@ -302,5 +401,49 @@ mod tests {
     fn trim_screen_drops_trailing_blank_rows() {
         assert_eq!(trim_screen("a  \nb\n\n   \n"), "a\nb");
         assert_eq!(trim_screen("\n\n"), "");
+    }
+
+    #[test]
+    fn title_glyphs_follow_the_catalog() {
+        assert_eq!(title_signal("✳ PONG reply test"), TitleSignal::Idle);
+        assert_eq!(title_signal("◐ PONG reply test"), TitleSignal::Working);
+        assert_eq!(title_signal("⠋ codex"), TitleSignal::Working);
+        assert_eq!(title_signal("✋ gemini"), TitleSignal::Attention);
+        assert_eq!(title_signal("◇ gemini"), TitleSignal::Idle);
+        assert_eq!(title_signal("bash"), TitleSignal::Unknown);
+        assert_eq!(title_signal(""), TitleSignal::Unknown);
+    }
+
+    #[test]
+    fn an_idle_title_settles_faster_than_the_screen_alone() {
+        let ms = Duration::from_millis;
+        // Claude at rest: idle after TITLE_SETTLE, not SETTLE
+        assert_eq!(classify("? for shortcuts", "✳ Task", ms(300), false, None), TurnState::Working);
+        assert_eq!(classify("? for shortcuts", "✳ Task", ms(500), false, None), TurnState::Idle);
+        assert_eq!(classify("? for shortcuts", "", ms(500), false, None), TurnState::Working);
+        // A busy footer wins over a resting title
+        assert_eq!(classify("esc to interrupt", "✳ Task", ms(500), false, None), TurnState::Working);
+        // A spinning title keeps it working past SETTLE, until stale
+        assert_eq!(classify("", "◐ Task", Duration::from_secs(5), false, None), TurnState::Working);
+        assert_eq!(classify("", "◐ Task", Duration::from_secs(30), false, None), TurnState::Idle);
+        // A permission menu under a resting title is attention at once, even
+        // with a bullet blinking (the screen changed 100 ms ago)
+        let menu = footer_of("Do you want to proceed?\n❯ 1. Yes\n  2. No\nEsc to cancel · Tab to amend");
+        assert_eq!(classify(&menu, "✳ Task", ms(100), false, None), TurnState::Attention);
+        // Without the title, the menu still needs a quiet screen
+        assert_eq!(classify(&menu, "", ms(100), false, None), TurnState::Working);
+    }
+
+    #[test]
+    fn title_changes_count_as_activity() {
+        let mut m = ScreenModel::new(3, 20);
+        m.feed(b"same");
+        let t1 = Instant::now();
+        m.refresh(t1);
+        m.feed(b"\x1b]0;\xe2\x97\x90 Task\x07");
+        let t2 = t1 + Duration::from_secs(1);
+        m.refresh(t2);
+        assert_eq!(m.last_change, t2);
+        assert_eq!(m.title(), "◐ Task");
     }
 }

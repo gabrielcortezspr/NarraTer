@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use crate::screen::{classify, plan_delivery, ScreenModel, TurnState};
 
 const STATUS_TICK: Duration = Duration::from_millis(200);
+/// How often a failed tmux pane lookup is retried (the session may still be starting).
+const PANE_LOOKUP_RETRY: Duration = Duration::from_secs(2);
 
 #[derive(Serialize, Clone)]
 pub struct PtyOutput {
@@ -104,6 +106,10 @@ pub struct PtySession {
     /// Its persistent tmux session (outlives the app), ended when the
     /// terminal is removed for good
     pub tmux: Option<TmuxSession>,
+    /// Local tmux only: the pid of the shell in its pane, looked up lazily
+    /// (with the time of the last failed lookup, to retry sparingly).
+    pane_pid: Option<i32>,
+    pane_lookup_failed: Option<Instant>,
 }
 
 /// A terminal's tmux session: local, or in its remote environment.
@@ -142,12 +148,45 @@ impl PtySession {
         Some(leader != pid)
     }
 
-    fn compute_turn(&self, now: Instant) -> TurnState {
+    /// Local tmux: the shell runs in the tmux server, so the PTY's own
+    /// foreground is the tmux client; ask /proc about the pane's shell.
+    fn tmux_foreground_busy(&mut self, now: Instant) -> Option<bool> {
+        if self.pane_pid.is_none() {
+            if self.pane_lookup_failed.is_some_and(|t| now.duration_since(t) < PANE_LOOKUP_RETRY) {
+                return None;
+            }
+            let name = self.tmux.as_ref()?.name.clone();
+            let tmux = crate::environments::local_tmux()?;
+            self.pane_pid = crate::screen::tmux_pane_pid(
+                &tmux.display().to_string(),
+                crate::environments::LOCAL_TMUX_SOCKET,
+                &name,
+            );
+            if self.pane_pid.is_none() {
+                self.pane_lookup_failed = Some(now);
+                return None;
+            }
+        }
+        let busy = crate::screen::foreground_busy(self.pane_pid?);
+        if busy.is_none() {
+            // The pane's shell is gone (respawned pane): look it up again
+            self.pane_pid = None;
+        }
+        busy
+    }
+
+    fn compute_turn(&mut self, now: Instant) -> TurnState {
+        // Remote: the local foreground is ssh / docker — only the screen tells
+        let fg = match (self.is_shell() && self.remote.is_none(), self.tmux.is_some()) {
+            (false, _) => None,
+            (true, false) => self.foreground_busy(),
+            (true, true) => self.tmux_foreground_busy(now),
+        };
+        if fg == Some(true) {
+            self.screen.mark_active(now);
+        }
         let since = now.saturating_duration_since(self.screen.last_change);
-        // Remote or inside tmux: the local foreground is ssh / docker / the
-        // tmux client — only the screen tells
-        let fg = if self.is_shell() && self.remote.is_none() && self.tmux.is_none() { self.foreground_busy() } else { None };
-        classify(&self.screen.footer(), since, self.is_shell(), fg)
+        classify(&self.screen.footer(), self.screen.title(), since, self.is_shell(), fg)
     }
 }
 
@@ -619,6 +658,8 @@ pub async fn pty_spawn(
             project_dir: project_dir.clone(),
             remote: remote.as_ref().map(|r| r.env.clone()),
             tmux: tmux_session,
+            pane_pid: None,
+            pane_lookup_failed: None,
         });
     }
 

@@ -1,0 +1,7 @@
+{
+  "delivered_s": 2.804875496,
+  "expected": "idle",
+  "is_shell": false,
+  "oracle_s": 14.197175056546875,
+  "scenario": "claude-silent-tool"
+}

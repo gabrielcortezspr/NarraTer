@@ -5,20 +5,20 @@ Máximo de ~30 linhas: se passar disso, algo aqui deveria estar num commit ou nu
 
 ## Última sessão
 
-2026-10-14, Gabriel com Claude Code, branch `ccr-03e0166a-1f50u2`. Estudo do Orca, memória de
-desenvolvimento (CLAUDE.md, skills `encerrar` e `pesquisa`) e etapas O1 + O2 da orquestração.
+2026-10-14, Gabriel com Claude Code, branch `ccr-03e0166a-1f50u2`. Leitor de estado: estudo do
+CAO (AWS) e do Orca, avaliador com oráculo e três correções medidas (D10–D12).
 
 ## Onde parou
 
-`narrater ask --no-wait`, `narrater wait` e `narrater asks` funcionando, com asks duráveis em
-`~/.config/narrater/asks.jsonl` (D07, D08). Verificado: `cargo test` (79 + 6), `tsc`, e ponta a
-ponta no app real sob Xvfb (ordem de chegada, espera parcial, `--all`, retomada por id, restart →
-`unknown`). Skills dos agentes já ensinam o fluxo.
+Leitor medido com `turn_eval`: shell no tmux 0/20 prematuros (antes 6/6); Claude 2.1.299 com
+latência 466–670 ms (antes 1,3–2,1 s) e permissão detectada (antes nunca). Transcrições reais em
+`src-tauri/tests/transcripts/` viram teste. Verificado: `cargo test` (82 + 6 + 1), `tsc`, app real.
 
 ## Próximo passo
 
-Etapa O3, mensagens tipadas opcionais: `narrater done` / `question` / `reply`, começando pelo
-ask-back em `run_ask` (`src-tauri/src/ipc.rs`), que hoje encerra o ask do líder com a pergunta.
+Etapa O3 (mensagens tipadas opcionais), começando pelo ask-back em `run_ask`
+(`src-tauri/src/ipc.rs`); ou, se houver Codex/Gemini instalados, gravar transcrições deles com
+`turn_eval` e conferir os glifos de título citados do Orca (`screen.rs`, `title_signal`).
 
 ## Decisões pendentes
 
@@ -26,9 +26,10 @@ ask-back em `run_ask` (`src-tauri/src/ipc.rs`), que hoje encerra o ask do líder
 
 ## Lembrar
 
-- Shell dentro do tmux com comando silencioso parece ocioso (backlog, etapa E). Em teste de ponta a
-  ponta use comandos que imprimem enquanto rodam.
-- Teste ponta a ponta neste container: `apt install libwebkit2gtk-4.1-dev xvfb tmux`, cena em
-  `~/.config/narrater/scenes/default.json`, `xvfb-run -a npx tauri dev`, e a identidade de um
-  terminal lida de `/proc/<pid>/environ` do cliente tmux.
-- O Orca foi só lido, não executado. Conferir a saída `--json` antes da etapa P.
+- A piscada de 0,6 s do Claude no diálogo de permissão apareceu em 3 execuções e sumiu em 11;
+  causa não identificada (`pesquisa/leitor-de-estado.md` §5.1).
+- Claude recém-instalado mostra onboarding, que o leitor vê como ocioso (backlog E).
+- `turn_eval --claude` precisa de `claude` logado; ele marca o onboarding como feito em `~/.claude.json`.
+- Não usar `pkill -f` com um padrão que aparece na própria linha de comando: mata o shell que roda.
+- Teste no app real: `apt install libwebkit2gtk-4.1-dev xvfb tmux`, cena em
+  `~/.config/narrater/scenes/default.json`, `xvfb-run -a npx tauri dev`, identidade em `/proc/<pid>/environ`.
