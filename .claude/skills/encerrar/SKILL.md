@@ -18,13 +18,19 @@ escrever aqui é a primeira coisa que o próximo agente vai ler.
    **alternativa real**: escolha de desenho, troca de abordagem, conclusão de pesquisa que mudou o
    rumo. Se não havia escolha, não é decisão.
 
-   Numeração sequencial e permanente (`D07`, `D08`…), os quatro campos fixos (Contexto, Decisão,
-   Alternativa recusada, Consequência) e a linha de referência com data, área, commit e o arquivo
-   onde a regra vive. Atualize o índice por área no topo.
+   Numeração sequencial e permanente, os **seis campos** descritos no topo do arquivo (Contexto,
+   Decisão, Alternativas consideradas, Evidência, Consequência, Revisar se) e a linha de
+   referência com data, área, commit e o arquivo onde a regra vive. Atualize o índice por área.
+
+   **Toda decisão é justificada** (D09). Na Evidência, cada item leva um rótulo:
+   `[medido]` (com o comando, a máquina e o número de repetições, para alguém reproduzir),
+   `[observado]` (com o cenário do teste), `[citado]` (com caminho, versão ou commit) ou
+   `[inferido]` (raciocínio sem medição, dito como tal). Se a decisão dependia de um número que
+   dá para medir em poucos minutos, meça antes de registrar. "Revisar se" é uma condição
+   observável que derrubaria a decisão; sem ela a decisão não pode ser contestada.
 
    **O arquivo só cresce.** Decisão revista ganha entrada nova citando a antiga; nunca edite nem
-   apague a original. O campo que mais importa é *Alternativa recusada*: é o que impede alguém de
-   "consertar" a decisão daqui a um mês.
+   apague a original.
 
    Na dúvida, o teste é: "se alguém mexer nisso em três semanas sem saber o porquê, quebra algo
    ou repete um erro?" Se sim, registre.
@@ -72,5 +78,6 @@ escrever aqui é a primeira coisa que o próximo agente vai ler.
 - Não transformar `decisoes.md` em changelog. Lista de arquivos é trabalho do `git log`; ali vai
   só o raciocínio. Sessão sem bifurcação real não gera entrada, e está tudo bem.
 - Não reescrever entrada antiga de `decisoes.md`, nem para corrigir o português.
+- Não apresentar inferência como medição, nem omitir o método de uma medição.
 - Não reescrever `CLAUDE.md` por reflexo. Só se uma *regra permanente* mudou nesta sessão.
 - Não deixar o `estado.md` descrever o passado em detalhe. Ele aponta para frente.

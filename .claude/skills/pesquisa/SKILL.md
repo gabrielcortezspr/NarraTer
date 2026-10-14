@@ -20,7 +20,10 @@ fizemos assim?" e "o que o X faz?" sem refazer a pesquisa.
 - **Prefira a fonte primária**: o código-fonte, a instalação local, a saída da própria CLI. Clone
   repositórios externos no scratchpad, nunca dentro do repositório do NarraTer.
 - **Separe o que foi visto do que foi inferido.** Ler o código não é rodar o programa. Diga qual
-  dos dois você fez.
+  dos dois você fez. Use os mesmos rótulos de `docs/decisoes.md` nas afirmações que sustentam uma
+  conclusão: `[medido]`, `[observado]`, `[citado]`, `[inferido]`.
+- **Medições têm método.** Registre o comando exato, a versão/commit medida, a máquina e as
+  repetições, para que o número possa ser reproduzido. Número sem método é `[inferido]`.
 - **Cite caminhos e versões**: `src/main/runtime/orchestration/preamble.ts` na versão 1.4.214 vale
   mais que "o Orca faz assim". Projetos mudam; a citação permite conferir depois.
 - Compare sempre com o NarraTer apontando arquivos dos dois lados.
@@ -51,7 +54,7 @@ diga no texto o que mudou.
 ## Depois de pesquisar
 
 1. Se o arquivo é novo, adicione uma linha em `docs/README.md` (tabela de pesquisa).
-2. **Conclusões que mudam o rumo viram decisão** em `docs/decisoes.md` (formato da skill
+2. **Conclusões que mudam o rumo viram decisão, com a evidência do estudo** em `docs/decisoes.md` (formato da skill
    `encerrar`), com o estudo citado na linha de referência. A pesquisa explica; a decisão fixa.
 3. Itens de trabalho que saíram do estudo entram em `docs/backlog.md`, apontando para a seção do
    estudo.

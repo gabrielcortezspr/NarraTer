@@ -405,4 +405,37 @@ mod tests {
         // someone else's ask is refused
         assert!(s.wait("other", &ids, false, Duration::from_millis(5)).await.is_err());
     }
+
+    /// Bancada da D07: `cargo test --release asks_bench -- --ignored --nocapture`.
+    /// Pior caso: 2000 linhas (o limite antes de compactar) com respostas de 8 KB.
+    #[test]
+    #[ignore]
+    fn asks_bench() {
+        let path = temp_path("bench");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let screen = "x".repeat(8 * 1024);
+        let mut body = String::new();
+        for i in 0..2000 {
+            let mut r = rec(&format!("ask-{:06}", i), "me", true);
+            r.state = AskState::Done;
+            r.result = Some(screen.clone());
+            body.push_str(&serde_json::to_string(&r).unwrap());
+            body.push('\n');
+        }
+        std::fs::write(&path, &body).unwrap();
+        let t = std::time::Instant::now();
+        let s = AskStore::load(path.clone());
+        let load = t.elapsed();
+        let size_after = std::fs::metadata(&path).unwrap().len();
+        let t = std::time::Instant::now();
+        for i in 0..100 {
+            s.insert(rec(&format!("new-{}", i), "me", true));
+        }
+        let insert = t.elapsed() / 100;
+        println!(
+            "BENCH arquivo={:.1} MB load+compactação={:?} depois={:.1} MB ({} registros) insert={:?}/registro",
+            body.len() as f64 / 1e6, load, size_after as f64 / 1e6, KEEP, insert
+        );
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
 }

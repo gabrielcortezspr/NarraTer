@@ -52,6 +52,12 @@ frontend por `canvas_request`.
 **Regra que lê a tela de um agente se testa contra o programa real** com o `turn_probe`, não
 contra uma tela lembrada.
 
+**Toda decisão é justificada (D09).** O projeto precisa de margem para explicação científica.
+Decisão com alternativa real vai para `docs/decisoes.md` com as alternativas recusadas e por quê,
+evidência rotulada (`[medido]` com método reproduzível, `[observado]`, `[citado]`, `[inferido]`) e
+a condição que a derrubaria. Ao propor algo ao usuário, separe o que foi medido do que é
+suposição.
+
 ## Armadilhas conhecidas
 
 - O `invoke` do Tauri 2 espera argumentos em camelCase; `old_name` chega como `undefined` sem erro.
