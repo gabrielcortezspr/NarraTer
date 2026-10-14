@@ -46,6 +46,8 @@ concept to Linux.
   target's terminal when it's idle, and `ask` returns what the target's
   screen shows once its turn is over — the target needs no plugin, hook or
   special protocol, so Claude can ask Codex, Gemini can ask a shell, and so on.
+  `--no-wait` returns an ask id instead of blocking, and `narrater wait`
+  collects answers as they finish; asks survive an app restart.
   See [docs/narrater-cli.md](docs/narrater-cli.md).
 - **Maestro mode**: turn it on for an agent (crown in its header) and it can
   assemble a team by itself — `narrater recruit` spawns teammates next to it

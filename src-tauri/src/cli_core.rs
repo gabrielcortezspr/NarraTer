@@ -142,6 +142,14 @@ fn abs_path(env: &Env, p: &str) -> String {
     out.display().to_string()
 }
 
+fn insert_timeout(p: &mut Map<String, Value>, timeout: Option<String>) -> Result<(), String> {
+    if let Some(t) = timeout {
+        let secs: i64 = t.parse().map_err(|_| "Error: --timeout takes a number of seconds".to_string())?;
+        p.insert("timeout_secs".into(), secs.into());
+    }
+    Ok(())
+}
+
 struct Cli<'a, 'b> {
     env: &'a mut Env<'b>,
 }
@@ -178,6 +186,10 @@ impl Cli<'_, '_> {
         let batch = a.value("--batch")?;
         let raw = a.value("--raw")?;
         let timeout = a.value("--timeout")?;
+        let no_wait = a.flag("--no-wait");
+        if no_wait && raw.is_some() {
+            return Err("Error: --no-wait doesn't apply to --raw (it returns once the screen reacts)".into());
+        }
         let mut p;
         if let Some(batch) = batch {
             let targets: Value =
@@ -202,10 +214,30 @@ impl Cli<'_, '_> {
             p.insert("to".into(), a.get(0).into());
             p.insert("msg".into(), decode(&a.joined(1), false).into());
         }
-        if let Some(t) = timeout {
-            let secs: i64 = t.parse().map_err(|_| "Error: --timeout takes a number of seconds".to_string())?;
-            p.insert("timeout_secs".into(), secs.into());
+        if no_wait {
+            p.insert("no_wait".into(), true.into());
         }
+        insert_timeout(&mut p, timeout)?;
+        self.send(p)
+    }
+
+    /// `wait [ids…] [--all|--any] [--timeout S]`
+    fn wait(&self, mut a: Args) -> Parsed {
+        let timeout = a.value("--timeout")?;
+        let all = a.flag("--all");
+        let any = a.flag("--any");
+        if all && any {
+            return Err("Error: pick one of --all and --any".into());
+        }
+        if let Some(bad) = a.0.iter().find(|x| x.starts_with("--")) {
+            return Err(format!("Error: unknown flag {} — see `narrater help wait`", bad));
+        }
+        let mut p = self.base("wait");
+        p.insert("ids".into(), a.0.clone().into());
+        if all {
+            p.insert("all".into(), true.into());
+        }
+        insert_timeout(&mut p, timeout)?;
         self.send(p)
     }
 
@@ -611,6 +643,19 @@ pub fn parse(argv: &[String], env: &mut Env) -> Parsed {
     match cmd {
         "list" => cli.canvas("list", json!({})),
         "ask" => cli.ask(a),
+        "wait" => cli.wait(a),
+        "asks" => {
+            let mut a = a;
+            let all = a.flag("--all");
+            if a.len() != 0 {
+                return Err("Usage: narrater asks [--all]".into());
+            }
+            let mut p = cli.base("asks");
+            if all {
+                p.insert("all".into(), true.into());
+            }
+            cli.send(p)
+        }
         "check" => {
             if a.len() != 1 {
                 return Err(r#"Usage: narrater check "Agent""#.into());
@@ -693,6 +738,27 @@ mod tests {
     }
 
     #[test]
+    fn ask_no_wait_wait_and_asks() {
+        let v = request(&["ask", "Dev", "do", "it", "--no-wait", "--timeout", "60"]);
+        assert_eq!((v["mode"].as_str(), v["no_wait"].as_bool(), v["timeout_secs"].as_i64()), (Some("ask"), Some(true), Some(60)));
+        let v = request(&["ask", "--batch", r#"{"A": "x"}"#, "--no-wait"]);
+        assert_eq!((v["mode"].as_str(), v["no_wait"].as_bool()), (Some("batch"), Some(true)));
+        assert!(run(&["ask", "Dev", "--raw", "1", "--no-wait"]).unwrap_err().contains("--no-wait"));
+
+        let v = request(&["wait"]);
+        assert_eq!((v["mode"].as_str(), v["ids"].as_array().map(Vec::len), v.get("all")), (Some("wait"), Some(0), None));
+        let v = request(&["wait", "ask-a1", "ask-b2", "--all", "--timeout", "30"]);
+        assert_eq!(v["ids"], json!(["ask-a1", "ask-b2"]));
+        assert_eq!((v["all"].as_bool(), v["timeout_secs"].as_i64()), (Some(true), Some(30)));
+        assert!(run(&["wait", "--all", "--any"]).is_err());
+        assert!(run(&["wait", "--bogus"]).unwrap_err().contains("--bogus"));
+
+        assert_eq!(request(&["asks"])["mode"], "asks");
+        assert_eq!(request(&["asks", "--all"])["all"], true);
+        assert!(run(&["asks", "x"]).is_err());
+    }
+
+    #[test]
     fn builds_requests_with_identity() {
         let v = request(&["ask", "Dev", "do", "it\\n"]);
         assert_eq!(v["mode"], "ask");
@@ -726,7 +792,7 @@ mod tests {
 
     #[test]
     fn every_command_has_help() {
-        for t in ["ask", "check", "note", "list", "connect", "say", "recall", "portal", "recruit", "dismiss", "role",
+        for t in ["ask", "wait", "asks", "check", "note", "list", "connect", "say", "recall", "portal", "recruit", "dismiss", "role",
                   "preset", "notify", "workspace", "floor", "routine", "debug"] {
             assert!(help::topic(t).is_some(), "{}", t);
         }

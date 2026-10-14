@@ -173,6 +173,8 @@ pub struct PtyStateInner {
     pub maestros: HashSet<String>,
     /// Remote terminals still starting (connecting, setting up): asks wait
     pub booting: HashSet<String>,
+    /// Every ask with its outcome, persisted (`narrater wait`, `narrater asks`)
+    pub asks: Arc<crate::asks::AskStore>,
 }
 
 impl PtyStateInner {
@@ -197,7 +199,11 @@ pub struct PtyState(pub Arc<Mutex<PtyStateInner>>);
 
 impl Default for PtyState {
     fn default() -> Self {
-        PtyState(Arc::new(Mutex::new(PtyStateInner { links: crate::names::Links::load(), ..Default::default() })))
+        PtyState(Arc::new(Mutex::new(PtyStateInner {
+            links: crate::names::Links::load(),
+            asks: Arc::new(crate::asks::AskStore::load(crate::asks::default_path())),
+            ..Default::default()
+        })))
     }
 }
 

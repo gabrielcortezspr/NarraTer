@@ -59,4 +59,4 @@ Desktop notification. Only when the user asked to be notified; otherwise assume 
 3. **Define roles** — `narrater role list`, `narrater role create` for the gaps.
 4. **Recruit** each missing teammate with a distinctive codename and `--role`.
 5. **Optional** — `narrater connect` recruits that must collaborate without you in the middle.
-6. **Delegate** — `narrater ask "Name" "task…"`, or several at once with `narrater ask --batch '{"A": "task…", "B": "task…"}'` so independent work runs in parallel.
+6. **Delegate** — `narrater ask "Name" "task…"`, or several at once with `narrater ask --batch '{"A": "task…", "B": "task…"}' --no-wait` so independent work runs in parallel; then `narrater wait` once per teammate, handling each result as it arrives (review it, give follow-up work, or dispatch the next task) instead of blocking until the slowest is done.
