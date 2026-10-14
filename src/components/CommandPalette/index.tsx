@@ -131,7 +131,7 @@ export default function CommandPalette({ open, onClose, onNewTerminal }: Props) 
             }}
             placeholder="Search agents, nodes or actions…"
             aria-label="Search agents, nodes or actions"
-            className="flex-1 bg-transparent text-xs text-ink outline-none placeholder-[#555]"
+            className="flex-1 bg-transparent text-xs text-ink outline-none placeholder-ink-faint"
           />
           <Kbd>Esc</Kbd>
         </div>

@@ -5,31 +5,33 @@ Máximo de ~30 linhas: se passar disso, algo aqui deveria estar num commit ou nu
 
 ## Última sessão
 
-2026-10-14, Gabriel com Claude Code, branch `ccr-03e0166a-1f50u2`. Leitor de estado: estudo do
-CAO (AWS) e do Orca, avaliador com oráculo e três correções medidas (D10–D12).
+2026-10-14, Gabriel com Claude Code, branch `ccr-03e0166a-1f50u2`. Estudo visual e perfil de design
+"Palco" (D13–D16), com o primeiro passo do rework visual (etapa V: V1–V3).
 
 ## Onde parou
 
-Leitor medido com `turn_eval`: shell no tmux 0/20 prematuros (antes 6/6); Claude 2.1.299 com
-latência 466–670 ms (antes 1,3–2,1 s) e permissão detectada (antes nunca). Transcrições reais em
-`src-tauri/tests/transcripts/` viram teste. Verificado: `cargo test` (82 + 6 + 1), `tsc`, app real.
+Tokens novos em `src/index.css`/`tailwind.config.js`; 440 classes com hex trocadas por tokens;
+terminal, arestas, palco, toolbar, barra lateral e demais tiles redesenhados. Verificado: `tsc`,
+`cargo test`, app real sob Xvfb (capturas em `docs/pesquisa/img/`). Leitor de estado e asks
+(D07–D12) seguem como estavam.
 
 ## Próximo passo
 
-Etapa O3 (mensagens tipadas opcionais), começando pelo ask-back em `run_ask`
-(`src-tauri/src/ipc.rs`); ou, se houver Codex/Gemini instalados, gravar transcrições deles com
-`turn_eval` e conferir os glifos de título citados do Orca (`screen.rs`, `title_signal`).
+V4 (uso dos agentes): ler a porcentagem do Claude (rota a decidir: endpoint OAuth ou statusline,
+`docs/pesquisa/visual.md` §5) e mostrar no tile; depois revisar chat, composer, role manager e
+paleta pelo `docs/design.md`.
 
 ## Decisões pendentes
 
-- Quando chegarem os dois sinais (tela ociosa e `narrater done`), qual vale para encerrar o ask.
+- Rota do uso do Claude: endpoint OAuth (sem configurar nada, pode dar 429) ou statusline (sem
+  custo, mexe na statusline do usuário).
+- O3: quando a tela ociosa e o `narrater done` chegarem juntos, qual vale.
 
 ## Lembrar
 
-- A piscada de 0,6 s do Claude no diálogo de permissão apareceu em 3 execuções e sumiu em 11;
-  causa não identificada (`pesquisa/leitor-de-estado.md` §5.1).
-- Claude recém-instalado mostra onboarding, que o leitor vê como ocioso (backlog E).
-- `turn_eval --claude` precisa de `claude` logado; ele marca o onboarding como feito em `~/.claude.json`.
-- Não usar `pkill -f` com um padrão que aparece na própria linha de comando: mata o shell que roda.
-- Teste no app real: `apt install libwebkit2gtk-4.1-dev xvfb tmux`, cena em
-  `~/.config/narrater/scenes/default.json`, `xvfb-run -a npx tauri dev`, identidade em `/proc/<pid>/environ`.
+- No modo dev, o recarregamento a quente do front (Vite) deixa os nomes fora do backend: `ask`
+  responde "no agent named"; reiniciar o app resolve.
+- No boot com tmux, a resposta DA do terminal às vezes aparece no prompt (backlog V).
+- Teste no app real: `xvfb-run -a npx tauri dev` (ou `Xvfb :77` + `DISPLAY=:77`), captura com
+  `import -window root`; identidade de um terminal em `/proc/<pid>/environ` do cliente tmux.
+- Não usar `pkill -f` com padrão que aparece na própria linha de comando.

@@ -56,6 +56,10 @@ frontend por `canvas_request`.
 acrescente a transcrição em `src-tauri/tests/transcripts/`, que o teste `turn_transcripts`
 reproduz. Nunca escreva a regra contra uma tela lembrada.
 
+**A interface segue `docs/design.md` (D13).** Cores só pelos tokens de `src/index.css` (classes
+`bg-surface`, `text-ink-muted`, `bg-accent/15`…), nunca hex nos componentes; cor é estado, não
+decoração; texto com informação ≥ 4,5:1 de contraste.
+
 **Toda decisão é justificada (D09).** O projeto precisa de margem para explicação científica.
 Decisão com alternativa real vai para `docs/decisoes.md` com as alternativas recusadas e por quê,
 evidência rotulada (`[medido]` com método reproduzível, `[observado]`, `[citado]`, `[inferido]`) e

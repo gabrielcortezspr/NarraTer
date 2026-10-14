@@ -34,6 +34,7 @@ Cada entrada tem seis campos:
 | CLI e distribuição | D03 |
 | Escopo do produto | D04, D05 |
 | Processo | D09 |
+| Design | D13, D14, D15, D16 |
 
 ---
 
@@ -412,3 +413,113 @@ teste de integração as reproduz exigindo: não prematuro, latência ≤ 1 s e 
 
 **Revisar se:** o oráculo de alguma CLI não existir (sem hooks); aí a referência terá de ser
 rotulada à mão, e o método precisa dizer isso.
+
+## D13 · Perfil de design "Palco": moldura neutra, cor só para estado
+
+`2026-10-14` · design · perfil em [`design.md`](design.md) · estudo em [`pesquisa/visual.md`](pesquisa/visual.md)
+
+**Contexto.** O front era percebido como duro. O violeta saturado aparecia em logo, seleção,
+arestas, rótulos, atalhos e minimapa; os níveis de fundo quase não se distinguiam; o texto
+apagado não passava no contraste mínimo. Orca e Maestri, que o usuário usou como referência,
+seguem a HIG da Apple.
+
+**Decisão.** Um perfil com metáfora própria ("o canvas é um palco, os terminais são personagens,
+as arestas são falas") e seis regras: a moldura recua; cor é estado; profundidade por luz (base →
+elevado → flutuante); vidro só na camada de controle; movimento só quando algo acontece;
+legibilidade primeiro. Tokens únicos em `src/index.css`, nunca hex nos componentes.
+
+**Alternativas consideradas.**
+- *Copiar o Orca*: monocromático puro funciona para uma IDE de abas, mas o NarraTer é um grafo; sem
+  nenhuma cor o usuário perde a leitura de quem está trabalhando à distância.
+- *Manter o visual e só ajustar valores*: a cor como decoração era o problema de fundo, não o tom.
+- *Imitar o Liquid Glass em tudo*: a própria HIG proíbe na camada de conteúdo ("Don’t use Liquid
+  Glass in the content layer").
+
+**Evidência.**
+- `[citado]` HIG (dark-mode, materials, color, typography) e `docs/STYLEGUIDE.md` do Orca.
+- `[medido]` contraste WCAG (script em Python, sRGB): texto apagado antigo `#6b7280` 3,52:1 e
+  `#555` 2,28:1 sobre o tile; tokens novos `--text-3` 5,22:1 e `--text-2` ≥ 6:1.
+- `[medido]` cores fixas nos componentes: 440 classes com hex trocadas por tokens; restam só
+  paletas que são dados (cores que o usuário escolhe).
+- `[observado]` capturas antes/depois em `docs/pesquisa/img/`.
+- `[inferido]` "mais bonito e intuitivo" não foi medido com usuários.
+
+**Consequência.** Componentes novos precisam seguir `docs/design.md`. Não há modo claro ainda (a
+HIG recomenda os dois).
+
+**Revisar se:** usuários não distinguirem estados à distância, ou se o modo claro for pedido
+(os tokens já estão em um lugar só para isso).
+
+## D14 · O acento é um violeta contido (#8f7cff), não monocromático
+
+`2026-10-14` · design · `--accent` em `src/index.css`
+
+**Contexto.** O violeta era a identidade do NarraTer, mas usado em tudo.
+
+**Decisão.** Manter um violeta como "o narrador", mais claro e menos saturado (`#8f7cff`, e
+`#b0a4ff` quando é texto), restrito a seleção, foco, agente trabalhando e fala atravessando.
+
+**Alternativas consideradas.**
+- *Monocromático (Orca)*: perde a identidade e o sinal de "trabalhando" no grafo.
+- *Manter `#8b5cf6`*: como texto sobre o popover dá 4,3:1, abaixo do mínimo; o novo dá 6,4:1
+  (`--accent-text`).
+- *Azul do sistema da Apple*: confundiria com links e com a identidade do Gemini.
+
+**Evidência.**
+- `[medido]` `#8f7cff` sobre o palco 6,08:1; `#b0a4ff` 8,99:1 (palco) e 6,37:1 (popover).
+- `[observado]` captura ativa: os agentes trabalhando ficam visíveis à distância.
+
+**Consequência.** O violeta deixa de marcar papéis, atalhos e arestas em repouso.
+
+**Revisar se:** o violeta confundir com a cor de identidade de algum agente novo.
+
+## D15 · A fonte da interface continua Inter
+
+`2026-10-14` · design · `tailwind.config.js`, `src/index.css`
+
+**Contexto.** A HIG usa SF Pro e o Orca usa Geist.
+
+**Decisão.** Manter Inter Variable (já embarcada), com corpo de 13 px e tracking levemente
+negativo, e JetBrains Mono no terminal.
+
+**Alternativas consideradas.**
+- *SF Pro*: `[inferido]` a licença da Apple restringe o uso às plataformas Apple; não foi
+  verificada aqui, e por isso não entra.
+- *Geist*: dependência nova sem ganho claro sobre a Inter.
+- *Fonte do sistema*: no Linux varia entre distribuições (Cantarell, Ubuntu, DejaVu), quebrando a
+  consistência.
+
+**Evidência.** `[citado]` HIG typography (macOS: corpo 13 pt, mínimo 10 pt); `[inferido]` a Inter
+tem métricas próximas da SF Pro.
+
+**Consequência.** Nenhuma dependência nova.
+
+**Revisar se:** surgir uma fonte com licença livre mais próxima da SF Pro, ou se a Inter não
+renderizar bem no WebKitGTK em alguma distribuição.
+
+## D16 · No grafo, arestas em repouso não têm rótulo; o movimento conta o que acontece
+
+`2026-10-14` · design · `src/components/AgentPipeEdge`, `AgentNoteEdge`, `src/index.css`
+
+**Contexto.** Cada aresta tinha um rótulo fixo ("agent pipe", "agent→note"), brilho e tracejado
+violeta sempre ligados.
+
+**Decisão.** Aresta agente ↔ agente: curva fina neutra em repouso; acende com fluxo lento quando
+um lado trabalha; um cometa de luz atravessa quando uma mensagem passa; chip amarelo com o número
+da fila; no hover, "A ↔ B". Aresta agente → nota: tracejado discreto, sem animação. Alças de
+conexão só aparecem no hover do nó.
+
+**Alternativas consideradas.**
+- *Rótulo sempre visível (antes)*: com muitas arestas vira ruído e esconde o que mudou.
+- *Cor de identidade nas arestas*: misturaria identidade com estado (D13).
+- *Seta indicando direção*: as conexões são não direcionadas (aresta é permissão para os dois
+  lados).
+
+**Evidência.**
+- `[observado]` captura ativa: fila e trabalho legíveis sem rótulo fixo.
+- `[inferido]` a descoberta da conversa por hover/clique não foi testada com usuários.
+
+**Consequência.** O histórico da aresta continua no clique; o cometa depende do ledger em memória
+(o mesmo da etapa O).
+
+**Revisar se:** usuários não perceberem que a aresta é clicável, ou não encontrarem as alças.

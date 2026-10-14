@@ -9,7 +9,8 @@ import type { Node, NodeProps } from "@xyflow/react";
 
 type AttachmentNode = Node<AttachmentNodeData, "attachment">;
 
-const ACCENT = "#f472b6";
+// Identity of this node kind: icon and top thread only (docs/design.md)
+const ACCENT = "#ff7eb6";
 const IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp"]);
 
 function isImage(path: string): boolean {
@@ -49,37 +50,32 @@ function AttachmentTile({ id, data, selected }: NodeProps<AttachmentNode>) {
 
   return (
     <div
-      className="flex flex-col w-full h-full rounded-xl overflow-hidden"
-      style={{
-        background: "#1d1219",
-        boxShadow: selected
-          ? `0 0 0 1px ${ACCENT}, 0 8px 32px rgba(0,0,0,0.5)`
-          : "0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(244,114,182,0.15)",
-        transition: "box-shadow 0.15s ease",
-      }}
+      className="flex flex-col w-full h-full rounded-xl overflow-hidden bg-surface border border-line transition-shadow duration-150"
+      style={{ boxShadow: selected ? "var(--ring-accent), var(--shadow-tile)" : "var(--shadow-tile)" }}
     >
+      <div className="h-px shrink-0 opacity-80" style={{ background: `linear-gradient(90deg, transparent 4%, ${ACCENT} 50%, transparent 96%)` }} />
       <NodeResizer
         minWidth={160}
         minHeight={120}
         isVisible={selected}
-        lineStyle={{ borderColor: ACCENT }}
-        handleStyle={{ borderColor: ACCENT, background: "#1d1219" }}
+        lineStyle={{ borderColor: "transparent" }}
+        handleStyle={{ width: 8, height: 8, borderRadius: 2, border: "1.5px solid var(--accent)", background: "var(--surface)" }}
       />
 
       {/* Header */}
       <div
         className="flex items-center gap-2 px-3 py-2 shrink-0 cursor-grab select-none"
-        style={{ background: "#241521", borderBottom: "1px solid #2e1a29" }}
+        
       >
         <Paperclip size={12} style={{ color: ACCENT }} className="shrink-0" />
         <span className="text-[11px] truncate flex-1" style={{ color: ACCENT }} title={data.path}>
           {data.fileName}
         </span>
-        {size !== null && <span className="text-[9px] text-[#775] shrink-0">{formatSize(size)}</span>}
+        {size !== null && <span className="text-[9px] text-ink-2 shrink-0">{formatSize(size)}</span>}
         <button
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); removeNode(id); }}
-          className="text-[#666] hover:text-[#f87171] transition-colors p-0.5 rounded nodrag"
+          className="text-ink-muted hover:text-danger-text transition-colors p-0.5 rounded nodrag"
         >
           <X size={12} />
         </button>
@@ -94,18 +90,18 @@ function AttachmentTile({ id, data, selected }: NodeProps<AttachmentNode>) {
           <img src={imageSrc} alt={data.fileName} className="max-w-full max-h-full object-contain" draggable={false} />
         ) : (
           <div className="flex flex-col items-center gap-2 p-3 text-center">
-            <FileText size={28} className="text-[#556]" />
-            <span className="text-[11px] text-[#889] break-all">{data.fileName}</span>
-            {error && <span className="text-[10px] text-[#f87171] break-all">{error}</span>}
+            <FileText size={28} className="text-ink-muted" />
+            <span className="text-[11px] text-ink-2 break-all">{data.fileName}</span>
+            {error && <span className="text-[10px] text-danger-text break-all">{error}</span>}
             <div className="relative">
               <button
                 onClick={() => setEditorMenu((v) => !v)}
-                className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-[#2e1a29] text-[#aab] hover:text-white hover:border-[#f472b660] transition-colors"
+                className="flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-line text-ink-2 hover:text-ink hover:border-line-strong transition-colors"
               >
                 <ExternalLink size={10} /> Open in editor
               </button>
               {editorMenu && (
-                <div className="absolute left-1/2 -translate-x-1/2 top-7 z-20 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl py-1 min-w-[100px]">
+                <div className="absolute left-1/2 -translate-x-1/2 top-7 z-20 bg-raised border border-line rounded-lg shadow-xl py-1 min-w-[100px]">
                   {EDITORS.map((ed) => (
                     <button
                       key={ed.cmd}
@@ -113,7 +109,7 @@ function AttachmentTile({ id, data, selected }: NodeProps<AttachmentNode>) {
                         openInEditor(ed.cmd, data.path).catch(console.error);
                         setEditorMenu(false);
                       }}
-                      className="block w-full text-left px-3 py-1 text-[11px] text-[#ccc] hover:bg-[#2a2a2a] hover:text-white"
+                      className="block w-full text-left px-3 py-1 text-[11px] text-ink hover:bg-hover hover:text-ink"
                     >
                       {ed.label}
                     </button>
@@ -125,8 +121,8 @@ function AttachmentTile({ id, data, selected }: NodeProps<AttachmentNode>) {
         )}
       </div>
 
-      <Handle type="target" position={Position.Left} style={{ background: ACCENT, border: "none", width: 8, height: 8 }} />
-      <Handle type="source" position={Position.Right} style={{ background: ACCENT, border: "none", width: 8, height: 8 }} />
+      <Handle type="target" position={Position.Left} className="narrater-handle" />
+      <Handle type="source" position={Position.Right} className="narrater-handle" />
     </div>
   );
 }

@@ -16,7 +16,7 @@ import type { AppNode, TerminalNodeData } from "@/stores/canvas";
 // only work from a terminal in Maestro mode — the user opts in per terminal.
 
 const RECRUIT_SIZE = { width: 520, height: 360 };
-const ROLE_COLORS = ["#8b5cf6", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#ec4899", "#14b8a6", "#a3e635"];
+const ROLE_COLORS = ["#8f7cff", "#0a84ff", "#30d158", "#ffd60a", "#ff453a", "#ff7eb6", "#64d2ff", "#ff9f0a"];
 
 const NOT_MAESTRO =
   "Error: this terminal is not the Maestro — the user must turn on Maestro mode on your terminal " +

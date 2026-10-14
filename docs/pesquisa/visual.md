@@ -103,3 +103,13 @@ Claude Code com chave de API (sem janelas de assinatura) e não tem Codex nem Ge
 
 Modelo de dados comum do Orca (`shared/rate-limit-types.ts`): por janela, `usedPercent`,
 `windowMinutes` (300 ou 10080), `resetsAt` e uma descrição do reset.
+
+## 6. Resultado do primeiro passo (2026-10-14)
+
+`[observado]` Capturas sob Xvfb, mesma cena de três shells:
+
+- antes: `img/narrater-antes.png`;
+- depois, em repouso: `img/narrater-depois.png`;
+- depois, com dois agentes trabalhando e uma mensagem na fila: `img/narrater-depois-ativo.png`.
+
+O perfil está em [`../design.md`](../design.md); as decisões em D13–D16.

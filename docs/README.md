@@ -17,6 +17,7 @@ Leia X quando Y. Cada fato mora num lugar só; regras permanentes estão no
 | [`estado.md`](estado.md) | Vai começar a trabalhar: onde parou e o próximo passo |
 | [`backlog.md`](backlog.md) | Quer saber o que vem depois e o plano de cada etapa |
 | [`decisoes.md`](decisoes.md) | Vai mudar algo e quer saber por que está assim |
+| [`design.md`](design.md) | Vai mexer na interface: perfil "Palco", tokens, grafo, tiles e moldura |
 
 ## Pesquisa
 

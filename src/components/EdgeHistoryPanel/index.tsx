@@ -10,9 +10,9 @@ import { useCanvasStore } from "@/stores/canvas";
 // message for the pair (lastActivity), with scroll pinned to the end like a chat.
 
 const KIND_STYLE: Record<string, { color: string; label: string }> = {
-  ask: { color: "#60a5fa", label: "ask" },
-  reply: { color: "#4ade80", label: "reply" },
-  raw: { color: "#fbbf24", label: "raw" },
+  ask: { color: "var(--info)", label: "ask" },
+  reply: { color: "var(--ok)", label: "reply" },
+  raw: { color: "var(--queue)", label: "raw" },
 };
 
 function timeOf(ts: number): string {
@@ -45,17 +45,17 @@ export default function EdgeHistoryPanel() {
   };
 
   return (
-    <div className="absolute top-0 right-0 h-full w-[340px] z-40 flex flex-col bg-[#141414] border-l border-[#2a2a2a] shadow-2xl">
+    <div className="absolute top-0 right-0 h-full w-[340px] z-40 flex flex-col bg-surface border-l border-line shadow-2xl">
       {/* Header */}
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[#2a2a2a] shrink-0">
-        <MessagesSquare size={13} className="text-[#8b5cf6] shrink-0" />
-        <span className="text-xs text-[#ccc] font-medium truncate flex-1">
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-line shrink-0">
+        <MessagesSquare size={13} className="text-accent-text shrink-0" />
+        <span className="text-xs text-ink font-medium truncate flex-1">
           {labelFor(openEdge.source)} ⇄ {labelFor(openEdge.target)}
         </span>
-        <span className="text-[9px] text-[#555] shrink-0">{entries.length} msg</span>
+        <span className="text-[9px] text-ink-muted shrink-0">{entries.length} msg</span>
         <button
           onClick={() => setOpenEdge(null)}
-          className="text-[#555] hover:text-[#f87171] transition-colors p-0.5 rounded hover:bg-[#2a2a2a] shrink-0"
+          className="text-ink-muted hover:text-danger-text transition-colors p-0.5 rounded hover:bg-hover shrink-0"
           title="Close history"
         >
           <X size={13} />
@@ -65,7 +65,7 @@ export default function EdgeHistoryPanel() {
       {/* Messages */}
       <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-2 space-y-2">
         {entries.length === 0 && (
-          <div className="text-[10px] text-[#555] text-center pt-8">
+          <div className="text-[10px] text-ink-muted text-center pt-8">
             No messages between these agents yet.
             <br />
             (the history records asks, their replies and raw input)
@@ -74,19 +74,19 @@ export default function EdgeHistoryPanel() {
         {entries.map((e, i) => {
           const kind = KIND_STYLE[e.kind] ?? KIND_STYLE.ask;
           return (
-            <div key={`${e.ts}-${i}`} className="rounded-lg bg-[#1a1a1a] border border-[#242424] px-2.5 py-1.5">
+            <div key={`${e.ts}-${i}`} className="rounded-lg bg-surface border border-line px-2.5 py-1.5">
               <div className="flex items-center gap-1.5 mb-0.5">
-                <span className="text-[10px] font-medium text-[#ddd] truncate">{e.from_label}</span>
-                <span className="text-[9px] text-[#555]">→ {e.to_label}</span>
+                <span className="text-[10px] font-medium text-ink truncate">{e.from_label}</span>
+                <span className="text-[9px] text-ink-muted">→ {e.to_label}</span>
                 <span
                   className="text-[8px] font-medium px-1 py-px rounded-full shrink-0"
-                  style={{ color: kind.color, background: `${kind.color}18`, border: `1px solid ${kind.color}30` }}
+                  style={{ color: kind.color, background: `color-mix(in srgb, ${kind.color} 12%, transparent)`, border: `1px solid color-mix(in srgb, ${kind.color} 24%, transparent)` }}
                 >
                   {kind.label}
                 </span>
-                <span className="text-[8px] text-[#444] ml-auto shrink-0">{timeOf(e.ts)}</span>
+                <span className="text-[8px] text-ink-faint ml-auto shrink-0">{timeOf(e.ts)}</span>
               </div>
-              <div className="text-[10px] text-[#aaa] whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
+              <div className="text-[10px] text-ink-2 whitespace-pre-wrap break-words max-h-32 overflow-y-auto">
                 {e.msg}
               </div>
             </div>

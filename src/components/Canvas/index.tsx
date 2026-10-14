@@ -223,7 +223,7 @@ function CanvasInner() {
         targetHandle: connection.targetHandle ?? undefined,
         type: edgeType,
         animated: edgeType === "default",
-        style: edgeType === "default" ? { stroke: "#4a4a4a", strokeWidth: 1.5 } : undefined,
+        style: edgeType === "default" ? { stroke: "rgb(var(--text-rgb) / 0.2)", strokeWidth: 1.5 } : undefined,
       };
 
       // Store is the source of truth: it mirrors the route to the backend
@@ -350,19 +350,22 @@ function CanvasInner() {
         className="bg-canvas-bg"
         proOptions={{ hideAttribution: true }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={24} size={1} color="#222" />
+        {/* The stage: faint dots, 6% white */}
+        <Background variant={BackgroundVariant.Dots} gap={24} size={1.2} color="rgb(255 255 255 / 0.07)" />
         <Controls showInteractive={false} style={{ left: 16, bottom: 16 }} />
+        {/* Minimap: nodes as quiet shapes; agents keep a hint of their identity */}
         <MiniMap
-          nodeColor={(node) => {
-            if (node.type === "note") return "#fbbf2440";
-            if (node.type === "text") return "#e5e7eb30";
-            if (node.type === "filetree") return "#60a5fa40";
-            if (node.type === "attachment") return "#f472b640";
-            if (node.type === "portal") return "#22d3ee40";
-            return `${presetOf((node.data as { agentType?: string })?.agentType).color}50`;
-          }}
-          maskColor="rgba(0,0,0,0.6)"
-          style={{ right: 16, bottom: 16 }}
+          nodeColor={(node) =>
+            node.type === "terminal" || !node.type
+              ? `color-mix(in srgb, ${presetOf((node.data as { agentType?: string })?.agentType).color} 28%, rgb(44 44 46))`
+              : "rgb(44 44 46)"
+          }
+          nodeBorderRadius={6}
+          nodeStrokeWidth={0}
+          maskColor="rgb(0 0 0 / 0.45)"
+          pannable
+          zoomable
+          style={{ right: 16, bottom: 16, width: 180, height: 120 }}
         />
 
         {/* Sketch layer — inside ReactFlow context so useViewport() works */}
@@ -386,7 +389,7 @@ function CanvasInner() {
 
       {drawMode && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
-          <div className="bg-[#1a1a1a] border border-[#8b5cf640] text-[#8b5cf6] text-xs px-3 py-1.5 rounded-full">
+          <div className="bg-surface border border-accent/25 text-accent-text text-xs px-3 py-1.5 rounded-full">
             Draw mode active — Esc to exit
           </div>
         </div>
@@ -394,7 +397,7 @@ function CanvasInner() {
 
       {placementMode && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-30 pointer-events-none">
-          <div className="bg-[#1a1a1a] border border-[#8b5cf640] text-[#8b5cf6] text-xs px-3 py-1.5 rounded-full">
+          <div className="bg-surface border border-accent/25 text-accent-text text-xs px-3 py-1.5 rounded-full">
             Click the canvas to place — Shift keeps the tool, Esc cancels
           </div>
         </div>

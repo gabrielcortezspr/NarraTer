@@ -90,8 +90,11 @@ Sempre opcional.
 
 Origem: [`pesquisa/visual.md`](pesquisa/visual.md).
 
-> Não iniciada. Estudo feito em 2026-10-14; aguardando as escolhas do usuário (acento, fonte, rota
-> de uso do Claude) antes de mudar código.
+> Em andamento. 2026-10-14: perfil "Palco" definido em [`design.md`](design.md) (D13–D16); V1
+> (tokens), V2 (tiles e arestas) e V3 (moldura em vidro, atalhos fora da barra lateral) aplicados;
+> capturas antes/depois em `pesquisa/img/`. Falta: V4 (uso), modo claro, revisar painéis
+> secundários (chat, composer, role manager, paleta) peça por peça. Achado: no boot com tmux, a
+> resposta do terminal à consulta DA (`1;2c0;276;0c`) às vezes aparece digitada no prompt.
 
 **V1 · Tokens.** Refazer `src/index.css` em pares superfície/texto, com níveis base × elevado
 (canvas, painel, tile, popover), bordas em branco translúcido, texto em quatro níveis e o acento

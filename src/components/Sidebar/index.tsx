@@ -13,6 +13,7 @@ import { useCanvasStore } from "@/stores/canvas";
 import { switchWorkspace as switchTo } from "@/lib/workspaceNav";
 import { useRolesStore } from "@/stores/roles";
 import RoutinesPanel from "@/components/RoutinesPanel";
+import Kbd from "@/components/ui/Kbd";
 const RoleManager = lazy(() => import("@/components/RoleManager"));
 
 interface ContextMenu {
@@ -110,21 +111,20 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
     <motion.aside
       animate={{ width: collapsed ? 48 : 220 }}
       transition={{ duration: 0.2, ease: "easeInOut" }}
-      className="flex flex-col shrink-0 overflow-hidden border-r border-[#1f1f1f]"
-      style={{ background: "#111" }}
+      className="glass flex flex-col shrink-0 overflow-hidden border-r border-line"
     >
       {/* Header */}
-      <div className="flex items-center h-10 px-2 shrink-0 border-b border-[#1f1f1f]">
+      <div className="flex items-center h-11 px-2 shrink-0">
         {!collapsed && (
-          <span className="flex-1 text-[13px] font-semibold tracking-tight px-1 select-none">
-            <span className="text-[#888]">Narra</span>
-            <span className="text-accent">Ter</span>
+          <span className="flex-1 text-[14px] font-semibold tracking-[-0.01em] px-1.5 select-none">
+            <span className="text-ink">Narra</span>
+            <span className="text-accent-text">Ter</span>
           </span>
         )}
         <button
           onClick={onToggle}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="ml-auto p-1.5 rounded hover:bg-[#1f1f1f] text-[#555] hover:text-[#888] transition-colors"
+          className="ml-auto p-1.5 rounded-md hover:bg-hover text-ink-muted hover:text-ink transition-colors"
         >
           {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
         </button>
@@ -137,7 +137,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
             onClick={onToggle}
             title="Scenes"
             aria-label="Scenes"
-            className="p-2 rounded hover:bg-[#1f1f1f] text-[#555] hover:text-accent transition-colors"
+            className="p-2 rounded hover:bg-hover text-ink-muted hover:text-accent transition-colors"
           >
             <BookOpen size={14} />
           </button>
@@ -145,7 +145,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
             onClick={() => setRoleManagerOpen(true)}
             title="Roles"
             aria-label="Roles"
-            className="p-2 rounded hover:bg-[#1f1f1f] text-[#555] hover:text-accent transition-colors"
+            className="p-2 rounded hover:bg-hover text-ink-muted hover:text-accent transition-colors"
           >
             <Users size={14} />
           </button>
@@ -157,12 +157,14 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
           {/* Scenes section */}
           <div className="px-3 pt-3 pb-1">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] text-[#555] font-medium uppercase tracking-wider flex items-center gap-1">
-                <BookOpen size={10} /> Scenes
+              <span className="text-2xs text-ink-muted font-semibold uppercase tracking-[0.06em] px-1 select-none">
+                Scenes
               </span>
               <button
                 onClick={() => setCreating(true)}
-                className="p-0.5 rounded text-[#555] hover:text-[#8b5cf6] hover:bg-[#1a1a1a] transition-colors"
+                title="New scene"
+                aria-label="New scene"
+                className="p-1 rounded-md text-ink-muted hover:text-ink hover:bg-hover transition-colors"
               >
                 <Plus size={12} />
               </button>
@@ -199,8 +201,8 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
                 );
                 const folderBlock = (f: string, group: string | null) => (
                   <div key={`f-${group}-${f}`} className="mt-1">
-                    <div className="flex items-center gap-1 px-2 py-0.5 text-[10px] text-[#555] select-none">
-                      <Folder size={10} /> {f}
+                    <div className="flex items-center gap-1.5 px-2 py-1 text-[12px] text-ink-muted select-none">
+                      <Folder size={12} /> {f}
                     </div>
                     <div className="pl-3">{at(group, f).map(renderItem)}</div>
                   </div>
@@ -211,7 +213,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
                     {layout.folders.filter((f) => !f.group).map((f) => folderBlock(f.name, null))}
                     {layout.groups.map((g) => (
                       <div key={`g-${g}`} className="mt-2">
-                        <div className="px-2 py-0.5 text-[9px] text-[#444] uppercase tracking-wider select-none">{g}</div>
+                        <div className="px-2 pt-1 pb-0.5 text-2xs font-semibold text-ink-muted uppercase tracking-[0.06em] select-none">{g}</div>
                         {layout.folders.filter((f) => f.group === g).map((f) => folderBlock(f.name, g))}
                         {at(g, null).map(renderItem)}
                       </div>
@@ -238,13 +240,13 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
                         if (e.key === "Escape") { setCreating(false); setNewName(""); }
                       }}
                       placeholder="name..."
-                      className="flex-1 bg-[#1a1a1a] border border-[#333] text-white text-xs rounded px-2 py-1
-                        focus:outline-none focus:border-[#8b5cf6]"
+                      className="flex-1 bg-surface-2 border border-line text-ink text-[12px] rounded-md px-2 py-1
+                        focus:outline-none focus:border-accent/60"
                     />
-                    <button onClick={handleCreate} className="text-[#4ade80] hover:text-white transition-colors">
+                    <button onClick={handleCreate} className="text-ok hover:text-ink transition-colors">
                       <Check size={12} />
                     </button>
-                    <button onClick={() => { setCreating(false); setNewName(""); }} className="text-[#555] hover:text-white transition-colors">
+                    <button onClick={() => { setCreating(false); setNewName(""); }} className="text-ink-muted hover:text-ink transition-colors">
                       <X size={12} />
                     </button>
                   </motion.div>
@@ -254,26 +256,27 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
           </div>
 
           {/* Roles section */}
-          <div className="px-3 pt-3 pb-1 border-t border-[#1a1a1a]">
+          <div className="px-3 pt-4 pb-1">
             <button
               onClick={() => setRoleManagerOpen(true)}
-              className="flex items-center justify-between w-full group"
+              className="flex items-center justify-between w-full group px-1"
             >
-              <span className="text-[10px] text-[#555] font-medium uppercase tracking-wider flex items-center gap-1 group-hover:text-[#888] transition-colors">
-                <Users size={10} /> Roles
+              <span className="text-2xs text-ink-muted font-semibold uppercase tracking-[0.06em] group-hover:text-ink-2 transition-colors">
+                Roles
               </span>
-              <span className="text-[10px] text-[#333] group-hover:text-[#555] transition-colors">{roles.length}</span>
+              <span className="text-2xs tabular-nums text-ink-muted group-hover:text-ink-2 transition-colors">{roles.length}</span>
             </button>
             {roles.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-1.5">
-                {roles.slice(0, 4).map((r) => (
-                  <span
+              <div className="flex flex-wrap gap-1 mt-2">
+                {roles.slice(0, 6).map((r) => (
+                  <button
                     key={r.id}
-                    className="text-[9px] px-1.5 py-0.5 rounded-full"
-                    style={{ color: r.color, background: `${r.color}18`, border: `1px solid ${r.color}30` }}
+                    onClick={() => setRoleManagerOpen(true)}
+                    className="flex items-center gap-1.5 h-[22px] px-2 rounded-full bg-hover hover:bg-press text-2xs text-ink-2 hover:text-ink transition-colors"
                   >
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: r.color }} />
                     {r.name}
-                  </span>
+                  </button>
                 ))}
               </div>
             )}
@@ -284,32 +287,17 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
           {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Keyboard shortcuts */}
-          <div className="px-3 pb-3 border-t border-[#1a1a1a] pt-3">
-            <div className="flex items-center gap-1 mb-2">
-              <Keyboard size={10} className="text-[#555]" />
-              <span className="text-[10px] text-[#555] uppercase tracking-wider font-medium">Shortcuts</span>
+          {/* Shortcuts live in the palette; one quiet hint here */}
+          <div className="px-3 pb-3 pt-2">
+            <div className="flex items-center justify-between px-1 text-2xs text-ink-muted select-none">
+              <span className="flex items-center gap-1.5">
+                <Keyboard size={12} /> Shortcuts
+              </span>
+              <span className="flex items-center gap-1">
+                <Kbd>Ctrl</Kbd>
+                <Kbd>Space</Kbd>
+              </span>
             </div>
-            {[
-              ["V", "Select"],
-              ["T", "Terminal"],
-              ["N", "Note"],
-              ["X", "Text"],
-              ["F", "Files"],
-              ["A", "Attachment"],
-              ["W", "Portal"],
-              ["D", "Draw"],
-              ["Ctrl+S", "Save"],
-              ["Delete", "Remove"],
-              ["Ctrl+Shift+P", "Prompt composer"],
-              ["Ctrl+Tab", "Recent workspace"],
-              ["Ctrl+Space ?", "All shortcuts"],
-            ].map(([key, label]) => (
-              <div key={key} className="flex items-center justify-between mb-0.5">
-                <span className="text-[10px] font-mono text-[#8b5cf6]">{key}</span>
-                <span className="text-[10px] text-[#444]">{label}</span>
-              </div>
-            ))}
           </div>
         </div>
       )}
@@ -326,7 +314,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
       {/* Context menu */}
       {contextMenu && (
         <div
-          className="fixed z-50 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl py-1 min-w-[140px]"
+          className="fixed z-50 bg-raised border border-line rounded-lg shadow-xl py-1 min-w-[140px]"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onMouseDown={(e) => e.stopPropagation()}
         >
@@ -334,7 +322,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
           {dirValue === null ? (
             <button
               onClick={() => setDirValue(layout.scenes[contextMenu.name]?.dir ?? "")}
-              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors"
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-ink hover:bg-hover hover:text-ink transition-colors"
             >
               <FolderOpen size={12} /> Set directory…
             </button>
@@ -355,21 +343,21 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
                   setDirValue(null);
                 }}
                 placeholder="~/Projects/app (Enter)"
-                className="w-[220px] bg-[#111] border border-[#333] text-white text-[11px] font-mono rounded px-2 py-1 focus:outline-none focus:border-[#8b5cf6]"
+                className="w-[220px] bg-term border border-line-strong text-white text-[11px] font-mono rounded px-2 py-1 focus:outline-none focus:border-accent"
               />
             </div>
           )}
           <button
             onClick={() => { setEnvFor(contextMenu.name); setContextMenu(null); }}
             title="Run this workspace's agents on this machine, an SSH server or a Docker container"
-            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors"
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-ink hover:bg-hover hover:text-ink transition-colors"
           >
             <Server size={12} /> Environment…
           </button>
           <button
             onClick={() => { setBackupsFor(contextMenu.name); setContextMenu(null); }}
             title="Earlier versions of this workspace's canvas"
-            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors"
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-ink hover:bg-hover hover:text-ink transition-colors"
           >
             <History size={12} /> Backups…
           </button>
@@ -383,7 +371,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
                   .catch((e) => toast.error(String(e)));
               }}
               title="This workspace keeps running in the background — stop its terminals and routines"
-              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors"
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-ink hover:bg-hover hover:text-ink transition-colors"
             >
               <Square size={12} /> Stop agents
             </button>
@@ -391,7 +379,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
           {contextMenu.name !== "default" && (
           <button
             onClick={() => startRename(contextMenu.name)}
-            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors"
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-ink hover:bg-hover hover:text-ink transition-colors"
           >
             <Pencil size={12} /> Rename
           </button>
@@ -399,7 +387,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
           {contextMenu.name === "default" ? null : confirmingDelete === contextMenu.name ? (
             <button
               onClick={() => handleDelete(contextMenu.name)}
-              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs font-medium text-white bg-[#7f1d1d] hover:bg-[#991b1b] transition-colors"
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs font-medium text-white bg-danger/70 hover:bg-danger/80 transition-colors"
             >
               <Trash2 size={12} /> Confirm delete?
             </button>
@@ -407,7 +395,7 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
             // Deleting is irreversible — the first click only arms the confirmation
             <button
               onClick={() => setConfirmingDelete(contextMenu.name)}
-              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#f87171] hover:bg-[#2a2a2a] transition-colors"
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-danger-text hover:bg-hover transition-colors"
             >
               <Trash2 size={12} /> Delete
             </button>
@@ -452,11 +440,11 @@ function WorkspaceItem({
             if (e.key === "Enter") onRenameSubmit();
             if (e.key === "Escape") onRenameCancel();
           }}
-          className="flex-1 bg-[#1a1a1a] border border-[#8b5cf6] text-white text-xs rounded px-2 py-0.5
+          className="flex-1 bg-surface-2 border border-accent/60 text-ink text-[12px] rounded-md px-2 py-0.5
             focus:outline-none"
         />
-        <button onClick={onRenameSubmit} className="text-[#4ade80]"><Check size={11} /></button>
-        <button onClick={onRenameCancel} className="text-[#555]"><X size={11} /></button>
+        <button onClick={onRenameSubmit} className="text-ok"><Check size={11} /></button>
+        <button onClick={onRenameCancel} className="text-ink-muted"><X size={11} /></button>
       </div>
     );
   }
@@ -466,10 +454,10 @@ function WorkspaceItem({
       onClick={onClick}
       onContextMenu={onContextMenu}
       title={`${dir ? `${name} — ${dir}` : `${name} — no working directory (right-click to set one)`}${remote ? ` · runs on ${remote}` : ""}${running ? " · running in the background" : ""}`}
-      className={`relative flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-xs transition-colors text-left
+      className={`relative flex items-center gap-2 w-full px-2 h-7 rounded-md text-[13px] transition-colors text-left
         ${active
-          ? "bg-[#8b5cf620] text-white"
-          : "text-[#666] hover:text-[#aaa] hover:bg-[#1a1a1a]"
+          ? "bg-press text-ink font-medium"
+          : "text-ink-2 hover:text-ink hover:bg-hover"
         }`}
     >
       {/* Accent bar for the active item */}
@@ -477,13 +465,13 @@ function WorkspaceItem({
       <span
         className="w-1.5 h-1.5 rounded-full shrink-0"
         style={{
-          background: active ? "#8b5cf6" : running ? "#4ade80" : "transparent",
-          border: active || running ? "none" : "1px solid #333",
+          background: active ? "var(--accent)" : running ? "var(--ok)" : "transparent",
+          border: active || running ? "none" : "1px solid var(--line-strong)",
         }}
       />
       <span className="truncate">{name}</span>
       {remote && (
-        <span className="ml-auto shrink-0 text-[#555]" title={`Runs on ${remote}`}>
+        <span className="ml-auto shrink-0 text-ink-muted" title={`Runs on ${remote}`}>
           {remote.startsWith("ssh") ? <Server size={10} /> : <Container size={10} />}
         </span>
       )}

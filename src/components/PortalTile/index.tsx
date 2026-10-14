@@ -9,7 +9,8 @@ import type { Node, NodeProps } from "@xyflow/react";
 
 type PortalNode = Node<PortalNodeData, "portal">;
 
-const ACCENT = "#22d3ee";
+// Identity of this node kind: icon and top thread only (docs/design.md)
+const ACCENT = "#64d2ff";
 const MOVE_THROTTLE_MS = 40;
 
 // A real browser tab (headless Chrome driven over CDP by the backend): the
@@ -127,27 +128,22 @@ function PortalTile({ id, data, selected }: NodeProps<PortalNode>) {
 
   return (
     <div
-      className="flex flex-col w-full h-full rounded-xl overflow-hidden"
-      style={{
-        background: "#0c1a1d",
-        boxShadow: selected
-          ? `0 0 0 1px ${ACCENT}, 0 8px 32px rgba(0,0,0,0.5)`
-          : "0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(34,211,238,0.15)",
-        transition: "box-shadow 0.15s ease",
-      }}
+      className="flex flex-col w-full h-full rounded-xl overflow-hidden bg-surface border border-line transition-shadow duration-150"
+      style={{ boxShadow: selected ? "var(--ring-accent), var(--shadow-tile)" : "var(--shadow-tile)" }}
     >
+      <div className="h-px shrink-0 opacity-80" style={{ background: `linear-gradient(90deg, transparent 4%, ${ACCENT} 50%, transparent 96%)` }} />
       <NodeResizer
         minWidth={320}
         minHeight={240}
         isVisible={selected}
-        lineStyle={{ borderColor: ACCENT }}
-        handleStyle={{ borderColor: ACCENT, background: "#0c1a1d" }}
+        lineStyle={{ borderColor: "transparent" }}
+        handleStyle={{ width: 8, height: 8, borderRadius: 2, border: "1.5px solid var(--accent)", background: "var(--surface)" }}
       />
 
       {/* Name + address bar (also the drag handle) */}
       <div
         className="flex items-center gap-1.5 px-2.5 py-2 shrink-0 cursor-grab select-none"
-        style={{ background: "#0f2226", borderBottom: "1px solid #163238" }}
+        
         title={data.title}
       >
         {loading ? (
@@ -167,7 +163,7 @@ function PortalTile({ id, data, selected }: NodeProps<PortalNode>) {
             key={b.title}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={() => b.run().catch(console.error)}
-            className="text-[#557] hover:text-white transition-colors p-0.5 nodrag shrink-0"
+            className="text-ink-muted hover:text-ink transition-colors p-0.5 nodrag shrink-0"
             title={b.title}
           >
             {b.icon}
@@ -181,13 +177,13 @@ function PortalTile({ id, data, selected }: NodeProps<PortalNode>) {
           onMouseDown={(e) => e.stopPropagation()}
           placeholder="example.com"
           spellCheck={false}
-          className="flex-1 min-w-0 bg-[#0c1a1d] border border-[#163238] rounded px-2 py-0.5
-            text-[11px] text-[#9adbe5] placeholder-[#2a4a52] outline-none focus:border-[#22d3ee60] nodrag"
+          className="flex-1 min-w-0 bg-term border border-line rounded px-2 py-0.5
+            text-[11px] text-info placeholder-ink-faint outline-none focus:border-accent/60 nodrag"
         />
         <button
           onMouseDown={(e) => e.stopPropagation()}
           onClick={() => data.url && openUrl(data.url).catch(console.error)}
-          className="text-[#557] hover:text-white transition-colors p-0.5 nodrag shrink-0"
+          className="text-ink-muted hover:text-ink transition-colors p-0.5 nodrag shrink-0"
           title="Open in external browser"
         >
           <ExternalLink size={11} />
@@ -195,7 +191,7 @@ function PortalTile({ id, data, selected }: NodeProps<PortalNode>) {
         <button
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); removeNode(id); }}
-          className="text-[#666] hover:text-[#f87171] transition-colors p-0.5 rounded nodrag shrink-0"
+          className="text-ink-muted hover:text-danger-text transition-colors p-0.5 rounded nodrag shrink-0"
           title="Close portal"
         >
           <X size={12} />
@@ -206,7 +202,7 @@ function PortalTile({ id, data, selected }: NodeProps<PortalNode>) {
       <div
         ref={surfaceRef}
         tabIndex={0}
-        className="portal-surface flex-1 min-h-0 relative nodrag nowheel nopan nokey outline-none bg-[#0c1a1d]"
+        className="portal-surface flex-1 min-h-0 relative nodrag nowheel nopan nokey outline-none bg-term"
         onMouseDown={(e) => {
           e.stopPropagation();
           surfaceRef.current?.focus();
@@ -235,16 +231,16 @@ function PortalTile({ id, data, selected }: NodeProps<PortalNode>) {
         {status !== "live" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-6 text-center">
             {status === "connecting" ? (
-              <span className="flex items-center gap-2 text-[11px] text-[#2a4a52]">
+              <span className="flex items-center gap-2 text-[11px] text-ink-faint">
                 <Loader2 size={12} className="animate-spin" /> {data.url ? "Starting the browser…" : "Type a URL above"}
               </span>
             ) : (
               <>
-                <span className="text-[11px] text-[#f87171]">{error}</span>
+                <span className="text-[11px] text-danger-text">{error}</span>
                 {data.url && (
                   <button
                     onClick={() => openUrl(data.url).catch(console.error)}
-                    className="text-[10px] text-[#557] hover:text-white underline"
+                    className="text-[10px] text-ink-muted hover:text-ink underline"
                   >
                     Open in the external browser
                   </button>
@@ -255,8 +251,8 @@ function PortalTile({ id, data, selected }: NodeProps<PortalNode>) {
         )}
       </div>
 
-      <Handle type="target" position={Position.Left} style={{ background: ACCENT, border: "none", width: 8, height: 8 }} />
-      <Handle type="source" position={Position.Right} style={{ background: ACCENT, border: "none", width: 8, height: 8 }} />
+      <Handle type="target" position={Position.Left} className="narrater-handle" />
+      <Handle type="source" position={Position.Right} className="narrater-handle" />
     </div>
   );
 }

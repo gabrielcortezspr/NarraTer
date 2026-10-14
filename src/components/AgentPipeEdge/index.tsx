@@ -1,8 +1,15 @@
 import { memo, useEffect, useState } from "react";
 import { getBezierPath, type EdgeProps } from "@xyflow/react";
 import { useTerminalsStore } from "@/stores/terminals";
+import { useCanvasStore } from "@/stores/canvas";
 import { pairKey, useLedgerStore } from "@/stores/ledger";
 
+// A "line of dialogue" between two agents (docs/design.md, "O grafo"):
+// - at rest: a thin, calm curve with no label;
+// - an endpoint working: the curve brightens and a slow accent flow runs on it;
+// - a message travels: a comet of light crosses the curve;
+// - messages queued: a yellow chip with the count at the middle;
+// - hover: the names of both ends ("A ↔ B").
 function AgentPipeEdge({
   id,
   source,
@@ -13,6 +20,7 @@ function AgentPipeEdge({
   targetY,
   sourcePosition,
   targetPosition,
+  selected,
 }: EdgeProps) {
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -26,87 +34,138 @@ function AgentPipeEdge({
   const pending = useTerminalsStore((s) => (s.queues[target] ?? []).length);
   const targetStatus = useTerminalsStore((s) => s.sessions[target]?.status);
   const sourceStatus = useTerminalsStore((s) => s.sessions[source]?.status);
-  // Flow animation when a message is queued or either endpoint is working
-  const active = pending > 0 || targetStatus === "running" || sourceStatus === "running";
+  const working = targetStatus === "running" || sourceStatus === "running";
+  const names = useCanvasStore((s) => {
+    const label = (nid: string) => {
+      const n = s.nodes.find((x) => x.id === nid);
+      return (n?.data as { label?: string } | undefined)?.label ?? "";
+    };
+    return `${label(source)} ↔ ${label(target)}`;
+  });
 
-  // Pulse when a message travels the route (ledger → the pair's lastActivity)
+  // A message travelled the route (ledger → the pair's lastActivity)
   const activity = useLedgerStore((s) => s.lastActivity[pairKey(source, target)]);
-  const [pulse, setPulse] = useState(false);
+  const [pulse, setPulse] = useState(0);
   useEffect(() => {
     if (!activity) return;
-    setPulse(true);
-    const t = setTimeout(() => setPulse(false), 1500);
-    return () => clearTimeout(t);
+    setPulse((p) => p + 1);
   }, [activity]);
+  const [pulsing, setPulsing] = useState(false);
+  useEffect(() => {
+    if (!pulse) return;
+    setPulsing(true);
+    const t = setTimeout(() => setPulsing(false), 1100);
+    return () => clearTimeout(t);
+  }, [pulse]);
 
-  const gradientId = `pipe-gradient-${id}`;
   const glowId = `pipe-glow-${id}`;
-  const label = pulse ? "✉ message" : pending > 0 ? `⧗ ${pending} queued` : "⟶ agent pipe";
-  const labelColor = pulse ? "#4ade80" : pending > 0 ? "#fbbf24" : "#a78bfa";
-  const labelStroke = pulse ? "#4ade8040" : pending > 0 ? "#fbbf2440" : "#8b5cf640";
+  const baseOpacity = selected ? 0.7 : pulsing ? 0.6 : working ? 0.35 : 0.18;
+  const chipW = 26 + String(pending).length * 7;
 
   return (
-    <g>
+    <g className="narrater-pipe">
       <defs>
-        <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#8b5cf6" />
-          <stop offset="50%" stopColor="#a855f7" />
-          <stop offset="100%" stopColor="#8b5cf6" />
-        </linearGradient>
-        <filter id={glowId}>
-          <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+        <filter id={glowId} x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="2.5" result="blur" />
           <feMerge>
-            <feMergeNode in="coloredBlur" />
+            <feMergeNode in="blur" />
             <feMergeNode in="SourceGraphic" />
           </feMerge>
         </filter>
       </defs>
 
-      {/* Outer glow */}
-      <path
-        d={edgePath}
-        stroke="#8b5cf6"
-        strokeWidth={8}
-        fill="none"
-        opacity={active ? 0.18 : 0.08}
-      />
+      {/* Wide invisible path: easy to hover and click */}
+      <path d={edgePath} stroke="transparent" strokeWidth={16} fill="none" />
 
-      {/* Flow line — animated only while there is activity on the route */}
+      {/* The line itself */}
       <path
         id={id}
         className="narrater-edge-line"
         d={edgePath}
-        stroke={pulse ? "#4ade80" : `url(#${gradientId})`}
-        strokeWidth={pulse ? 3 : 2}
+        stroke={selected ? "var(--accent)" : "rgb(var(--text-rgb))"}
+        strokeWidth={1.5}
+        strokeLinecap="round"
         fill="none"
-        strokeDasharray="8 4"
-        opacity={active || pulse ? 0.9 : 0.5}
-        filter={active || pulse ? `url(#${glowId})` : undefined}
-        style={
-          active || pulse
-            ? { animation: "narrater-pipe-flow 1.2s linear infinite", transition: "stroke-width 0.2s" }
-            : undefined
-        }
+        style={{ opacity: baseOpacity, transition: "opacity 300ms var(--ease), stroke 150ms" }}
       />
 
-      {/* Label */}
-      <g transform={`translate(${labelX},${labelY})`}>
-        <rect x={-38} y={-11} width={76} height={22} rx={11} fill="#110d1e" stroke={labelStroke} strokeWidth={1} />
-        <text
-          textAnchor="middle"
-          dominantBaseline="middle"
-          style={{ fontSize: 9, fill: labelColor, fontFamily: "inherit", fontWeight: 500, letterSpacing: "0.03em" }}
-        >
-          {label}
-        </text>
-      </g>
+      {/* An endpoint is working: slow accent flow */}
+      {working && !pulsing && (
+        <path
+          d={edgePath}
+          pathLength={1}
+          stroke="var(--accent)"
+          strokeWidth={1.5}
+          strokeLinecap="round"
+          strokeDasharray="0.02 0.06"
+          fill="none"
+          className="narrater-pipe-flow"
+          style={{ opacity: 0.7 }}
+        />
+      )}
 
-      <style>{`
-        @keyframes narrater-pipe-flow {
-          from { stroke-dashoffset: 0; }
-          to { stroke-dashoffset: -24; }
-        }
-      `}</style>
+      {/* A message travels: comet of light along the curve */}
+      {pulsing && (
+        <path
+          key={pulse}
+          d={edgePath}
+          pathLength={1}
+          stroke="var(--accent)"
+          strokeWidth={3}
+          strokeLinecap="round"
+          strokeDasharray="0.18 1"
+          fill="none"
+          filter={`url(#${glowId})`}
+          className="narrater-pipe-comet"
+        />
+      )}
+
+      {/* Queued messages: count chip at the middle */}
+      {pending > 0 && (
+        <g transform={`translate(${labelX},${labelY})`}>
+          <title>{`${pending} message${pending > 1 ? "s" : ""} waiting in the queue`}</title>
+          <rect
+            x={-chipW / 2}
+            y={-10}
+            width={chipW}
+            height={20}
+            rx={10}
+            fill="rgb(var(--raised-rgb))"
+            stroke="rgb(var(--queue-rgb) / 0.45)"
+          />
+          <circle cx={-chipW / 2 + 9} cy={0} r={3} fill="var(--queue)" />
+          <text
+            x={5}
+            textAnchor="middle"
+            dominantBaseline="central"
+            style={{ fontSize: 11, fill: "var(--queue)", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}
+          >
+            {pending}
+          </text>
+        </g>
+      )}
+
+      {/* Hover: who talks to whom */}
+      {pending === 0 && names.trim() !== "↔" && (
+        <g className="narrater-edge-label" transform={`translate(${labelX},${labelY})`}>
+          <rect
+            x={-(names.length * 3.3 + 12)}
+            y={-11}
+            width={names.length * 6.6 + 24}
+            height={22}
+            rx={11}
+            fill="rgb(var(--raised-rgb))"
+            stroke="var(--line-strong)"
+          />
+          <text
+            textAnchor="middle"
+            dominantBaseline="central"
+            style={{ fontSize: 11, fill: "var(--text-2)", fontWeight: 500 }}
+          >
+            {names}
+          </text>
+        </g>
+      )}
     </g>
   );
 }

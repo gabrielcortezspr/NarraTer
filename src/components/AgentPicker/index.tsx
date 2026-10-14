@@ -119,7 +119,7 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
           <motion.div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
           <motion.div
-            className="relative z-10 w-[460px] bg-[#1a1a1a] border border-[#2a2a2a] rounded-xl shadow-2xl p-6 max-h-[90vh] overflow-y-auto"
+            className="relative z-10 w-[460px] bg-raised border border-line rounded-xl shadow-2xl p-6 max-h-[90vh] overflow-y-auto"
             initial={{ scale: 0.95, y: 8 }}
             animate={{ scale: 1, y: 0 }}
             exit={{ scale: 0.95, y: 8 }}
@@ -129,9 +129,9 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
             <div className="flex items-center justify-between mb-5">
               <div>
                 <h2 className="text-white font-semibold text-base">New Terminal</h2>
-                <p className="text-[#6b7280] text-xs mt-0.5">Choose the agent type</p>
+                <p className="text-ink-muted text-xs mt-0.5">Choose the agent type</p>
               </div>
-              <button onClick={onClose} className="text-[#6b7280] hover:text-white transition-colors p-1 rounded-md hover:bg-[#2a2a2a]">
+              <button onClick={onClose} className="text-ink-muted hover:text-ink transition-colors p-1 rounded-md hover:bg-hover">
                 <X size={16} />
               </button>
             </div>
@@ -139,7 +139,7 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
             {/* Role picker */}
             {roles.length > 0 && (
               <div className="mb-4">
-                <label className="flex items-center gap-1.5 text-[#9ca3af] text-xs mb-2">
+                <label className="flex items-center gap-1.5 text-ink-2 text-xs mb-2">
                   <Users size={11} /> Agent role
                 </label>
                 <div className="flex gap-1.5 flex-wrap">
@@ -147,8 +147,8 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
                     onClick={() => handleRoleChange("")}
                     className={`px-2.5 py-1 rounded-full text-xs border transition-all ${
                       !selectedRoleId
-                        ? "bg-[#2a2a2a] border-[#3a3a3a] text-white"
-                        : "border-[#2a2a2a] text-[#555] hover:text-[#888] hover:border-[#333]"
+                        ? "bg-line border-line-strong text-white"
+                        : "border-line text-ink-muted hover:text-ink-2 hover:border-line-strong"
                     }`}
                   >
                     No role
@@ -160,11 +160,11 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
                       className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border transition-all ${
                         selectedRoleId === role.id
                           ? "text-white"
-                          : "border-[#2a2a2a] text-[#555] hover:text-[#888]"
+                          : "border-line text-ink-muted hover:text-ink-2"
                       }`}
                       style={
                         selectedRoleId === role.id
-                          ? { background: `${role.color}20`, borderColor: role.color, color: role.color }
+                          ? { background: `color-mix(in srgb, ${role.color} 14%, transparent)`, borderColor: role.color, color: role.color }
                           : {}
                       }
                     >
@@ -186,12 +186,12 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
                     key={type}
                     onClick={() => setSelected(type)}
                     className={`flex flex-col items-start gap-1.5 p-3 rounded-lg border transition-all text-left
-                      ${active ? "bg-[#222] shadow-md" : "border-[#2a2a2a] hover:border-[#3a3a3a] hover:bg-[#1f1f1f]"}`}
+                      ${active ? "bg-surface-2 shadow-md" : "border-line hover:border-line-strong hover:bg-hover"}`}
                     style={active ? { borderColor: agent.color } : undefined}
                   >
                     <span style={{ color: agent.color }}><agent.Icon size={20} /></span>
                     <span className="text-white text-sm font-medium">{agent.label}</span>
-                    <span className="text-[#6b7280] text-xs leading-tight">{agent.description}</span>
+                    <span className="text-ink-muted text-xs leading-tight">{agent.description}</span>
                   </button>
                 );
               })}
@@ -199,7 +199,7 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
 
             {/* Working directory */}
             <div className="mb-4">
-              <label className="flex items-center gap-1.5 text-[#9ca3af] text-xs mb-1.5">
+              <label className="flex items-center gap-1.5 text-ink-2 text-xs mb-1.5">
                 <FolderOpen size={11} /> Working directory
               </label>
               <input
@@ -207,8 +207,8 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
                 value={cwd}
                 onChange={(e) => setCwd(e.target.value)}
                 placeholder="~ (home)"
-                className="w-full bg-[#111] border border-[#333] text-white text-xs rounded-lg px-3 py-2
-                  focus:outline-none focus:border-[#8b5cf6] font-mono placeholder-[#444]"
+                className="w-full bg-term border border-line-strong text-white text-xs rounded-lg px-3 py-2
+                  focus:outline-none focus:border-accent font-mono placeholder-ink-faint"
               />
             </div>
 
@@ -221,15 +221,15 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
                 >
-                  <label className="block text-[#9ca3af] text-xs mb-1.5">Command</label>
+                  <label className="block text-ink-2 text-xs mb-1.5">Command</label>
                   <input
                     type="text"
                     value={customCommand}
                     onChange={(e) => setCustomCommand(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleConfirm()}
                     placeholder="aider  ·  qwen  ·  agy  ·  python3"
-                    className="w-full bg-[#111] border border-[#333] text-white text-sm rounded-lg px-3 py-2
-                      focus:outline-none focus:border-[#8b5cf6] font-mono placeholder-[#444]"
+                    className="w-full bg-term border border-line-strong text-white text-sm rounded-lg px-3 py-2
+                      focus:outline-none focus:border-accent font-mono placeholder-ink-faint"
                     autoFocus
                   />
                 </motion.div>
@@ -240,7 +240,7 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
             {selected !== "shell" && (
               <label
                 className={`flex items-start gap-2.5 p-3 mb-4 rounded-lg border cursor-pointer transition-all ${
-                  maestro ? "border-amber-500/50 bg-amber-950/10" : "border-[#2a2a2a] hover:border-[#3a3a3a]"
+                  maestro ? "border-amber-500/50 bg-amber-950/10" : "border-line hover:border-line-strong"
                 }`}
               >
                 <input
@@ -250,12 +250,12 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
                   className="mt-0.5 accent-amber-400"
                 />
                 <div className="flex-1">
-                  <span className={`flex items-center gap-1.5 text-xs font-medium ${maestro ? "text-amber-300" : "text-[#9ca3af]"}`}>
+                  <span className={`flex items-center gap-1.5 text-xs font-medium ${maestro ? "text-amber-300" : "text-ink-2"}`}>
                     <Crown size={12} /> Maestro mode
                   </span>
-                  <p className="text-[#6b7280] text-[10px] mt-1 leading-snug">
+                  <p className="text-ink-muted text-[10px] mt-1 leading-snug">
                     Lets this agent recruit and dismiss teammates on the canvas, manage roles and
-                    send you desktop notifications (<code className="font-mono text-[#888]">narrater recruit</code>).
+                    send you desktop notifications (<code className="font-mono text-ink-2">narrater recruit</code>).
                   </p>
                 </div>
               </label>
@@ -274,7 +274,7 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
                     className={`flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-all ${
                       skipPermissions
                         ? "border-amber-600/60 bg-amber-950/20"
-                        : "border-[#2a2a2a] hover:border-[#3a3a3a]"
+                        : "border-line hover:border-line-strong"
                     }`}
                   >
                     <input
@@ -284,11 +284,11 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
                       className="mt-0.5 accent-amber-500"
                     />
                     <div className="flex-1">
-                      <span className={`flex items-center gap-1.5 text-xs font-medium ${skipPermissions ? "text-amber-400" : "text-[#9ca3af]"}`}>
+                      <span className={`flex items-center gap-1.5 text-xs font-medium ${skipPermissions ? "text-amber-400" : "text-ink-2"}`}>
                         <ShieldOff size={12} /> Skip permission prompts
                       </span>
-                      <p className="text-[#6b7280] text-[10px] mt-1 leading-snug">
-                        Runs <code className="font-mono text-[#888]">{skipPermissionsFlag}</code>.
+                      <p className="text-ink-muted text-[10px] mt-1 leading-snug">
+                        Runs <code className="font-mono text-ink-2">{skipPermissionsFlag}</code>.
                         The agent acts without asking for approval — use only in trusted directories.
                       </p>
                     </div>
@@ -300,7 +300,7 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
             {/* Advanced */}
             <button
               onClick={() => setShowAdvanced((v) => !v)}
-              className="flex items-center gap-1.5 text-[#555] hover:text-[#888] transition-colors text-xs mb-2 w-full"
+              className="flex items-center gap-1.5 text-ink-muted hover:text-ink-2 transition-colors text-xs mb-2 w-full"
             >
               <motion.span animate={{ rotate: showAdvanced ? 180 : 0 }} transition={{ duration: 0.15 }}>
                 <ChevronDown size={12} />
@@ -317,47 +317,47 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
                   className="mb-4 space-y-3"
                 >
                   <div>
-                    <label className="block text-[#9ca3af] text-xs mb-1.5">Role instructions</label>
+                    <label className="block text-ink-2 text-xs mb-1.5">Role instructions</label>
                     <textarea
                       value={instructions}
                       onChange={(e) => setInstructions(e.target.value)}
                       placeholder="E.g.: Always write tests for new code."
                       rows={3}
-                      className="w-full bg-[#111] border border-[#333] text-white text-xs rounded-lg px-3 py-2
-                        focus:outline-none focus:border-[#8b5cf6] placeholder-[#444] resize-none"
+                      className="w-full bg-term border border-line-strong text-white text-xs rounded-lg px-3 py-2
+                        focus:outline-none focus:border-accent placeholder-ink-faint resize-none"
                     />
-                    <p className="text-[#444] text-[10px] mt-1">
+                    <p className="text-ink-faint text-[10px] mt-1">
                       {selectedRole
                         ? `Filled from role "${selectedRole.name}" — editable`
                         : "Written as the agent's CLAUDE.md / AGENTS.md (not used for shells)"}
                     </p>
                   </div>
 
-                  <div className="border-t border-[#2a2a2a] pt-3">
+                  <div className="border-t border-line pt-3">
                     <div className="flex items-center gap-1.5 mb-2">
-                      <Clock size={12} className="text-[#555]" />
-                      <label className="text-[#9ca3af] text-xs">Scheduled prompt</label>
+                      <Clock size={12} className="text-ink-muted" />
+                      <label className="text-ink-2 text-xs">Scheduled prompt</label>
                     </div>
                     <input
                       type="text"
                       value={scheduleCommand}
                       onChange={(e) => setScheduleCommand(e.target.value)}
                       placeholder="E.g.: git status"
-                      className="w-full bg-[#111] border border-[#333] text-white text-xs rounded-lg px-3 py-2
-                        focus:outline-none focus:border-[#8b5cf6] font-mono placeholder-[#444] mb-2"
+                      className="w-full bg-term border border-line-strong text-white text-xs rounded-lg px-3 py-2
+                        focus:outline-none focus:border-accent font-mono placeholder-ink-faint mb-2"
                     />
                     {scheduleCommand.trim() && (
                       <div className="flex items-center gap-2">
-                        <label className="text-[#9ca3af] text-xs shrink-0">Every</label>
+                        <label className="text-ink-2 text-xs shrink-0">Every</label>
                         <input
                           type="number"
                           value={scheduleInterval}
                           onChange={(e) => setScheduleInterval(e.target.value)}
                           min="5"
-                          className="w-20 bg-[#111] border border-[#333] text-white text-xs rounded-lg px-2 py-1.5
-                            focus:outline-none focus:border-[#8b5cf6] text-center"
+                          className="w-20 bg-term border border-line-strong text-white text-xs rounded-lg px-2 py-1.5
+                            focus:outline-none focus:border-accent text-center"
                         />
-                        <label className="text-[#9ca3af] text-xs">seconds</label>
+                        <label className="text-ink-2 text-xs">seconds</label>
                       </div>
                     )}
                   </div>
@@ -369,14 +369,14 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
             <div className="flex gap-2 justify-end">
               <button
                 onClick={onClose}
-                className="px-4 py-2 text-sm text-[#9ca3af] hover:text-white transition-colors rounded-lg hover:bg-[#2a2a2a]"
+                className="px-4 py-2 text-sm text-ink-2 hover:text-ink transition-colors rounded-lg hover:bg-hover"
               >
                 Cancel
               </button>
               <button
                 onClick={handleConfirm}
                 disabled={selected === "custom" && !customCommand.trim()}
-                className="px-4 py-2 text-sm bg-[#8b5cf6] hover:bg-[#7c3aed] text-white rounded-lg
+                className="px-4 py-2 text-sm bg-accent hover:bg-accent-dim text-white rounded-lg
                   transition-colors disabled:opacity-40 disabled:cursor-not-allowed font-medium"
                 style={
                   selectedRole

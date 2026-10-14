@@ -30,9 +30,9 @@ function TextTile({ id, data, selected }: NodeProps<TextNode>) {
       style={{
         background: "transparent",
         boxShadow: selected
-          ? "0 0 0 1px #8b5cf6"
+          ? "var(--ring-accent)"
           : hovered
-          ? "0 0 0 1px #2a2a2a"
+          ? "0 0 0 1px var(--line-strong)"
           : "none",
         transition: "box-shadow 0.15s ease",
       }}
@@ -41,8 +41,8 @@ function TextTile({ id, data, selected }: NodeProps<TextNode>) {
         minWidth={120}
         minHeight={40}
         isVisible={selected}
-        lineStyle={{ borderColor: "#8b5cf6" }}
-        handleStyle={{ borderColor: "#8b5cf6", background: "#0d0d0d" }}
+lineStyle={{ borderColor: "transparent" }}
+        handleStyle={{ width: 8, height: 8, borderRadius: 2, border: "1.5px solid var(--accent)", background: "var(--surface)" }}
       />
 
       {(hovered || selected) && (
@@ -50,7 +50,7 @@ function TextTile({ id, data, selected }: NodeProps<TextNode>) {
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => { e.stopPropagation(); removeNode(id); }}
           className="absolute -top-2 -right-2 z-10 w-5 h-5 flex items-center justify-center rounded-full
-            bg-[#1a1a1a] border border-[#2a2a2a] text-[#666] hover:text-[#f87171] transition-colors nodrag"
+            bg-surface border border-line text-ink-muted hover:text-danger-text transition-colors nodrag"
         >
           <X size={10} />
         </button>
@@ -60,14 +60,14 @@ function TextTile({ id, data, selected }: NodeProps<TextNode>) {
         value={text}
         onChange={(e) => handleChange(e.target.value)}
         placeholder="Text…"
-        className="w-full h-full resize-none bg-transparent text-[#e5e7eb] p-2 outline-none
-          placeholder-[#3a3a3a] nodrag nowheel"
+        className="w-full h-full resize-none bg-transparent text-ink p-2 outline-none
+          placeholder-ink-faint nodrag nowheel"
         style={{ fontSize: 17, lineHeight: 1.5, fontFamily: "inherit" }}
         onMouseDown={(e) => e.stopPropagation()}
       />
 
-      <Handle type="target" position={Position.Left} style={{ background: "#4a4a4a", border: "none", width: 6, height: 6 }} />
-      <Handle type="source" position={Position.Right} style={{ background: "#4a4a4a", border: "none", width: 6, height: 6 }} />
+      <Handle type="target" position={Position.Left} className="narrater-handle" />
+      <Handle type="source" position={Position.Right} className="narrater-handle" />
     </div>
   );
 }

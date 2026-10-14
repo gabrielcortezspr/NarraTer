@@ -24,10 +24,10 @@ interface Menu {
 const PR_REF = /^#\d+$|^https?:\/\/\S+\/(pull|merge_requests)\/\d+/;
 
 const STATE_COLOR: Record<FloorState, string> = {
-  working: "#60a5fa",
-  blocked: "#f87171",
-  review: "#fbbf24",
-  done: "#4ade80",
+  working: "var(--accent)",
+  blocked: "var(--danger)",
+  review: "var(--warn)",
+  done: "var(--ok)",
 };
 
 /** Land target: "" = keep the branch only, otherwise merge into it. */
@@ -178,14 +178,14 @@ export default function FloorBar() {
         }}
         title={tip}
         className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] border transition-colors shrink-0 whitespace-nowrap ${
-          active ? "border-[#8b5cf6] text-[#c4b5fd] bg-[#8b5cf614]" : "border-[#222] text-[#555] hover:text-[#999] hover:border-[#333]"
+          active ? "border-accent text-accent-text bg-accent/10" : "border-line text-ink-muted hover:text-ink-2 hover:border-line-strong"
         }`}
       >
         {status && <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: STATE_COLOR[status.state] }} />}
         {branch && (floors.find((f) => f.id === id)?.pull_request ? <GitPullRequest size={9} /> : <GitBranch size={9} />)}
         {label}
-        {status?.progress && <span className="text-[#666]">{status.progress}</span>}
-        {(nodeCount[id] ?? 0) > 0 && <span className="text-[#444]">{nodeCount[id]}</span>}
+        {status?.progress && <span className="text-ink-muted">{status.progress}</span>}
+        {(nodeCount[id] ?? 0) > 0 && <span className="text-ink-faint">{nodeCount[id]}</span>}
       </button>
     );
   };
@@ -195,13 +195,13 @@ export default function FloorBar() {
   return (
     // Stops short of the centered toolbar (~420px wide); chips scroll sideways
     <div className="absolute top-0 left-0 h-10 flex items-center gap-2 px-4 z-10" style={{ maxWidth: "calc(50% - 220px)" }}>
-      <span className="text-[#3a3a3a] text-xs select-none truncate min-w-[40px] max-w-[160px]" title={sceneDir ?? "No working directory — set one from the scene's menu in the sidebar"}>
+      <span className="text-ink-faint text-xs select-none truncate min-w-[40px] max-w-[160px]" title={sceneDir ?? "No working directory — set one from the scene's menu in the sidebar"}>
         {current}
-        {remote && <span className="text-[#4a4a6a]"> · {remote}</span>}
-        {sceneDir && <span className="text-[#2a2a2a]"> · {shortPath(sceneDir)}</span>}
+        {remote && <span className="text-ink-faint"> · {remote}</span>}
+        {sceneDir && <span className="text-ink-faint"> · {shortPath(sceneDir)}</span>}
       </span>
 
-      {(floors.length > 0 || creating) && <Layers size={11} className="text-[#333] shrink-0" />}
+      {(floors.length > 0 || creating) && <Layers size={11} className="text-ink-faint shrink-0" />}
       {floors.length > 0 && (
         <div className="flex items-center gap-1 overflow-x-auto min-w-0 [scrollbar-width:none]">
           {chip(GROUND, "Ground", null, groundStatus)}
@@ -221,20 +221,20 @@ export default function FloorBar() {
               if (e.key === "Escape") { setCreating(false); setName(""); }
             }}
             placeholder="name, or #PR / PR link…"
-            className="w-28 bg-[#1a1a1a] border border-[#333] text-white text-[10px] rounded px-2 py-0.5 focus:outline-none focus:border-[#8b5cf6]"
+            className="w-28 bg-surface border border-line-strong text-white text-[10px] rounded px-2 py-0.5 focus:outline-none focus:border-accent"
           />
-          <label className="flex items-center gap-1 text-[9px] text-[#555] select-none" title="Start the floor with a copy of the ground floor's layout">
-            <input type="checkbox" checked={copyGround} onChange={(e) => setCopyGround(e.target.checked)} className="accent-[#8b5cf6]" />
+          <label className="flex items-center gap-1 text-[9px] text-ink-muted select-none" title="Start the floor with a copy of the ground floor's layout">
+            <input type="checkbox" checked={copyGround} onChange={(e) => setCopyGround(e.target.checked)} className="accent-accent" />
             copy ground
           </label>
-          <button onClick={submit} disabled={busy} className="text-[#4ade80] hover:text-white"><Check size={11} /></button>
-          <button onClick={() => { setCreating(false); setName(""); }} className="text-[#555] hover:text-white"><X size={11} /></button>
+          <button onClick={submit} disabled={busy} className="text-ok hover:text-ink"><Check size={11} /></button>
+          <button onClick={() => { setCreating(false); setName(""); }} className="text-ink-muted hover:text-ink"><X size={11} /></button>
         </div>
       ) : (
         <button
           onClick={() => setCreating(true)}
           title={sceneDir ? "New floor — a git worktree on its own branch when the directory is a repository" : "New floor"}
-          className="flex items-center gap-0.5 text-[10px] text-[#3a3a3a] hover:text-[#8b5cf6] shrink-0"
+          className="flex items-center gap-0.5 text-[10px] text-ink-faint hover:text-accent-text shrink-0"
         >
           <Plus size={11} /> {floors.length === 0 && "floor"}
         </button>
@@ -242,33 +242,33 @@ export default function FloorBar() {
 
       {menu && menuFloor && (
         <div
-          className="fixed z-50 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl py-1 w-[250px]"
+          className="fixed z-50 bg-raised border border-line rounded-lg shadow-xl py-1 w-[250px]"
           style={{ top: menu.y, left: menu.x }}
           onMouseDown={(e) => e.stopPropagation()}
         >
           {menu.stage === "menu" && (
             <>
-              <div className="px-3 py-1 text-[9px] text-[#555] break-all">
+              <div className="px-3 py-1 text-[9px] text-ink-muted break-all">
                 {menuFloor.branch ? `branch ${menuFloor.branch} · ${menuFloor.dir}` : "plain floor (shares the scene's directory)"}
               </div>
               {menuFloor.pull_request && (
                 <div className="px-3 pb-1 flex flex-col gap-1 text-[10px]">
-                  <div className="text-[#ccc] break-words">
+                  <div className="text-ink break-words">
                     #{menuFloor.pull_request.number} {menuFloor.pull_request.title}
-                    {!menuFloor.pull_request.same_repo && <span className="text-[#777]"> · from a fork (commits here can't reach it)</span>}
+                    {!menuFloor.pull_request.same_repo && <span className="text-ink-muted"> · from a fork (commits here can't reach it)</span>}
                   </div>
-                  <div className="text-[#777] break-words">{prStatus ?? "checking the pull request…"}</div>
+                  <div className="text-ink-muted break-words">{prStatus ?? "checking the pull request…"}</div>
                   <div className="flex gap-2">
                     <button
                       onClick={() => { openInEditor("xdg-open", menuFloor.pull_request!.url).catch((e) => toast.error(String(e))); setMenu(null); }}
-                      className="flex items-center gap-1 text-[#93c5fd] hover:text-white"
+                      className="flex items-center gap-1 text-info hover:text-ink"
                     >
                       <ExternalLink size={10} /> Open
                     </button>
                     <button
                       onClick={() => setMenu({ ...menu, stage: "merge" })}
                       disabled={busy}
-                      className="flex items-center gap-1 text-[#c4b5fd] hover:text-white"
+                      className="flex items-center gap-1 text-accent-text hover:text-ink"
                     >
                       <GitMerge size={10} /> Merge…
                     </button>
@@ -284,7 +284,7 @@ export default function FloorBar() {
                 <button
                   onClick={openLand}
                   disabled={busy}
-                  className="w-full flex items-center gap-1.5 text-left px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a]"
+                  className="w-full flex items-center gap-1.5 text-left px-3 py-1.5 text-xs text-ink hover:bg-hover"
                 >
                   <GitMerge size={11} /> Land…
                 </button>
@@ -292,7 +292,7 @@ export default function FloorBar() {
               {menuFloor.dir && (
                 <button
                   onClick={() => { navigator.clipboard.writeText(menuFloor.dir!).catch(() => {}); setMenu(null); }}
-                  className="w-full text-left px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a]"
+                  className="w-full text-left px-3 py-1.5 text-xs text-ink hover:bg-hover"
                 >
                   Copy path
                 </button>
@@ -302,30 +302,30 @@ export default function FloorBar() {
                   const dirty = await floorIsDirty(menu.id).catch(() => false);
                   setMenu({ ...menu, stage: dirty ? "dirty" : "confirm" });
                 }}
-                className="w-full text-left px-3 py-1.5 text-xs text-[#f87171] hover:bg-[#2a2a2a]"
+                className="w-full text-left px-3 py-1.5 text-xs text-danger-text hover:bg-hover"
               >
                 Delete floor…
               </button>
             </>
           )}
           {menu.stage === "confirm" && (
-            <button onClick={() => remove(menu.id, false)} className="w-full text-left px-3 py-1.5 text-xs text-[#f87171] hover:bg-[#2a2a2a]">
+            <button onClick={() => remove(menu.id, false)} className="w-full text-left px-3 py-1.5 text-xs text-danger-text hover:bg-hover">
               Delete '{menuFloor.name}' and everything on it?{menuFloor.branch ? " (the branch stays)" : ""}
             </button>
           )}
           {menu.stage === "merge" && menuFloor.pull_request && (
-            <button onClick={() => doMerge(menu.id)} className="w-full text-left px-3 py-1.5 text-xs text-[#c4b5fd] hover:bg-[#2a2a2a]">
+            <button onClick={() => doMerge(menu.id)} className="w-full text-left px-3 py-1.5 text-xs text-accent-text hover:bg-hover">
               Merge pull request #{menuFloor.pull_request.number} on {menuFloor.pull_request.provider === "gitlab" ? "GitLab" : "GitHub"}?
             </button>
           )}
           {menu.stage === "land" && land && (
-            <div className="px-3 py-2 flex flex-col gap-2 text-[10px] text-[#999]">
+            <div className="px-3 py-2 flex flex-col gap-2 text-[10px] text-ink-2">
               <label className="flex flex-col gap-1">
                 Bring '{menuFloor.branch}' into
                 <select
                   value={land.into}
                   onChange={(e) => setLand({ ...land, into: e.target.value })}
-                  className="bg-[#111] border border-[#333] rounded px-1 py-0.5 text-[#ddd] focus:outline-none focus:border-[#8b5cf6]"
+                  className="bg-term border border-line-strong rounded px-1 py-0.5 text-ink focus:outline-none focus:border-accent"
                 >
                   {land.branches.map((b) => <option key={b} value={b}>{b}</option>)}
                   <option value="">nothing — keep the branch only</option>
@@ -337,24 +337,24 @@ export default function FloorBar() {
                     type="checkbox"
                     checked={land.deleteBranch}
                     onChange={(e) => setLand({ ...land, deleteBranch: e.target.checked })}
-                    className="accent-[#8b5cf6]"
+                    className="accent-accent"
                   />
                   delete '{menuFloor.branch}' after merging
                 </label>
               )}
-              <div className="text-[9px] text-[#555]">
+              <div className="text-[9px] text-ink-muted">
                 The floor and its worktree go; uncommitted work or a conflict stops it with nothing changed.
               </div>
               <button
                 onClick={() => doLand(menu.id)}
-                className="self-start flex items-center gap-1 px-2 py-0.5 rounded border border-[#8b5cf6] text-[#c4b5fd] hover:bg-[#8b5cf61a]"
+                className="self-start flex items-center gap-1 px-2 py-0.5 rounded border border-accent text-accent-text hover:bg-accent/10"
               >
                 <GitMerge size={10} /> Land '{menuFloor.name}'
               </button>
             </div>
           )}
           {menu.stage === "dirty" && (
-            <button onClick={() => remove(menu.id, true)} className="w-full text-left px-3 py-1.5 text-xs text-[#f87171] hover:bg-[#2a2a2a]">
+            <button onClick={() => remove(menu.id, true)} className="w-full text-left px-3 py-1.5 text-xs text-danger-text hover:bg-hover">
               Its worktree has uncommitted changes — discard them and delete?
             </button>
           )}
