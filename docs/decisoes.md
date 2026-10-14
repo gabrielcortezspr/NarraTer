@@ -18,7 +18,8 @@ seguintes são registradas na sessão em que a decisão foi tomada.
 
 | Área | Decisões |
 |---|---|
-| Comunicação entre agentes | D01, D02, D06 |
+| Comunicação entre agentes | D01, D02, D06, D08 |
+| Persistência | D07 |
 | CLI e distribuição | D03 |
 | Escopo do produto | D04, D05 |
 
@@ -128,3 +129,44 @@ parte da skill tratando o caso do agente que não segue o contrato.
 **Consequência.** Duas fontes para o fim de um ask (tela ou mensagem tipada), e o backend precisa
 decidir qual vale quando chegam as duas. A skill dos agentes ganha comandos novos, mas nenhum é
 obrigatório.
+
+## D07 · Asks persistidos em JSON Lines, não em SQLite
+
+`2026-10-14` · persistência · mecânica em `src-tauri/src/asks.rs` · etapa O2 do [`backlog.md`](backlog.md)
+
+**Contexto.** A etapa O2 pedia asks duráveis, e o plano (vindo do estudo do Orca, que usa SQLite
+com migrações) falava em `rusqlite`. O volume é pequeno: dezenas de asks por sessão, consultados
+por chamador e por id.
+
+**Decisão.** Um arquivo `~/.config/narrater/asks.jsonl`, uma linha por mudança de estado (a última
+linha de um id vale), compactado na carga para os 500 mais recentes e reescrito por arquivo
+temporário + rename. Os registros ficam num `HashMap` em memória.
+
+**Alternativa recusada.** SQLite via `rusqlite`. Traria uma dependência C, tempo de compilação e
+migrações de schema para um dado que cabe na memória. O resto do app (chat, rotinas, links,
+cenas) já persiste em JSON em `~/.config/narrater/`.
+
+**Consequência.** Sem consultas ad hoc nem transações; se um dia os asks precisarem de busca ou de
+dependências entre tarefas (etapa O8), reavaliar. Um ask em andamento quando o app para volta
+como `unknown`, nunca com um desfecho inventado.
+
+## D08 · Todo ask roda em segundo plano; `wait` sem ids só coleta os `--no-wait`
+
+`2026-10-14` · comunicação · mecânica em `start_ask`/`run_ask` (`src-tauri/src/ipc.rs`) e `AskStore::wait` · etapa O1
+
+**Contexto.** O ask síncrono prendia o líder até o alvo terminar, e se o tempo da ferramenta de
+shell do líder estourasse, o resultado se perdia. O ask assíncrono precisava conviver com ele sem
+mudar a saída que os agentes já conhecem.
+
+**Decisão.** Todo ask vira um registro e roda numa task em segundo plano; o `ask` síncrono é
+`--no-wait` + espera pelo próprio id e imprime exatamente o que imprimia antes. Um `wait` sem ids
+devolve só os asks iniciados com `--no-wait` que ainda não foram coletados, um por chamada;
+`wait <id>` devolve qualquer ask do chamador.
+
+**Alternativa recusada.** (a) Manter dois caminhos separados, síncrono e assíncrono: duplicaria a
+lógica de entrega e o síncrono continuaria perdendo o resultado em timeout. (b) Fazer o `wait` sem
+ids coletar também os asks síncronos: o líder receberia de novo respostas que já viu.
+
+**Consequência.** Um líder cujo shell foi morto no meio de um ask síncrono acha o id em
+`narrater asks` e coleta com `wait <id>`. O backend não sabe se a resposta síncrona chegou de fato
+ao chamador; por isso ela não entra na fila do `wait` sem ids.

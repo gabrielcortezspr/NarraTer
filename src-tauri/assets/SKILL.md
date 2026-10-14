@@ -14,6 +14,8 @@ Agents connected to you on the canvas can exchange prompts and answers through t
 - `narrater list` — who you are (`You:`), connected agents (status, role) and notes
 - `narrater ask "Agent" "your prompt"` — send a prompt and get the answer when the agent finishes
 - `narrater ask --batch '{"Agent A": "prompt", "Agent B": "prompt"}'` — ask several agents in parallel
+- `narrater ask "Agent" "prompt" --no-wait` (or `--batch … --no-wait`) — send without blocking; prints an ask id
+- `narrater wait [ask-id…] [--all]` — the first of your asks to finish, with its answer; `narrater asks` lists yours
 - `narrater ask "Agent" --raw "2\n"` — type raw input (menus, permission prompts, shell input). Escapes: `\n` Enter, `\t` Tab, `\e` ESC, `\xNN` byte (`\x03` Ctrl-C); special keys are ESC sequences, e.g. `\e[A` up arrow
 - `narrater check "Agent"` — read the agent's current screen without sending anything
 - `narrater note create ["content"] [--name "Name"]` — new note next to your terminal, connected to you; prints the exact name
@@ -29,7 +31,8 @@ Always run `narrater list` first to get exact names. Run `narrater help <command
 
 `ask` types your prompt into the agent's terminal as `[narrater from <your name>]: <prompt>` once it is idle, and blocks until its turn is over; then it prints what the agent's terminal shows. Scale your shell tool timeout to the work: about 1 minute for an easy question, up to 10 minutes for a real task.
 
-- If your timeout expires, do NOT re-send the prompt. Run `narrater check "Agent"` to see the progress, then wait again.
+- If your timeout expires, do NOT re-send the prompt: the ask keeps running. `narrater asks` shows its id; `narrater wait <id>` picks up the answer (and `narrater check "Agent"` shows progress meanwhile).
+- **Don't block when you have other work.** `--no-wait` returns an ask id at once. To delegate to several agents, send them all with `narrater ask --batch '{…}' --no-wait`, then call `narrater wait` repeatedly: each call returns the next one to finish (`[id] Agent · state` + its answer), so you can react to the first result without waiting for the slowest. When `wait` says nothing finished in time, just wait again.
 - Never interrupt an agent that is still working, and don't edit files another agent is actively modifying.
 - If `ask` reports the agent is waiting for input (a permission menu), answer with `--raw` or tell the user.
 - **Ask back** — for results longer than one screen (reviews, plans, reports): tell the agent to report with `narrater ask "Your Name" "<result>"` when done. That message resolves your waiting `ask` and arrives in full in your terminal as a new prompt.

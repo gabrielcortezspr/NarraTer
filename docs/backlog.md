@@ -10,7 +10,9 @@ entram no fim.
 
 Origem: [`pesquisa/orca.md`](pesquisa/orca.md) §6.4 · decisão D06.
 
-> Não iniciada.
+> Em andamento. 2026-10-14: O1 e O2 concluídas (D07, D08), testadas ponta a ponta no app real sob
+> Xvfb; O4 coberta em parte (`wait <id>` retoma um ask depois do timeout do shell, sem reenviar).
+> O painel de histórico da aresta ainda lê o ledger em memória, não o `asks.jsonl`.
 
 **O1 · Ask assíncrono + `wait`.** `narrater ask "Dev" "…" --no-wait` devolve um id na hora.
 `narrater wait [ids…] [--any|--all] [--timeout S]` devolve eventos
@@ -52,7 +54,10 @@ federação entre máquinas.
 
 Origem: [`pesquisa/orca.md`](pesquisa/orca.md) §4 B1.
 
-> Não iniciada.
+> Não iniciada. Achado de 2026-10-14: um **shell dentro do tmux** rodando um comando sem saída
+> (`sleep 6`) é dado como ocioso em ~1 s, porque com tmux o backend não enxerga o processo em
+> primeiro plano (`compute_turn` em `pty.rs`) e a tela parada parece fim de turno. Um ask para
+> esse shell volta antes da hora. Corrigir aqui (ex.: perguntar ao tmux `#{pane_current_command}`).
 
 Trocar as listas fixas de `screen.rs` (`BUSY`, padrões de attention) por regras JSON por agente
 (região, regex, prioridade, `requiresQuiet`), partindo dos arquivos do Orca

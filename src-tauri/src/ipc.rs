@@ -15,6 +15,7 @@ use crate::pty::{
 use crate::browser::BrowserState;
 use crate::chat::ChatState;
 use crate::routines::RoutinesState;
+use crate::asks::AskState;
 use crate::screen::TurnState;
 
 /// `ask` blocks until the target finishes — the caller's own tool timeout is
@@ -61,7 +62,7 @@ struct IpcRequest {
     /// Terminal secret (env NARRATER_TOKEN) proving the `from` identity.
     #[serde(default)]
     token: Option<String>,
-    /// "ping" | "whoami" | "ask" | "batch" | "raw" | "check" | "canvas" | "portal" | "routine" | "workspace" | "chat"
+    /// "ping" | "whoami" | "ask" | "batch" | "wait" | "asks" | "raw" | "check" | "canvas" | "portal" | "routine" | "workspace" | "chat"
     #[serde(default)]
     mode: Option<String>,
     /// Target agent name (label) or node id.
@@ -74,6 +75,15 @@ struct IpcRequest {
     batch: Option<serde_json::Map<String, serde_json::Value>>,
     #[serde(default)]
     timeout_secs: Option<u64>,
+    /// mode "ask" / "batch": return the ask id(s) at once (`--no-wait`).
+    #[serde(default)]
+    no_wait: bool,
+    /// mode "wait": the ask ids (none: the caller's uncollected `--no-wait` asks).
+    #[serde(default)]
+    ids: Vec<String>,
+    /// mode "wait": until every one finished; mode "asks": the whole history.
+    #[serde(default)]
+    all: bool,
     /// mode "canvas": action handled by the frontend (list, note_*, connect);
     /// mode "routine": the parsed flags.
     #[serde(default)]
@@ -171,6 +181,17 @@ pub async fn dispatch(ctx: &IpcCtx, buf: &[u8]) -> String {
                 let inner = state.lock().unwrap();
                 format!("id: {}\nname: {}\n", req.from, inner.label_of(&req.from))
             }
+            Some("ask") if req.no_wait => {
+                let timeout = req.timeout_secs.map(Duration::from_secs).unwrap_or(ASK_DEFAULT_TIMEOUT);
+                let (to, msg) = (req.to.as_deref().unwrap_or(""), req.msg.as_deref().unwrap_or(""));
+                match start_ask(state, app, &req.from, to, msg, timeout, true) {
+                    Ok(id) => format!(
+                        "{} sent to '{}'. Collect it with `narrater wait` (or `narrater wait {}`); do NOT re-send.\n",
+                        id, to.trim(), id
+                    ),
+                    Err(e) => with_newline(e),
+                }
+            }
             Some("ask") => {
                 let timeout = req.timeout_secs.map(Duration::from_secs).unwrap_or(ASK_DEFAULT_TIMEOUT);
                 match ask_one(state, app, &req.from, req.to.as_deref().unwrap_or(""), req.msg.as_deref().unwrap_or(""), timeout).await {
@@ -180,6 +201,8 @@ pub async fn dispatch(ctx: &IpcCtx, buf: &[u8]) -> String {
             }
             Some("batch") => handle_batch(&req, app, state).await,
             Some("raw") => handle_raw(&req, app, state).await,
+            Some("wait") => handle_wait(&req, state).await,
+            Some("asks") => handle_asks(&req, state),
             Some("check") => handle_check(&req, state),
             Some("canvas") => handle_canvas(&req, app, state).await,
             Some("chat") => {
@@ -284,10 +307,69 @@ fn notice_attention(to_label: &str, screen: &str) -> String {
     )
 }
 
-/// The heart of the protocol, agnostic to which AI runs in the target:
-/// type the prompt into its terminal when it's idle, wait until its screen
-/// says the turn is over, and return what it shows. If the target messages the
-/// caller back meanwhile (ask-back), that resolves this ask instead.
+/// Starts an ask: checks the prompt and the target, records it and runs it in
+/// the background. Returns its id at once; the outcome lands in the ask store
+/// (`narrater wait`). `detached`: started with `--no-wait`, so a bare `wait`
+/// collects it.
+pub fn start_ask(
+    state: &Arc<Mutex<PtyStateInner>>,
+    app: &AppHandle,
+    from: &str,
+    to: &str,
+    msg: &str,
+    timeout: Duration,
+    detached: bool,
+) -> Result<String, String> {
+    if msg.trim().is_empty() {
+        return Err("Error: empty prompt".into());
+    }
+    let (target_id, to_label, asks) = {
+        let inner = state.lock().unwrap();
+        let (target_id, to_label) = match resolve_target(&inner, from, to) {
+            Ok((id, _, label)) => (id, label),
+            Err(e) => {
+                // A remote teammate still connecting (setup over SSH / docker
+                // exec) is waited for in the background, like a local one booting
+                match inner.names.resolve(from, to, |id| inner.connected(from, id)) {
+                    Some(id) if inner.booting.contains(&id) => {
+                        let label = inner.address(&id, from);
+                        (id, label)
+                    }
+                    _ => return Err(e),
+                }
+            }
+        };
+        (target_id, to_label, Arc::clone(&inner.asks))
+    };
+    let id = crate::asks::new_id();
+    asks.insert(crate::asks::AskRecord {
+        id: id.clone(),
+        from: from.to_string(),
+        to: target_id,
+        to_label,
+        prompt: msg.to_string(),
+        state: AskState::Queued,
+        result: None,
+        created: now_ms(),
+        delivered: None,
+        finished: None,
+        detached,
+        reported: false,
+    });
+    let (state, app, from, to, msg, ask_id) =
+        (Arc::clone(state), app.clone(), from.to_string(), to.to_string(), msg.to_string(), id.clone());
+    tokio::spawn(async move {
+        let (outcome, text) = match run_ask(&state, &app, &ask_id, &from, &to, &msg, timeout).await {
+            Ok(r) => r,
+            Err(e) => (AskState::Exited, e),
+        };
+        asks.finish(&ask_id, outcome, text);
+    });
+    Ok(id)
+}
+
+/// `ask` without `--no-wait`: starts it and blocks until its outcome, then
+/// prints it as it always did (the screen, or the error/notice).
 pub async fn ask_one(
     state: &Arc<Mutex<PtyStateInner>>,
     app: &AppHandle,
@@ -296,11 +378,38 @@ pub async fn ask_one(
     msg: &str,
     timeout: Duration,
 ) -> Result<String, String> {
-    if msg.trim().is_empty() {
-        return Err("Error: empty prompt".into());
+    let id = start_ask(state, app, from, to, msg, timeout, false)?;
+    let asks = Arc::clone(&state.lock().unwrap().asks);
+    // run_ask always finishes by `timeout` (plus the boot wait); the margin
+    // only guards against a record that never settles
+    let bound = timeout + BOOT_WAIT + Duration::from_secs(5);
+    match asks.wait(from, std::slice::from_ref(&id), false, bound).await? {
+        crate::asks::WaitOutcome::Finished(mut v) => {
+            let r = v.remove(0);
+            let text = r.result.unwrap_or_default();
+            match r.state {
+                AskState::Done | AskState::Attention | AskState::Answered => Ok(text),
+                _ => Err(text),
+            }
+        }
+        _ => Err(format!("Error: lost track of ask {} — run `narrater wait {}`", id, id)),
     }
-    // A remote teammate still connecting (setup over SSH / docker exec) is
-    // waited for, like a local one booting
+}
+
+/// The heart of the protocol, agnostic to which AI runs in the target:
+/// type the prompt into its terminal when it's idle, wait until its screen
+/// says the turn is over, and return what it shows. If the target messages the
+/// caller back meanwhile (ask-back), that resolves this ask instead.
+/// Ok carries the outcome; Err means the target was unreachable or went away.
+async fn run_ask(
+    state: &Arc<Mutex<PtyStateInner>>,
+    app: &AppHandle,
+    ask_id: &str,
+    from: &str,
+    to: &str,
+    msg: &str,
+    timeout: Duration,
+) -> Result<(AskState, String), String> {
     let boot_deadline = tokio::time::Instant::now() + BOOT_WAIT;
     let (target_id, from_label, to_label) = loop {
         let starting = {
@@ -336,14 +445,17 @@ pub async fn ask_one(
         let _ = tx.send(notice_ask_back(&from_label));
     }
 
-    let ask_id = uuid::Uuid::new_v4().to_string();
     let (tx, mut rx) = oneshot::channel::<String>();
     let (delivered_tx, delivered_rx) = oneshot::channel::<()>();
-    state.lock().unwrap().ask_waiters.insert(ask_id.clone(), AskWaiter {
-        asker_id: from.to_string(),
-        target_id: target_id.clone(),
-        tx,
-    });
+    let asks = {
+        let mut inner = state.lock().unwrap();
+        inner.ask_waiters.insert(ask_id.to_string(), AskWaiter {
+            asker_id: from.to_string(),
+            target_id: target_id.clone(),
+            tx,
+        });
+        Arc::clone(&inner.asks)
+    };
     enqueue_message(state, app, &target_id, QueuedMsg {
         from_label: from_label.clone(),
         from_id: Some(from.to_string()),
@@ -362,7 +474,7 @@ pub async fn ask_one(
 
     let deadline = Instant::now() + timeout;
     let cleanup = |state: &Arc<Mutex<PtyStateInner>>| {
-        state.lock().unwrap().ask_waiters.remove(&ask_id);
+        state.lock().unwrap().ask_waiters.remove(ask_id);
     };
 
     // Phase 1: the prompt waits in the queue until the target is idle.
@@ -370,29 +482,30 @@ pub async fn ask_one(
         r = delivered_rx => {
             if r.is_err() {
                 cleanup(state);
-                return Err(format!("Error: the prompt to '{}' was cancelled before delivery", to_label));
+                return Ok((AskState::Cancelled, format!("Error: the prompt to '{}' was cancelled before delivery", to_label)));
             }
         }
         back = &mut rx => {
             // Answered by ask-back before our prompt even went in — it stays
             // queued and will still be delivered.
-            return back.map_err(|_| format!("Error: '{}' exited", to_label));
+            return back.map(|t| (AskState::Answered, t)).map_err(|_| format!("Error: '{}' exited", to_label));
         }
         _ = tokio::time::sleep_until(deadline.into()) => {
             cleanup(state);
             let me = from.to_string();
             let m = msg.to_string();
             withdraw_message(state, app, &target_id, move |q| q.from_id.as_deref() == Some(me.as_str()) && q.msg == m);
-            return Err(format!("Error: '{}' stayed busy and never took the prompt; it was withdrawn from its queue — try again later", to_label));
+            return Ok((AskState::Timeout, format!("Error: '{}' stayed busy and never took the prompt; it was withdrawn from its queue — try again later", to_label)));
         }
     }
     let delivered_at = Instant::now();
+    asks.delivered(ask_id);
 
     // Phase 2: wait for the turn to end, read from the screen.
     let result = loop {
         tokio::select! {
             back = &mut rx => {
-                break back.map_err(|_| format!("Error: '{}' exited before finishing", to_label));
+                break back.map(|t| (AskState::Answered, t)).map_err(|_| format!("Error: '{}' exited before finishing", to_label));
             }
             _ = tokio::time::sleep(POLL) => {
                 let snapshot = {
@@ -404,8 +517,8 @@ pub async fn ask_one(
                 };
                 if delivered_at.elapsed() >= MIN_TURN {
                     match turn {
-                        TurnState::Idle => break Ok(screen),
-                        TurnState::Attention => break Ok(notice_attention(&to_label, &screen)),
+                        TurnState::Idle => break Ok((AskState::Done, screen)),
+                        TurnState::Attention => break Ok((AskState::Attention, notice_attention(&to_label, &screen))),
                         TurnState::Working => {}
                     }
                 }
@@ -413,17 +526,17 @@ pub async fn ask_one(
                 // started the next one: answer with the screen at its end
                 // (the settle window rules out an idle right after delivery)
                 if let Some((_, text)) = last_idle.filter(|(at, _)| *at > delivered_at) {
-                    break Ok(text);
+                    break Ok((AskState::Done, text));
                 }
                 if Instant::now() >= deadline {
-                    break Err(notice_not_finished(&to_label));
+                    break Ok((AskState::Timeout, notice_not_finished(&to_label)));
                 }
             }
         }
     };
     cleanup(state);
 
-    if let Ok(text) = &result {
+    if let Ok((AskState::Done | AskState::Attention | AskState::Answered, text)) = &result {
         let mut shown: String = text.chars().take(LEDGER_REPLY_CAP).collect();
         if shown.len() < text.len() {
             shown.push('…');
@@ -447,6 +560,22 @@ async fn handle_batch(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtySt
         return "Error: --batch takes a JSON object of agent name → prompt\n".into();
     };
     let timeout = req.timeout_secs.map(Duration::from_secs).unwrap_or(ASK_DEFAULT_TIMEOUT);
+    if req.no_wait {
+        let arr: Vec<serde_json::Value> = batch
+            .into_iter()
+            .map(|(name, prompt)| {
+                let started = match prompt.as_str() {
+                    Some(p) => start_ask(state, app, &req.from, &name, p, timeout, true),
+                    None => Err("Error: the prompt must be a JSON string".into()),
+                };
+                match started {
+                    Ok(id) => serde_json::json!({ "name": name, "id": id }),
+                    Err(error) => serde_json::json!({ "name": name, "error": error.trim_start_matches("Error: ") }),
+                }
+            })
+            .collect();
+        return with_newline(serde_json::to_string_pretty(&arr).unwrap_or_default());
+    }
     let mut set = tokio::task::JoinSet::new();
     for (i, (name, prompt)) in batch.into_iter().enumerate() {
         let (state, app, from) = (Arc::clone(state), app.clone(), req.from.clone());
@@ -471,6 +600,95 @@ async fn handle_batch(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtySt
         })
         .collect();
     with_newline(serde_json::to_string_pretty(&arr).unwrap_or_default())
+}
+
+fn age(ms: u64) -> String {
+    let secs = now_ms().saturating_sub(ms) / 1000;
+    match secs {
+        0..=59 => format!("{}s ago", secs),
+        60..=3599 => format!("{}m ago", secs / 60),
+        3600..=86399 => format!("{}h ago", secs / 3600),
+        _ => format!("{}d ago", secs / 86400),
+    }
+}
+
+fn one_line(text: &str, max: usize) -> String {
+    let flat: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() <= max {
+        flat
+    } else {
+        flat.chars().take(max).collect::<String>() + "…"
+    }
+}
+
+/// `narrater wait [ids…] [--all] [--timeout S]`: the first ask to finish (or
+/// all of them), with its outcome.
+async fn handle_wait(req: &IpcRequest, state: &Arc<Mutex<PtyStateInner>>) -> String {
+    use crate::asks::WaitOutcome;
+    let timeout = req.timeout_secs.map(Duration::from_secs).unwrap_or(ASK_DEFAULT_TIMEOUT);
+    let asks = Arc::clone(&state.lock().unwrap().asks);
+    match asks.wait(&req.from, &req.ids, req.all, timeout).await {
+        Err(e) => with_newline(e),
+        Ok(WaitOutcome::Nothing) => {
+            "Nothing to wait for: no uncollected asks. Start one with `narrater ask \"Agent\" \"…\" --no-wait`; `narrater asks` lists yours.\n".into()
+        }
+        Ok(WaitOutcome::Pending(pending)) => {
+            let list: Vec<String> = pending
+                .iter()
+                .map(|r| format!("{} → {} ({}, sent {})", r.id, r.to_label, r.state.as_str(), age(r.created)))
+                .collect();
+            format!(
+                "Nothing finished within {}s. Still running: {}. Run `narrater wait` again to keep waiting; do NOT re-send.\n",
+                timeout.as_secs(),
+                list.join("; ")
+            )
+        }
+        Ok(WaitOutcome::Finished(done)) if req.all => {
+            let arr: Vec<serde_json::Value> = done
+                .into_iter()
+                .map(|r| {
+                    serde_json::json!({
+                        "id": r.id, "name": r.to_label, "state": r.state.as_str(), "output": r.result.unwrap_or_default(),
+                    })
+                })
+                .collect();
+            with_newline(serde_json::to_string_pretty(&arr).unwrap_or_default())
+        }
+        Ok(WaitOutcome::Finished(mut done)) => {
+            let r = done.remove(0);
+            with_newline(format!("[{}] {} · {}\n{}", r.id, r.to_label, r.state.as_str(), r.result.unwrap_or_default()))
+        }
+    }
+}
+
+/// `narrater asks [--all]`: the caller's asks, newest first.
+fn handle_asks(req: &IpcRequest, state: &Arc<Mutex<PtyStateInner>>) -> String {
+    let asks = Arc::clone(&state.lock().unwrap().asks);
+    let mine = asks.of(&req.from);
+    if mine.is_empty() {
+        return "You haven't asked anyone anything yet.\n".into();
+    }
+    let shown = if req.all { mine.len() } else { mine.len().min(15) };
+    let mut out: Vec<String> = mine[..shown]
+        .iter()
+        .map(|r| {
+            let uncollected = if r.detached && !r.reported && r.state.finished() { " · uncollected" } else { "" };
+            format!(
+                "{}  {}  {}{}  {}  \"{}\"",
+                r.id,
+                r.to_label,
+                r.state.as_str(),
+                uncollected,
+                age(r.created),
+                one_line(&r.prompt, 60)
+            )
+        })
+        .collect();
+    if shown < mine.len() {
+        out.push(format!("… {} older — `narrater asks --all`", mine.len() - shown));
+    }
+    out.push("`narrater wait <id>` prints an ask's outcome (and waits if it is still running).".into());
+    with_newline(out.join("\n"))
 }
 
 /// `ask --raw`: bytes straight into the target's terminal (menus, keys,

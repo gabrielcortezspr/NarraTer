@@ -11,6 +11,9 @@ Usage:
   narrater ask "Agent" "prompt"                    Send a prompt to a connected agent; returns its answer when it finishes
   narrater ask --batch '{"A": "prompt", "B": "prompt"}'
                                                    Ask several agents in parallel; JSON array once all finish
+  narrater ask "Agent" "prompt" --no-wait          Send without blocking; prints an ask id (also works with --batch)
+  narrater wait [id…] [--all] [--timeout S]        The first of your asks to finish, with its answer (--all: every one)
+  narrater asks [--all]                            Your recent asks, their ids and states
   narrater ask "Agent" --raw "2\n"                 Type raw input into the agent's terminal (menus, keys, shell input).
                                                    Escapes: \n Enter, \t Tab, \e ESC, \xNN byte (\x03 = Ctrl-C), e.g. \e[A up arrow
   narrater check "Agent"                           Read what the agent's terminal shows right now
@@ -78,15 +81,20 @@ backslash to send them literally (\\n delivers \n)."#;
 pub fn topic(name: &str) -> Option<&'static str> {
     Some(match name {
         "ask" => r#"Usage:
-  narrater ask "Agent" "prompt" [--timeout SECONDS]
-  narrater ask --batch '{"A": "prompt", "B": "prompt"}'
+  narrater ask "Agent" "prompt" [--timeout SECONDS] [--no-wait]
+  narrater ask --batch '{"A": "prompt", "B": "prompt"}' [--no-wait]
   narrater ask "Agent" --raw "2\n"
 
 `ask` types your prompt into the agent's terminal when it is idle and blocks
 until its turn is over, then prints what its terminal shows. Scale your shell
 tool timeout to the work: about 1 minute for something easy, up to 10 for a
-real task. If your timeout expires, do NOT re-send the prompt: run
-`narrater check "Agent"` to see the progress, then wait again.
+real task. If your timeout expires, do NOT re-send the prompt: the ask keeps
+running. `narrater asks` shows its id and state, and `narrater wait <id>`
+picks up its answer (`narrater check "Agent"` shows the progress meanwhile).
+
+--no-wait sends the prompt the same way but returns at once with an ask id,
+so you can keep working or delegate to several agents and then
+`narrater wait` for whichever finishes first. See `narrater help wait`.
 
 The ask back pattern: tell the agent to report with
 `narrater ask "Your Name" "<result>"` when it finishes (your name is under
@@ -96,12 +104,40 @@ one screen.
 
 --batch takes a JSON map of agent name to prompt, runs every target in
 parallel and returns a JSON array of {name, output} (or {name, error}) once
-all of them are done. Batch prompts use plain JSON string escaping.
+all of them are done. Batch prompts use plain JSON string escaping. With
+--no-wait it returns [{name, id}] at once instead.
 
 --raw types bytes straight into the terminal, for interactive menus and
 prompts that `ask` cannot drive, and prints the resulting screen.
 Escapes: \n Enter, \t Tab, \e ESC, \xNN byte (\x03 = Ctrl-C). Special keys
 are ESC sequences, e.g. \e[A up arrow, \e[Z Shift-Tab."#,
+        "wait" => r#"Usage:
+  narrater wait                       The next of your --no-wait asks to finish
+  narrater wait ask-1a2b3c [ask-…]    The first of these to finish (or a finished one at once)
+  narrater wait ask-1a2b3c ask-… --all  Once all of these finished: JSON array of {id, name, state, output}
+  Options: --timeout SECONDS (default 3600; scale it to your shell tool's limit)
+
+Prints `[id] Agent · state` and then the agent's answer — its screen at the
+end of its turn, or the notice for what happened instead. States: done,
+attention (stopped at a permission prompt or menu), answered (it messaged you
+back), timeout, exited, cancelled, unknown (NarraTer restarted mid-ask).
+
+Without ids it collects your --no-wait asks one by one: each answer is
+printed once, so call it again for the next. When nothing finishes in time it
+lists what is still running; just wait again — never re-send the prompt.
+
+The fan-out pattern:
+  narrater ask --batch '{"A": "task…", "B": "task…"}' --no-wait
+  narrater wait      # react to whichever finishes first
+  narrater wait      # then the next"#,
+        "asks" => r#"Usage:
+  narrater asks [--all]
+
+Your asks, newest first (15 unless --all): id, agent, state, age and the
+start of the prompt. "uncollected" marks a finished --no-wait ask whose
+answer you haven't read yet. Asks survive a NarraTer restart; one that was
+still running comes back as "unknown". `narrater wait <id>` prints the answer
+of any of them."#,
         "check" => r#"Usage:
   narrater check "Agent"
 
