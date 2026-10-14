@@ -83,3 +83,27 @@ Nó "Orca" no canvas, só leitura primeiro (`orca worktree ps --json`,
 `orca orchestration worker-list --json`); depois `narrater ask` atravessando para terminais do
 Orca via `terminal send --enter --wait-submit` + `terminal wait --for tui-idle` + `terminal read`.
 Sempre opcional.
+
+---
+
+## V · Visual e uso dos agentes
+
+Origem: [`pesquisa/visual.md`](pesquisa/visual.md).
+
+> Não iniciada. Estudo feito em 2026-10-14; aguardando as escolhas do usuário (acento, fonte, rota
+> de uso do Claude) antes de mudar código.
+
+**V1 · Tokens.** Refazer `src/index.css` em pares superfície/texto, com níveis base × elevado
+(canvas, painel, tile, popover), bordas em branco translúcido, texto em quatro níveis e o acento
+restrito a estado (seleção, foco, agente trabalhando).
+
+**V2 · Tiles e arestas.** Raio de ~10 px, cabeçalho integrado ao corpo, scrollbar discreta, texto
+do cabeçalho ≥ 11 px; arestas discretas que só ganham cor e movimento quando há conversa.
+
+**V3 · Barra lateral e moldura.** Barra lateral e toolbar como camada de controle translúcida
+(o equivalente web do material "regular": `backdrop-filter` com blur e luminosidade); atalhos
+saem da barra lateral.
+
+**V4 · Uso dos agentes.** Backend lê a porcentagem por CLI (Claude, Codex, Gemini primeiro) no
+modelo `usedPercent`/`windowMinutes`/`resetsAt`; o front mostra uma barra fina por janela (5 h,
+7 dias) no tile do agente e um resumo na moldura, com cinza < 60%, amarelo < 80%, vermelho acima.
