@@ -1,5 +1,6 @@
 import { memo, useState, useCallback, useRef, useEffect } from "react";
-import { Handle, Position, NodeResizer } from "@xyflow/react";
+import NodeHandles from "@/components/ui/NodeHandles";
+import { NodeResizer } from "@xyflow/react";
 import { X, Globe, RotateCw, ExternalLink, ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
 import { useCanvasStore } from "@/stores/canvas";
 import type { PortalNodeData } from "@/stores/canvas";
@@ -251,8 +252,9 @@ function PortalTile({ id, data, selected }: NodeProps<PortalNode>) {
         )}
       </div>
 
-      <Handle type="target" position={Position.Left} className="narrater-handle" />
-      <Handle type="source" position={Position.Right} className="narrater-handle" />
+      {/* Handles on all four sides, hidden until hover (D18) */}
+
+      <NodeHandles />
     </div>
   );
 }

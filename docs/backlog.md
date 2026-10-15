@@ -92,7 +92,8 @@ Origem: [`pesquisa/visual.md`](pesquisa/visual.md).
 
 > Em andamento. 2026-10-14: perfil "Palco" definido em [`design.md`](design.md) (D13–D16); V1
 > (tokens), V2 (tiles e arestas) e V3 (moldura em vidro, atalhos fora da barra lateral) aplicados;
-> capturas antes/depois em `pesquisa/img/`. Falta: V4 (uso), modo claro, revisar painéis
+> capturas antes/depois em `pesquisa/img/`. 2026-10-15: V4 feito para o Claude via statusline
+> (D17) e conexões viraram cordas com física (D18). Falta: uso de Codex e Gemini, modo claro, revisar painéis
 > secundários (chat, composer, role manager, paleta) peça por peça. Achado: no boot com tmux, a
 > resposta do terminal à consulta DA (`1;2c0;276;0c`) às vezes aparece digitada no prompt.
 
@@ -110,3 +111,12 @@ saem da barra lateral.
 **V4 · Uso dos agentes.** Backend lê a porcentagem por CLI (Claude, Codex, Gemini primeiro) no
 modelo `usedPercent`/`windowMinutes`/`resetsAt`; o front mostra uma barra fina por janela (5 h,
 7 dias) no tile do agente e um resumo na moldura, com cinza < 60%, amarelo < 80%, vermelho acima.
+Feito para o Claude (D17). Pendente: Codex (`codex app-server`, `account/rateLimits/read`) e
+Gemini (`retrieveUserQuota`).
+
+**V5 · Cordas, próximos passos.** Medir a física com dezenas de nós; evitar que uma corda fique
+presa entre dois nós próximos (escolher o lado do contorno pelo caminho mais curto); cordas
+paralelas entre o mesmo par não podem se sobrepor.
+
+**Achado (V4).** O texto que o vt100 extrai mostra os caracteres de desenho de linha DEC como
+`qqqq` nas respostas de `ask`; traduzir o conjunto G0 especial.

@@ -1,5 +1,6 @@
 import { memo, useState, useCallback } from "react";
-import { Handle, Position, NodeResizer } from "@xyflow/react";
+import NodeHandles from "@/components/ui/NodeHandles";
+import { NodeResizer } from "@xyflow/react";
 import { X } from "lucide-react";
 import { useCanvasStore } from "@/stores/canvas";
 import type { TextNodeData } from "@/stores/canvas";
@@ -66,8 +67,9 @@ lineStyle={{ borderColor: "transparent" }}
         onMouseDown={(e) => e.stopPropagation()}
       />
 
-      <Handle type="target" position={Position.Left} className="narrater-handle" />
-      <Handle type="source" position={Position.Right} className="narrater-handle" />
+      {/* Handles on all four sides, hidden until hover (D18) */}
+
+      <NodeHandles />
     </div>
   );
 }

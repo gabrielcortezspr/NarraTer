@@ -132,7 +132,7 @@ fn run(sc: &Scenario, rep: usize, out: &Path, work: &Path, tmux_fg: &str, tmux: 
         Kind::Claude { args, .. } => {
             let settings = work.join(format!("{}-{}.settings.json", sc.name, rep));
             let hook = |file: &Path| format!("date +%s%N >> {}", file.display());
-            let s = serde_json::json!({
+            let mut s = serde_json::json!({
                 "hooks": {
                     "Stop": [{ "hooks": [{ "type": "command", "command": hook(&oracle) }] }],
                     "Notification": [{ "hooks": [{ "type": "command", "command": hook(&notif) }] }],
@@ -140,6 +140,12 @@ fn run(sc: &Scenario, rep: usize, out: &Path, work: &Path, tmux_fg: &str, tmux: 
                     "PermissionRequest": [{ "hooks": [{ "type": "command", "command": hook(&perm) }] }],
                 }
             });
+            // NARRATER_EVAL_STATUSLINE=1: run with a status line configured (it hides the
+            // footer hints, `esc to interrupt` among them) that also saves the payload
+            if std::env::var_os("NARRATER_EVAL_STATUSLINE").is_some() {
+                let dump = work.join(format!("{}-{}.statusline.json", sc.name, rep));
+                s["statusLine"] = serde_json::json!({ "type": "command", "command": format!("cat > {}", dump.display()) });
+            }
             std::fs::write(&settings, s.to_string()).unwrap();
             let mut c = CommandBuilder::new("claude");
             c.args(["--model", "haiku", "--settings"]);

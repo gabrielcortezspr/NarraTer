@@ -62,7 +62,7 @@ struct IpcRequest {
     /// Terminal secret (env NARRATER_TOKEN) proving the `from` identity.
     #[serde(default)]
     token: Option<String>,
-    /// "ping" | "whoami" | "ask" | "batch" | "wait" | "asks" | "raw" | "check" | "canvas" | "portal" | "routine" | "workspace" | "chat"
+    /// "ping" | "whoami" | "ask" | "batch" | "wait" | "asks" | "usage" | "raw" | "check" | "canvas" | "portal" | "routine" | "workspace" | "chat"
     #[serde(default)]
     mode: Option<String>,
     /// Target agent name (label) or node id.
@@ -114,6 +114,7 @@ pub async fn start_ipc_server(
 ) {
     install_cli();
     install_skills();
+    crate::usage::install_claude_statusline();
     remove_legacy_files();
     remove_stale_socket_dirs();
 
@@ -203,6 +204,14 @@ pub async fn dispatch(ctx: &IpcCtx, buf: &[u8]) -> String {
             Some("raw") => handle_raw(&req, app, state).await,
             Some("wait") => handle_wait(&req, state).await,
             Some("asks") => handle_asks(&req, state),
+            Some("usage") => {
+                // `narrater usage-report`: a Claude Code status-line payload (usage.rs)
+                let payload = req.params.clone().unwrap_or(serde_json::Value::Null);
+                let usage = Arc::clone(&state.lock().unwrap().usage);
+                let event = usage.lock().unwrap().ingest_claude(&req.from, &payload, now_ms());
+                let _ = app.emit("agent_usage", event);
+                "ok\n".into()
+            }
             Some("check") => handle_check(&req, state),
             Some("canvas") => handle_canvas(&req, app, state).await,
             Some("chat") => {

@@ -214,6 +214,8 @@ pub struct PtyStateInner {
     pub booting: HashSet<String>,
     /// Every ask with its outcome, persisted (`narrater wait`, `narrater asks`)
     pub asks: Arc<crate::asks::AskStore>,
+    /// Agent usage reported through the Claude status line (usage.rs)
+    pub usage: Arc<Mutex<crate::usage::UsageState>>,
 }
 
 impl PtyStateInner {
@@ -241,6 +243,7 @@ impl Default for PtyState {
         PtyState(Arc::new(Mutex::new(PtyStateInner {
             links: crate::names::Links::load(),
             asks: Arc::new(crate::asks::AskStore::load(crate::asks::default_path())),
+            usage: Arc::new(Mutex::new(crate::usage::UsageState::load())),
             ..Default::default()
         })))
     }

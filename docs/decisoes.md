@@ -31,10 +31,11 @@ Cada entrada tem seis campos:
 | Comunicação entre agentes | D01, D02, D06, D08 |
 | Leitor de estado | D10, D11, D12 |
 | Persistência | D07 |
+| Uso dos agentes | D17 |
 | CLI e distribuição | D03 |
 | Escopo do produto | D04, D05 |
 | Processo | D09 |
-| Design | D13, D14, D15, D16 |
+| Design | D13, D14, D15, D16, D18 |
 
 ---
 
@@ -523,3 +524,110 @@ conexão só aparecem no hover do nó.
 (o mesmo da etapa O).
 
 **Revisar se:** usuários não perceberem que a aresta é clicável, ou não encontrarem as alças.
+
+## D17 · O uso do Claude vem da statusline, que o NarraTer embrulha sem nunca sobrescrever
+
+`2026-10-15` · uso dos agentes · `src-tauri/src/usage.rs`, `src-tauri/src/cli_core.rs` (`usage-report`), `src/stores/usage.ts`
+
+**Contexto.** Queremos mostrar a porcentagem das janelas de 5 h e 7 dias do plano do Claude e o
+contexto de cada sessão (V4). Havia duas rotas (`pesquisa/visual.md` §5): o endpoint OAuth de uso
+e o JSON que o Claude Code entrega à statusline a cada resposta.
+
+**Decisão.** Ficamos com a statusline. Na inicialização, o app instala
+`~/.local/share/narrater/claude-statusline.sh` em `statusLine.command` do `settings.json` do
+Claude. O script repassa o payload para `narrater usage-report`, que o envia ao backend pelo
+socket, no máximo uma vez a cada 2 s por terminal. Depois roda a statusline anterior do usuário
+com o mesmo payload, e a saída dela continua aparecendo. Regras do instalador (`usage::plan`):
+- slot vazio: instala;
+- slot com outro comando: embrulha (guarda o comando em `claude-statusline.user`);
+- slot já nosso: não mexe;
+- vazio depois de já termos instalado: o usuário tirou de propósito, e não reinstalamos (marcador
+  `claude-statusline.installed`).
+
+Um `settings.json` que não pode ser lido nunca é reescrito. Fora de um terminal do NarraTer
+(`NARRATER_ID` ausente), o script só roda o comando do usuário. Os limites do plano persistem em
+`~/.config/narrater/usage.json`.
+
+**Alternativas consideradas.**
+- *Endpoint OAuth (`/api/oauth/usage`)*: não exige configuração, mas o Orca registra 429 sob
+  polling, e ele lê o token de credenciais do usuário. A statusline já traz o dado a cada turno,
+  sem requisição extra.
+- *Política do Orca (não instalar se o usuário tem statusline)*: deixaria sem uso justamente quem
+  personalizou a statusline. Embrulhar preserva a saída dela.
+- *Hook do Claude*: os hooks não recebem `rate_limits`, e exigir hook fere D01. A statusline é
+  opcional: sem ela, o leitor de estado continua funcionando (D06).
+
+**Evidência.**
+- `[citado]` documentação oficial da statusline do Claude Code. O payload tem
+  `context_window.used_percentage`, `cost.total_cost_usd`, `model.display_name` e
+  `rate_limits.five_hour/seven_day.{used_percentage,resets_at}`; `rate_limits` só existe em
+  Pro/Max, depois da primeira resposta. A execução tem debounce de 300 ms. Uma statusline própria
+  esconde as dicas do rodapé, inclusive "esc to interrupt".
+- `[medido]` impacto no leitor de estado (D12). Comando: `NARRATER_EVAL_STATUSLINE=1 cargo run
+  --release --example turn_eval -- --reps 3 --claude` (Claude Code 2.1.300, este container).
+  Resultado: 12/12 corretos, 0 prematuros, latência ociosa de 455–628 ms, contra 466–670 ms sem
+  statusline. "esc to interrupt" aparece 0 vezes na tela, contra 560 sem. A regra do título (D11)
+  cobre o rodapé perdido. Transcrição: `tests/transcripts/claude-2.1.300-statusline-silent-tool.*`.
+- `[observado]` ponta a ponta no app real sob Xvfb:
+  - o instalador preservou `"theme": "dark"`;
+  - o Claude do tile Dev disparou o script;
+  - `usage.json` recebeu five_hour 0% e seven_day 7%;
+  - a barra lateral mostrou "Claude 5-hour 0%, Weekly 7%", e o tile mostrou o anel de contexto
+    "4%".
+- `[citado]` testes `usage::tests` (slot nunca sobrescrito; payload documentado; sessão por chave
+  de API sem limites mas com contexto).
+
+**Consequência.** Mexemos num arquivo de configuração do usuário (com backup implícito em
+`.user`). Com statusline, o rodapé perde "esc to interrupt", e o leitor depende mais do título.
+Codex e Gemini ainda não têm rota.
+
+**Revisar se:** o Claude Code deixar de mandar `rate_limits` à statusline ou passar a mandá-los
+aos hooks; o leitor errar com statusline numa versão nova (rodar o `turn_eval` acima); ou usuários
+reclamarem do embrulho.
+
+## D18 · Conexões são cordas com física: qualquer borda, contornam os nós, balançam e dormem
+
+`2026-10-15` · design · `src/lib/rope.ts`, `src/lib/useRope.ts`, `src/components/{AgentPipeEdge,AgentNoteEdge,RopeEdge}`, `src/components/ui/NodeHandles.tsx`
+
+**Contexto.** As arestas saíam só das alças esquerda e direita e eram uma Bézier fixa. Com nós
+acima ou abaixo, a curva dava voltas, e os terminais passavam por cima do traço.
+
+**Decisão.** Cada conexão é uma corda simulada:
+- Verlet com restrições de distância, folga de 5%, gravidade leve, amortecimento 0,9 e
+  12 iterações;
+- as pontas ficam no ponto da borda voltado para o centro do outro nó (qualquer lado), e isso é
+  recalculado quando os nós se movem;
+- os pontos internos são empurrados para fora das caixas de todos os nós, com 16 px de folga;
+- o caminho é desenhado com Catmull-Rom → Bézier;
+- a simulação só roda enquanto algo se move e dorme depois de 18 quadros calmos;
+- `prefers-reduced-motion` resolve direto, sem animar.
+
+Alças nos quatro lados e `ConnectionMode.Loose`: dá para soltar a conexão em qualquer borda.
+
+**Alternativas consideradas.**
+- *Bézier com alças fixas (antes)*: é a causa do problema.
+- *Roteamento ortogonal (estilo diagrama)*: contorna bem, mas fica rígido e técnico, contra o
+  perfil "Palco" (D13). Também exige um roteador global (A* em grade) a cada movimento.
+- *Desenhar as arestas acima dos nós*: o traço passaria por cima do conteúdo do terminal.
+- *Biblioteca de física (matter.js e afins)*: dependência grande para cerca de 20 pontos por
+  corda.
+
+**Evidência.**
+- `[medido]` `node --experimental-strip-types scripts/rope-check.ts`, com três cenários (nada no
+  caminho, um terminal no meio, dois terminais):
+  - 0 pontos dentro de obstáculos e 0 segmentos cruzando;
+  - assenta em 50–119 quadros;
+  - âncoras nos lados certos.
+- `[observado]` app real sob Xvfb. A corda Lead↔Dev contorna a nota "Plano". Ao arrastar Dev, as
+  âncoras trocam de lado, e a corda balança e assenta (`pesquisa/img/cordas.gif`,
+  `pesquisa/img/narrater-v4-cordas.png`).
+- `[inferido]` o custo é baixo: a simulação é O(pontos × obstáculos × iterações) e só roda em
+  movimento. Não medimos com mais de 10 nós.
+
+**Consequência.** O caminho é escrito direto no SVG (sem render do React por quadro). Uma corda
+pode ficar presa entre dois nós muito próximos (o empurrão vai para o lado mais perto, sem
+planejar a rota). Os ids das alças mudaram (`top|right|bottom|left` e `*-in`); as arestas antigas
+continuam desenhando, porque a corda ignora a alça.
+
+**Revisar se:** o canvas com dezenas de nós perder quadros ao arrastar; cordas ficarem presas ou
+cruzarem nós em layouts reais; ou usuários preferirem rotas retas.

@@ -101,6 +101,11 @@ estado diz *como está*; os dois nunca dividem a mesma forma (ícone × ponto).
 
 Regra: em repouso o grafo é só desenho; quem diz o que está acontecendo é o movimento.
 
+**Cordas (D18).** Toda conexão é uma corda: sai do ponto da borda voltado para o outro nó
+(qualquer lado), pende com folga leve, contorna os outros nós com 16 px de respiro em vez de
+passar por baixo deles, balança quando um nó é arrastado e para quando assenta. As alças ficam
+nos quatro lados, e uma conexão pode ser solta em qualquer borda.
+
 ## Tiles
 
 - Superfície `--surface`, raio 12 px, borda `--line`, fio de identidade de 1 px no topo.
@@ -128,5 +133,8 @@ Regra: em repouso o grafo é só desenho; quem diz o que está acontecendo é o 
 
 ## Uso dos agentes (etapa V4)
 
-Barra fina (4 px) por janela (5 h, 7 dias) no tile do agente e resumo na moldura; cor da barra em
-`--text-3` até 60%, `--queue` até 80%, `--danger` acima; porcentagem em `tabular-nums`.
+Implementado para o Claude (D17). Na barra lateral, a seção **Usage** mostra uma barra fina (4 px)
+por janela do plano (5 h, semanal), com porcentagem, a hora do reset e a idade do dado. No
+cabeçalho do tile, um anel de 14 px mostra o contexto usado pela sessão, e o tooltip traz modelo,
+custo e as janelas do plano. A cor fica em `--text-3` até 60%, `--queue` até 80% e `--danger`
+acima. A porcentagem usa `tabular-nums`.

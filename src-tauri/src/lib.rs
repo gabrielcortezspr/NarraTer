@@ -15,6 +15,7 @@ mod pty;
 mod roles;
 mod routines;
 mod scene;
+mod usage;
 pub mod screen;
 mod workspaces;
 
@@ -56,6 +57,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            usage::usage_snapshot,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

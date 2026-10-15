@@ -1,3 +1,4 @@
+import { initUsage } from "@/stores/usage";
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import Canvas from "@/components/Canvas";
@@ -76,6 +77,9 @@ export default function App() {
 
     // NarraTer Chat: agent replies → panel + unread badges
     initChat().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
+
+    // Agent usage from the Claude status line → tile meters and sidebar
+    initUsage().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
     // Workspace layout changes made by agents → sidebar
     initWorkspaceEvents().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));

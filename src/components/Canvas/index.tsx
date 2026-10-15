@@ -13,7 +13,10 @@ import {
   type Connection,
   type XYPosition,
   type Viewport,
+  ConnectionMode,
+  ConnectionLineType,
 } from "@xyflow/react";
+import RopeEdge from "@/components/RopeEdge";
 import { useShallow } from "zustand/react/shallow";
 import { scheduleTerminalZoomSync } from "@/lib/terminalManager";
 import "@xyflow/react/dist/style.css";
@@ -60,9 +63,11 @@ const nodeTypes = {
   portal: PortalTile,
 } satisfies NodeTypes;
 
+// Every connection is a rope (D18); "default" covers terminal ↔ portal/files…
 const edgeTypes = {
   "agent-note": AgentNoteEdge,
   "agent-pipe": AgentPipeEdge,
+  default: RopeEdge,
 } satisfies EdgeTypes;
 
 // Modifier-free tool shortcuts, Figma style.
@@ -347,6 +352,9 @@ function CanvasInner() {
         zoomOnScroll={!drawMode}
         nodesDraggable={!drawMode}
         nodesConnectable={!drawMode}
+        connectionMode={ConnectionMode.Loose}
+        connectionLineType={ConnectionLineType.Straight}
+        connectionRadius={28}
         className="bg-canvas-bg"
         proOptions={{ hideAttribution: true }}
       >

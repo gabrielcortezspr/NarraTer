@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useCallback, useState } from "react";
-import { Handle, Position, NodeResizer, useStore } from "@xyflow/react";
+import NodeHandles from "@/components/ui/NodeHandles";
+import { NodeResizer, useStore } from "@xyflow/react";
 import { X, FolderOpen, Clock, Plug, RotateCcw, Crown, MessageSquare, SquarePen } from "lucide-react";
 import { useComposerStore } from "@/stores/composer";
 import { useChatStore } from "@/stores/chat";
@@ -12,6 +13,8 @@ import type { SessionStatus } from "@/stores/terminals";
 import { openInEditor, ptyQueueCancel } from "@/lib/tauri";
 import type { QueueItem } from "@/lib/tauri";
 import IconButton from "@/components/ui/IconButton";
+import { ContextRing } from "@/components/UsageMeter";
+import { useUsageStore, formatReset } from "@/stores/usage";
 import { toast } from "@/stores/toasts";
 import { EDITORS } from "@/lib/editors";
 import type { TerminalNodeData } from "@/stores/canvas";
@@ -77,6 +80,8 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   const queuePending = queueItems.length;
   const routines = useRoutinesStore((s) => s.routines);
   const myRoutines = routines.filter((r) => r.target_id === id && r.status === "enabled");
+  const sessionUsage = useUsageStore((s) => s.sessions[id]);
+  const claudePlan = useUsageStore((s) => (agentType === "claude" ? s.providers.claude : undefined));
   const [showEditorMenu, setShowEditorMenu] = useState(false);
   const [showQueueMenu, setShowQueueMenu] = useState(false);
 
@@ -236,6 +241,22 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
           </span>
         )}
 
+        {/* Context window of this session (Claude status line → usage.rs) */}
+        {sessionUsage?.context_percent != null && (
+          <ContextRing
+            pct={sessionUsage.context_percent}
+            title={[
+              `Context ${Math.round(sessionUsage.context_percent)}% used`,
+              sessionUsage.model,
+              sessionUsage.cost_usd != null ? `$${sessionUsage.cost_usd.toFixed(2)} this session (estimate)` : null,
+              claudePlan?.five_hour
+                ? `Plan · 5h ${Math.round(claudePlan.five_hour.used_percent)}%${claudePlan.five_hour.resets_at ? ` (resets ${formatReset(claudePlan.five_hour.resets_at)})` : ""}`
+                : null,
+              claudePlan?.seven_day ? `Plan · 7d ${Math.round(claudePlan.seven_day.used_percent)}%` : null,
+            ].filter(Boolean).join("\n")}
+          />
+        )}
+
         {/* NarraTer Chat (agents answer with `narrater say`) — unread stays visible */}
         {agentType !== "shell" && (
           <button
@@ -346,10 +367,8 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
           </button>
         </div>
       )}
-
-      {/* Connection handles: hidden until the tile is hovered (index.css) */}
-      <Handle type="target" position={Position.Left} className="narrater-handle" />
-      <Handle type="source" position={Position.Right} className="narrater-handle" />
+      {/* Handles on all four sides, hidden until hover (D18) */}
+      <NodeHandles />
     </div>
   );
 }

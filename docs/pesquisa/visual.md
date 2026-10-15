@@ -90,8 +90,12 @@
 
 ## 5. Uso (porcentagem) por CLI
 
-`[citado]` `src/main/rate-limits/` do Orca. Nenhuma rota foi testada aqui: este container usa o
-Claude Code com chave de API (sem janelas de assinatura) e não tem Codex nem Gemini.
+`[citado]` `src/main/rate-limits/` do Orca. Este container não tem Codex nem Gemini.
+
+> **Correção (2026-10-15).** A versão anterior desta seção dizia que este container usa o Claude
+> Code com chave de API, sem janelas de assinatura. Estava errado. `[observado]` O payload da
+> statusline aqui traz `rate_limits` reais (5 h 0%, 7 dias 7%), ou seja, é uma conta de plano. A
+> rota (b) foi a escolhida e está implementada (D17).
 
 | CLI | De onde vem | Observação |
 |---|---|---|
@@ -113,3 +117,9 @@ Modelo de dados comum do Orca (`shared/rate-limit-types.ts`): por janela, `usedP
 - depois, com dois agentes trabalhando e uma mensagem na fila: `img/narrater-depois-ativo.png`.
 
 O perfil está em [`../design.md`](../design.md); as decisões em D13–D16.
+
+## 7. Uso e cordas (2026-10-15)
+
+`[observado]` No app real: a barra lateral com o uso do Claude e o anel de contexto no tile
+(`img/narrater-v4-cordas.png`), e as cordas contornando a nota e balançando ao arrastar um
+terminal (`img/cordas.gif`). Decisões em D17 e D18.
