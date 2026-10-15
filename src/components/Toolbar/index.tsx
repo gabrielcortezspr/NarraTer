@@ -148,7 +148,7 @@ export default function Toolbar({ onTerminal, onAttachment }: Props) {
           onClick={() => toggleActivity()}
           title="Activity — states, asks and messages (Ctrl+J)"
           className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
-            activityOpen ? "bg-accent/15 text-accent-text" : "text-ink-2 hover:bg-hover hover:text-ink"
+            activityOpen ? "bg-accent/20 text-accent-text" : "text-ink-2 hover:bg-hover hover:text-ink"
           }`}
         >
           <Activity size={14} />

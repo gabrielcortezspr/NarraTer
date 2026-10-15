@@ -141,10 +141,18 @@ fizeram (D21):
 - na lista, o mais novo em cima, com uma linha por evento: ponto de cor, horário em `tabular-nums`,
   quem, o quê.
 
-Cores dos pontos (cor é estado): trabalhando `--accent`, pronto `--ok`, precisa de você `--warn`,
-pedido em trânsito `--info`, nota "a tela parece ociosa, o transcript diz que não" `--queue`, falha
-`--danger`. Pedido e resposta aparecem recolhidos em 2 linhas e desdobram no clique. Trocas de estado
-desfeitas em menos de 2 s ficam escondidas, com um contador para exibi-las.
+Cores dos pontos (cor é estado, nunca enfeite):
+- pedido na fila `--queue`; pedido entregue (a fala atravessando) `--accent`; trabalhando `--accent`;
+- pronto `--ok`; precisa de você `--warn`; falha ou saída `--danger`;
+- o que não é estado (nota, mensagem, início) fica neutro em `--text-3`;
+- filtro ativo é seleção, então usa `bg-accent/20`; o ícone do título fica neutro.
+
+Tipografia: título 15 px; linhas 12 px; meta (horário, duração, contadores) 11 px em `tabular-nums`,
+que é o piso da moldura. Inter no texto, e JetBrains Mono só no `#id` do ask.
+
+Pedido e resposta aparecem recolhidos em 2 linhas e desdobram no clique. Trocas de estado desfeitas em
+menos de 2 s ficam escondidas, com um contador para exibi-las. O painel entra em 180 ms com
+`--ease`, sem animação com `prefers-reduced-motion`.
 
 ## Uso dos agentes (etapa V4)
 
