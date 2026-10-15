@@ -19,3 +19,13 @@ turnos_devs,A-B,1,0.300
 turnos_devs,B-C,4,1.000
 turnos_devs,C-D,1.5,0.300
 turnos_devs,A-D,0,0.100
+duracao_min,D-E,6,0.700
+duracao_min,E-E-sl0,8,0.200
+processados_k,D-E,6,0.700
+processados_k,E-E-sl0,7,0.400
+custo_usd,D-E,6,0.700
+custo_usd,E-E-sl0,7,0.400
+pedidos_lider,D-E,5.5,0.800
+pedidos_lider,E-E-sl0,9,0.100
+turnos_devs,D-E,6,0.600
+turnos_devs,E-E-sl0,9,0.100
