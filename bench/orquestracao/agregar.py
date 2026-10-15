@@ -55,6 +55,11 @@ def linha(m):
         "deteccao_s": m["latencias"]["deteccao_mediana_s"] if m["latencias"]["deteccao_mediana_s"] is not None else "",
         "volta_s": m["latencias"]["volta_mediana_s"] if m["latencias"]["volta_mediana_s"] is not None else "",
         "retorno_s": m["latencias"]["retorno_mediana_s"] if m["latencias"]["retorno_mediana_s"] is not None else "",
+        "paralelo_frac": round(m["latencias"]["paralelo_s"] / m["duracao_s"], 2) if m["duracao_s"] else "",
+        "ocupacao_devs_frac": round(sum(m["latencias"]["ocupado_s"].values()) / (2 * m["duracao_s"]), 2) if m["duracao_s"] else "",
+        "so_lider_min": round((m["duracao_s"] - m["latencias"]["algum_dev_s"]) / 60, 2) if m["duracao_s"] else "",
+        "algum_dev_min": round(m["latencias"]["algum_dev_s"] / 60, 2),
+        "turnos_devs": sum(m["latencias"]["rodadas_dev"].values()),
         "linhas_diff": m["diff"]["linhas_adicionadas"] + m["diff"]["linhas_removidas"],
     }
     for a in AGENTES:
@@ -66,6 +71,8 @@ def linha(m):
         row[f"{a}_api"] = ag.get("chamadas_api", 0)
         row[f"{a}_edicoes"] = ag.get("edicoes", 0)
         row[f"{a}_custo"] = ag.get("custo_usd") or 0
+        for k in ("coordenacao", "verificacao", "leitura", "edicao"):
+            row[f"{a}_{k}"] = ag.get("atividade", {}).get(k, 0)
     return row
 
 
@@ -156,8 +163,15 @@ def main():
         ("Detecção: fim do turno $\\to$ resposta ao líder bloqueado (s)", "deteccao_s", "{:.1f}"),
         ("Fala de volta: dev envia $\\to$ tela do líder (s)", "volta_s", "{:.1f}"),
         ("Retorno: fim do turno $\\to$ líder sabe (s)", "retorno_s", "{:.1f}"),
-        ("Edições feitas pelo Narrador", "edicoes_lider", "{:.1f}"),
-        ("Escritas via Bash do Narrador", "escritas_bash_lider", "{:.1f}"),
+        ("Tempo com algum dev trabalhando (min)", "algum_dev_min", "{:.1f}"),
+        ("Tempo só do Narrador (min)", "so_lider_min", "{:.1f}"),
+        ("Turnos de trabalho dos devs (soma)", "turnos_devs", "{:.1f}"),
+        ("Ocupação média dos devs (fração da duração)", "ocupacao_devs_frac", "{:.2f}"),
+        ("Fração do tempo com os dois devs trabalhando", "paralelo_frac", "{:.2f}"),
+        ("Narrador: chamadas de coordenação", "Narrador_coordenacao", "{:.1f}"),
+        ("Narrador: rodou os testes", "Narrador_verificacao", "{:.1f}"),
+        ("Narrador: leituras de código", "Narrador_leitura", "{:.1f}"),
+        ("Narrador: edições", "Narrador_edicao", "{:.1f}"),
         ("Edições de DevA", "DevA_edicoes", "{:.1f}"),
         ("Edições de DevB", "DevB_edicoes", "{:.1f}"),
     ])

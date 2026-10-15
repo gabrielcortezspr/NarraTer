@@ -61,6 +61,8 @@ def metricas_sessao(jsonl: Path):
     mensageria = {}
     edicoes = 0
     escritas_bash = 0
+    # O que o agente fez com as ferramentas: coordenar, verificar (rodar testes), ler, editar
+    atividade = {"coordenacao": 0, "verificacao": 0, "leitura": 0, "edicao": 0, "outros": 0}
     compactacoes = 0
     recebidas = {}
     prompts = 0
@@ -113,6 +115,17 @@ def metricas_sessao(jsonl: Path):
                 k = eh_mensageria(nome, entrada)
                 if k:
                     mensageria[k] = mensageria.get(k, 0) + 1
+                cmd = entrada.get("command", "") if nome == "Bash" else ""
+                if k or nome in ("ToolSearch", "Skill"):
+                    atividade["coordenacao"] += 1
+                elif "unittest" in cmd or "pytest" in cmd or "python3 -m pedidos" in cmd:
+                    atividade["verificacao"] += 1
+                elif nome in ("Edit", "Write", "MultiEdit", "NotebookEdit") or ESCRITA_BASH.search(cmd):
+                    atividade["edicao"] += 1
+                elif nome in ("Read", "Glob", "Grep") or re.match(r"\s*(cd [^&;]+(&&|;)\s*)?(cat|sed -n|head|tail|grep|ls|git (diff|status|log)|find|wc)\b", cmd):
+                    atividade["leitura"] += 1
+                else:
+                    atividade["outros"] += 1
         mid = msg.get("id")
         if not mid or mid in vistos or not msg.get("usage"):
             continue
@@ -140,6 +153,7 @@ def metricas_sessao(jsonl: Path):
         "mensageria": mensageria,
         "edicoes": edicoes,
         "escritas_bash": escritas_bash,
+        "atividade": atividade,
         "avisos_timeout": erros_ask,
         "primeiro": min(tempos) if tempos else None,
         "ultimo": max(tempos) if tempos else None,
@@ -302,8 +316,39 @@ def latencias(linhas: dict):
             rec = [t for t, tipo, d in lider if tipo == "recebe" and d["de"] == dev and t >= te - 1]
             if rec:
                 volta.append(min(rec) - te)
+    # Ocupação: um dev está trabalhando do momento em que recebe uma fala até o fim do turno.
+    # Paralelo = tempo com os dois devs trabalhando ao mesmo tempo.
+    intervalos = {}
+    for dev in devs:
+        ini = None
+        for t, tipo, d in linhas[dev]:
+            if tipo == "recebe" and ini is None:
+                ini = t
+            elif tipo == "fim_turno" and ini is not None:
+                intervalos.setdefault(dev, []).append((ini, t))
+                ini = None
+    ocupado = {dev: round(sum(b - a for a, b in iv), 1) for dev, iv in intervalos.items()}
+    paralelo = 0.0
+    if len(devs) == 2 and all(d in intervalos for d in devs):
+        for a0, a1 in intervalos[devs[0]]:
+            for b0, b1 in intervalos[devs[1]]:
+                paralelo += max(0.0, min(a1, b1) - max(a0, b0))
+    # União dos intervalos: tempo com pelo menos um dev trabalhando (o resto é só o líder)
+    todos = sorted(iv for ivs in intervalos.values() for iv in ivs)
+    uniao, cur = 0.0, None
+    for a, b in todos:
+        if cur and a <= cur[1]:
+            cur = (cur[0], max(cur[1], b))
+        else:
+            if cur:
+                uniao += cur[1] - cur[0]
+            cur = (a, b)
+    if cur:
+        uniao += cur[1] - cur[0]
     med = lambda xs: round(sorted(xs)[len(xs) // 2], 1) if xs else None
-    return {"deteccao_s": [round(x, 1) for x in deteccao], "deteccao_mediana_s": med(deteccao),
+    return {"ocupado_s": ocupado, "algum_dev_s": round(uniao, 1), "paralelo_s": round(paralelo, 1),
+            "rodadas_dev": {dev: len(iv) for dev, iv in intervalos.items()},
+            "deteccao_s": [round(x, 1) for x in deteccao], "deteccao_mediana_s": med(deteccao),
             "volta_s": [round(x, 1) for x in volta], "volta_mediana_s": med(volta),"entrega_s": [round(x, 1) for x in entrega], "retorno_s": [round(x, 1) for x in retorno],
             "entrega_mediana_s": med(entrega), "retorno_mediana_s": med(retorno)}
 
