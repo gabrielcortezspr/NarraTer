@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""Junta as métricas de todas as rodadas em CSVs e tabelas LaTeX para o relatório.
+
+Uso: agregar.py [SAIDA]   (padrão: docs/relatorios/dados)
+Lê $BENCH/runs/v?-r[1-9]*/metricas.json (rodada 0 = piloto, fica de fora).
+"""
+
+import csv
+import json
+import os
+import statistics as st
+import sys
+from pathlib import Path
+
+BENCH = Path(os.environ.get("BENCH", "/home/user/bench"))
+RAIZ = Path(__file__).resolve().parents[2]
+SAIDA = Path(sys.argv[1]) if len(sys.argv) > 1 else RAIZ / "docs/relatorios/dados"
+VERSOES = {"A": "e708d7b", "B": "16cee0e", "C": "95fb11a", "D": "db3d535"}
+AGENTES = ("Narrador", "DevA", "DevB")
+
+
+def carrega():
+    rodadas = []
+    for f in sorted(BENCH.glob("runs/v?-r*/metricas.json")):
+        m = json.loads(f.read_text())
+        if m["rep"] >= 1:
+            rodadas.append(m)
+    return rodadas
+
+
+def linha(m):
+    t = m["total"]
+    p = m["placar"]
+    o = p.get("oculto", {})
+    row = {
+        "versao": m["versao"], "rep": m["rep"], "concluiu": int(m["motivo"] == "concluida"),
+        "duracao_min": round(m["duracao_s"] / 60, 2) if m["duracao_s"] else "",
+        "oculto_ok": p.get("oculto_ok", 0), "oculto_total": p.get("oculto_total", 0),
+        **{f"oculto_{k.lower()}": o.get(k, {}).get("ok", 0) for k in ("Basico", "Bordas", "Defeitos", "Regressao")},
+        "proprios_ok": p.get("proprios_ok", 0), "proprios_total": p.get("proprios_total", 0),
+        "processados_k": round(t["tokens"].get("processados", 0) / 1000, 1),
+        "saida_k": round(t["tokens"].get("saida", 0) / 1000, 1),
+        "cache_lido_k": round(t["tokens"].get("cache_lido", 0) / 1000, 1),
+        "cache_criado_k": round(t["tokens"].get("cache_criado", 0) / 1000, 1),
+        "custo_usd": t["custo_usd"], "chamadas_api": t["chamadas_api"],
+        "mensagens": t["mensagens_entre_agentes"], "compactacoes": t["compactacoes"],
+        "edicoes_lider": t["edicoes_lider"], "escritas_bash_lider": t["escritas_bash_lider"],
+        "linhas_diff": m["diff"]["linhas_adicionadas"] + m["diff"]["linhas_removidas"],
+    }
+    for a in AGENTES:
+        ag = m["agentes"].get(a, {})
+        row[f"{a}_processados_k"] = round(ag.get("tokens", {}).get("processados", 0) / 1000, 1)
+        row[f"{a}_saida_k"] = round(ag.get("tokens", {}).get("saida", 0) / 1000, 1)
+        row[f"{a}_ctx0_k"] = round(ag.get("contexto_inicial", 0) / 1000, 1)
+        row[f"{a}_pico_k"] = round(ag.get("contexto_pico", 0) / 1000, 1)
+        row[f"{a}_api"] = ag.get("chamadas_api", 0)
+        row[f"{a}_edicoes"] = ag.get("edicoes", 0)
+        row[f"{a}_custo"] = ag.get("custo_usd") or 0
+    return row
+
+
+def resumo(rows, campo):
+    vals = [r[campo] for r in rows if r[campo] != ""]
+    if not vals:
+        return ("", "", "", "")
+    return (round(st.mean(vals), 2), min(vals), max(vals), round(st.stdev(vals), 2) if len(vals) > 1 else 0)
+
+
+def main():
+    rodadas = carrega()
+    if not rodadas:
+        sys.exit("nenhuma rodada com metricas.json")
+    SAIDA.mkdir(parents=True, exist_ok=True)
+    rows = [linha(m) for m in rodadas]
+    with open(SAIDA / "rodadas.csv", "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0]))
+        w.writeheader()
+        w.writerows(rows)
+
+    campos = [k for k in rows[0] if k not in ("versao", "rep")]
+    por_versao = []
+    for v in VERSOES:
+        rs = [r for r in rows if r["versao"] == v]
+        if not rs:
+            continue
+        d = {"versao": v, "idx": "ABCD".index(v), "n": len(rs)}
+        for c in campos:
+            media, mn, mx, dp = resumo(rs, c)
+            d[c] = media
+            d[c + "_min"] = mn
+            d[c + "_max"] = mx
+            d[c + "_dp"] = dp
+        por_versao.append(d)
+    with open(SAIDA / "versoes.csv", "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(por_versao[0]))
+        w.writeheader()
+        w.writerows(por_versao)
+
+    # Tabelas LaTeX: média e (mín–máx) por versão
+    def cel(d, c, fmt="{:.1f}"):
+        if d[c] == "":
+            return "--"
+        a, b = d[c + "_min"], d[c + "_max"]
+        return f"{fmt.format(d[c])} \\tiny({fmt.format(a)}--{fmt.format(b)})"
+
+    def tabela(nome, linhas):
+        with open(SAIDA / f"{nome}.tex", "w") as f:
+            for rotulo, c, fmt in linhas:
+                f.write(rotulo + " & " + " & ".join(cel(d, c, fmt) for d in por_versao) + " \\\\\n")
+
+    tabela("tab-resultado", [
+        ("Concluiu (fração)", "concluiu", "{:.2f}"),
+        ("Duração (min)", "duracao_min", "{:.1f}"),
+        ("Testes escondidos (de 31)", "oculto_ok", "{:.1f}"),
+        ("\\quad Básico (7)", "oculto_basico", "{:.1f}"),
+        ("\\quad Bordas (12)", "oculto_bordas", "{:.1f}"),
+        ("\\quad Defeitos (5)", "oculto_defeitos", "{:.1f}"),
+        ("\\quad Regressão (7)", "oculto_regressao", "{:.1f}"),
+        ("Testes da equipe", "proprios_total", "{:.0f}"),
+        ("Linhas no diff", "linhas_diff", "{:.0f}"),
+    ])
+    tabela("tab-tokens", [
+        ("Tokens processados (mil)", "processados_k", "{:.0f}"),
+        ("\\quad Narrador", "Narrador_processados_k", "{:.0f}"),
+        ("\\quad DevA", "DevA_processados_k", "{:.0f}"),
+        ("\\quad DevB", "DevB_processados_k", "{:.0f}"),
+        ("Tokens de saída (mil)", "saida_k", "{:.1f}"),
+        ("Custo de API equivalente (US\\$)", "custo_usd", "{:.2f}"),
+        ("Chamadas à API", "chamadas_api", "{:.0f}"),
+    ])
+    tabela("tab-contexto", [
+        ("Contexto inicial, Narrador (mil)", "Narrador_ctx0_k", "{:.1f}"),
+        ("Contexto inicial, DevA (mil)", "DevA_ctx0_k", "{:.1f}"),
+        ("Contexto inicial, DevB (mil)", "DevB_ctx0_k", "{:.1f}"),
+        ("Pico de contexto, Narrador (mil)", "Narrador_pico_k", "{:.1f}"),
+        ("Pico de contexto, DevA (mil)", "DevA_pico_k", "{:.1f}"),
+        ("Pico de contexto, DevB (mil)", "DevB_pico_k", "{:.1f}"),
+        ("Compactações", "compactacoes", "{:.1f}"),
+    ])
+    tabela("tab-coordenacao", [
+        ("Mensagens entre agentes", "mensagens", "{:.1f}"),
+        ("Chamadas à API do Narrador", "Narrador_api", "{:.1f}"),
+        ("Edições feitas pelo Narrador", "edicoes_lider", "{:.1f}"),
+        ("Escritas via Bash do Narrador", "escritas_bash_lider", "{:.1f}"),
+        ("Edições de DevA", "DevA_edicoes", "{:.1f}"),
+        ("Edições de DevB", "DevB_edicoes", "{:.1f}"),
+    ])
+    print(f"{len(rows)} rodadas → {SAIDA}")
+    for d in por_versao:
+        print(f"v{d['versao']} n={d['n']} dur={d['duracao_min']} oculto={d['oculto_ok']} proc={d['processados_k']}k "
+              f"US${d['custo_usd']} msgs={d['mensagens']}")
+
+
+if __name__ == "__main__":
+    main()

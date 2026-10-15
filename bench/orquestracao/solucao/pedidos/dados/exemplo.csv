@@ -1,0 +1,6 @@
+id,cliente,data,sku,qtd,preco_unit,categoria
+P-1001,Acme Ltda,03/02/2026,CAN-01,10,"4,50",papelaria
+P-1001,Acme Ltda,03/02/2026,LIV-07,2,"59,90",livros
+P-1002,Bruna Reis,05/02/2026,MOU-02,1,"129,00",eletronicos
+P-1003,Acme Ltda,12/02/2026,MON-27,1,"899,00",eletronicos
+P-1003,Acme Ltda,12/02/2026,CAB-03,2,"19,90",eletronicos
