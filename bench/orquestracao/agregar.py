@@ -17,6 +17,8 @@ RAIZ = Path(__file__).resolve().parents[2]
 SAIDA = Path(sys.argv[1]) if len(sys.argv) > 1 else RAIZ / "docs/relatorios/dados"
 VERSOES = {"A": "e708d7b", "B": "16cee0e", "C": "95fb11a", "D": "db3d535"}
 AGENTES = ("Narrador", "DevA", "DevB")
+CONSULTAS = {"check", "inbox", "wait", "asks", "list", "list_peers", "check_messages", "whoami", "peers",
+             "canvas_list_nodes", "status"}
 
 
 def carrega():
@@ -43,7 +45,11 @@ def linha(m):
         "cache_lido_k": round(t["tokens"].get("cache_lido", 0) / 1000, 1),
         "cache_criado_k": round(t["tokens"].get("cache_criado", 0) / 1000, 1),
         "custo_usd": t["custo_usd"], "chamadas_api": t["chamadas_api"],
-        "mensagens": t["mensagens_entre_agentes"], "compactacoes": t["compactacoes"],
+        "mensagens": t["mensagens_entre_agentes"],
+        # Chamadas de coordenação: toda chamada à CLI/MCP do NarraTer; consultas = as que só
+        # perguntam estado (check, inbox, wait, list...), que é onde um protocolo ruim gasta turnos
+        "coordenacao": sum(t["mensageria"].values()),
+        "consultas": sum(v for k, v in t["mensageria"].items() if k in CONSULTAS), "compactacoes": t["compactacoes"],
         "edicoes_lider": t["edicoes_lider"], "escritas_bash_lider": t["escritas_bash_lider"],
         "linhas_diff": m["diff"]["linhas_adicionadas"] + m["diff"]["linhas_removidas"],
     }
@@ -138,7 +144,9 @@ def main():
         ("Compactações", "compactacoes", "{:.1f}"),
     ])
     tabela("tab-coordenacao", [
-        ("Mensagens entre agentes", "mensagens", "{:.1f}"),
+        ("Mensagens entregues na tela de um agente", "mensagens", "{:.1f}"),
+        ("Chamadas de coordenação (CLI/MCP)", "coordenacao", "{:.1f}"),
+        ("\\quad das quais consultas de estado", "consultas", "{:.1f}"),
         ("Chamadas à API do Narrador", "Narrador_api", "{:.1f}"),
         ("Edições feitas pelo Narrador", "edicoes_lider", "{:.1f}"),
         ("Escritas via Bash do Narrador", "escritas_bash_lider", "{:.1f}"),

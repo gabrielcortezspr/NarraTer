@@ -1,0 +1,60 @@
+% Relatório: comparação da orquestração de agentes entre versões do NarraTer.
+% Compilar: cd docs/relatorios && pdflatex orquestracao-versoes.tex (duas vezes).
+% Os números vêm de dados/ (gerado por bench/orquestracao/agregar.py); não edite os .tex de dados.
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{lmodern}
+\usepackage[margin=2.3cm]{geometry}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{pgfplots}
+\usepackage{pgfplotstable}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{float}
+\pgfplotsset{compat=1.18}
+\setlist{itemsep=2pt}
+
+\definecolor{va}{HTML}{8A8F98}
+\definecolor{vb}{HTML}{4F7FD9}
+\definecolor{vc}{HTML}{8F7CFF}
+\definecolor{vd}{HTML}{2E9E6B}
+\newcommand{\rot}[1]{\textsf{\small[#1]}}
+
+\title{Orquestração de agentes no NarraTer:\\ comparação entre quatro versões}
+\author{Gabriel Cortez \and Claude Code}
+\date{15 de outubro de 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\input{texto/resumo.tex}
+\end{abstract}
+
+\section{Objetivo}
+\input{texto/objetivo.tex}
+
+\section{Versões comparadas}
+\input{texto/versoes.tex}
+
+\section{Método}
+\input{texto/metodo.tex}
+
+\section{Resultados}
+\input{texto/resultados.tex}
+
+\section{Discussão}
+\input{texto/discussao.tex}
+
+\section{Ameaças à validade}
+\input{texto/ameacas.tex}
+
+\section{Como reproduzir}
+\input{texto/reproduzir.tex}
+
+\end{document}
