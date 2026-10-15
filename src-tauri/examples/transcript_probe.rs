@@ -9,7 +9,7 @@ fn main() {
         std::process::exit(2);
     };
     let text = std::fs::read_to_string(file).expect("ler transcript");
-    let needle: String = msg.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(100).collect();
+    let needle: String = msg.split_whitespace().collect::<Vec<_>>().join(" ");
     match answer_in(&text, &needle) {
         Found::Answer(a) => println!("{}", a),
         Found::Pending => println!("<pendente>"),

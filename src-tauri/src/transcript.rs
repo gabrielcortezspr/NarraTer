@@ -42,6 +42,9 @@ pub fn claude_project_dir(cwd: &Path) -> Option<PathBuf> {
 pub struct Anchor {
     files: HashMap<PathBuf, u64>,
     dirs: Vec<PathBuf>,
+    /// This terminal's own transcript (status line, D17): read first, it
+    /// can't be another agent's.
+    hint: Option<PathBuf>,
 }
 
 impl Anchor {
@@ -61,6 +64,7 @@ impl Anchor {
             }
         }
         if let Some(h) = hint {
+            a.hint = Some(h.to_path_buf());
             let len = fs::metadata(h).map(|m| m.len()).unwrap_or(0);
             a.files.entry(h.to_path_buf()).or_insert(len);
             if let Some(parent) = h.parent() {
@@ -84,10 +88,14 @@ impl Anchor {
                 }
                 let len = e.metadata().map(|m| m.len()).unwrap_or(0);
                 let from = self.files.get(&p).copied().unwrap_or(0);
-                if len > from {
+                if len > from && !out.iter().any(|(q, _)| q == &p) {
                     out.push((p, from));
                 }
             }
+        }
+        // The terminal's own transcript first
+        if let Some(h) = &self.hint {
+            out.sort_by_key(|(p, _)| p != h);
         }
         out
     }
@@ -139,9 +147,11 @@ fn squash(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// What identifies our prompt: the start of the message we delivered.
+/// What identifies our prompt: the whole message we delivered. Only its
+/// start isn't enough — an `ask --batch` often sends prompts that begin the
+/// same way to two agents sharing a folder (real case, benchmark F, round 2).
 fn needle_of(msg: &str) -> String {
-    squash(msg).chars().take(100).collect()
+    squash(msg)
 }
 
 /// A user record that is a typed/pasted prompt (not a tool result) and its text.
@@ -352,6 +362,24 @@ mod tests {
         ]
         .join("\n");
         assert_eq!(answer_in(&t, &needle_of("faça X")), Found::Missing);
+    }
+
+    /// Real case (benchmark F, round 2): an `ask --batch` sent DevA and DevB
+    /// prompts with the same first 100+ characters; both agents write to the
+    /// same role folder. Each ask must get its own agent's answer.
+    #[test]
+    fn two_agents_in_one_folder_with_the_same_prompt_start() {
+        let dir = std::env::temp_dir().join(format!("narrater-transcript-batch-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        let comum = "Projeto: /home/user/bench/runs/vF-r2/work/pedidos (leia REGRAS.md, docs/RECLAMACOES.md, docs/PEDIDO-MULTIMOEDA.md). ";
+        let msg_a = format!("{comum}Sua parte: importação e a reclamação 2.");
+        let msg_b = format!("{comum}Sua parte: preço, câmbio e a reclamação 1.");
+        let anchor = Anchor::take(Some(&dir), None);
+        fs::write(dir.join("a.jsonl"), [user(&format!("[narrater from Narrador]: {msg_a}")), assistant("a1", serde_json::json!([{"type": "text", "text": "resposta do DevA"}]), Some("end_turn"))].join("\n") + "\n").unwrap();
+        fs::write(dir.join("b.jsonl"), [user(&format!("[narrater from Narrador]: {msg_b}")), assistant("b1", serde_json::json!([{"type": "text", "text": "resposta do DevB"}]), Some("end_turn"))].join("\n") + "\n").unwrap();
+        assert_eq!(final_answer(&anchor, &msg_a), Found::Answer("resposta do DevA".into()));
+        assert_eq!(final_answer(&anchor, &msg_b), Found::Answer("resposta do DevB".into()));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
