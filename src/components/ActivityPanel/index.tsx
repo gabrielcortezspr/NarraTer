@@ -124,12 +124,11 @@ const Row = memo(function Row({ e, onAsk, onAgent }: { e: ActivityEvent; onAsk: 
         <div className="pl-[22px] mt-0.5">
           {e.detail && <div className="text-[10px] text-ink-muted">{e.detail}</div>}
           {hasText && (
-            <button
-              onClick={() => setOpen((v) => !v)}
-              className={`w-full text-left text-[10.5px] text-ink-2 whitespace-pre-wrap break-words font-mono ${open ? "block" : "line-clamp-2"}`}
-              title={open ? "Fold" : "Unfold"}
-            >
-              {e.text}
+            <button onClick={() => setOpen((v) => !v)} className="block w-full text-left" title={open ? "Fold" : "Unfold"}>
+              {/* The clamp goes on a div: WebKit ignores -webkit-box on a button */}
+              <div className={`text-[10.5px] text-ink-2 whitespace-pre-wrap break-words font-mono ${open ? "" : "line-clamp-2"}`}>
+                {e.text}
+              </div>
             </button>
           )}
         </div>
