@@ -15,6 +15,7 @@ mod pty;
 mod roles;
 mod routines;
 mod scene;
+pub mod transcript;
 mod usage;
 pub mod screen;
 mod workspaces;

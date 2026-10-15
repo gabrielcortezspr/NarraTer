@@ -207,6 +207,12 @@ pub async fn dispatch(ctx: &IpcCtx, buf: &[u8]) -> String {
             Some("usage") => {
                 // `narrater usage-report`: a Claude Code status-line payload (usage.rs)
                 let payload = req.params.clone().unwrap_or(serde_json::Value::Null);
+                // The payload names the session's transcript: the exact file an ask reads (O5)
+                if let Some(path) = payload.get("transcript_path").and_then(|p| p.as_str()).filter(|p| p.ends_with(".jsonl")) {
+                    if let Some(s) = state.lock().unwrap().sessions.get_mut(&req.from) {
+                        s.transcript_hint = Some(std::path::PathBuf::from(path));
+                    }
+                }
                 let usage = Arc::clone(&state.lock().unwrap().usage);
                 let event = usage.lock().unwrap().ingest_claude(&req.from, &payload, now_ms());
                 let _ = app.emit("agent_usage", event);
@@ -454,6 +460,17 @@ async fn run_ask(
         let _ = tx.send(notice_ask_back(&from_label));
     }
 
+    // O5: before the prompt can reach the target, note where its transcripts
+    // end — the answer is whatever comes after our prompt (screen = fallback)
+    let anchor = {
+        let inner = state.lock().unwrap();
+        inner.sessions.get(&target_id).and_then(|s| {
+            (s.transcript_dir.is_some() || s.transcript_hint.is_some())
+                .then(|| (s.transcript_dir.clone(), s.transcript_hint.clone()))
+        })
+    }
+    .map(|(dir, hint)| crate::transcript::Anchor::take(dir.as_deref(), hint.as_deref()));
+
     let (tx, mut rx) = oneshot::channel::<String>();
     let (delivered_tx, delivered_rx) = oneshot::channel::<()>();
     let asks = {
@@ -526,7 +543,7 @@ async fn run_ask(
                 };
                 if delivered_at.elapsed() >= MIN_TURN {
                     match turn {
-                        TurnState::Idle => break Ok((AskState::Done, screen)),
+                        TurnState::Idle => break Ok((AskState::Done, answer_or(anchor.as_ref(), msg, screen).await)),
                         TurnState::Attention => break Ok((AskState::Attention, notice_attention(&to_label, &screen))),
                         TurnState::Working => {}
                     }
@@ -535,7 +552,7 @@ async fn run_ask(
                 // started the next one: answer with the screen at its end
                 // (the settle window rules out an idle right after delivery)
                 if let Some((_, text)) = last_idle.filter(|(at, _)| *at > delivered_at) {
-                    break Ok((AskState::Done, text));
+                    break Ok((AskState::Done, answer_or(anchor.as_ref(), msg, text).await));
                 }
                 if Instant::now() >= deadline {
                     break Ok((AskState::Timeout, notice_not_finished(&to_label)));
@@ -561,6 +578,36 @@ async fn run_ask(
         });
     }
     result
+}
+
+/// How long the transcript may lag behind the screen saying the turn ended.
+const TRANSCRIPT_GRACE: Duration = Duration::from_millis(3000);
+
+/// The ask's answer: the target's whole final message from its transcript
+/// when we can find it (O5), else the screen as before.
+async fn answer_or(anchor: Option<&crate::transcript::Anchor>, msg: &str, screen: String) -> String {
+    use crate::transcript::{final_answer, Found};
+    let Some(anchor) = anchor else { return screen };
+    let until = Instant::now() + TRANSCRIPT_GRACE;
+    let mut missing_since: Option<Instant> = None;
+    loop {
+        match final_answer(anchor, msg) {
+            Found::Answer(a) => return a,
+            // Our prompt isn't in any transcript: not a Claude we can read
+            // (or not flushed yet — give it a second)
+            Found::Missing => {
+                let since = *missing_since.get_or_insert_with(Instant::now);
+                if since.elapsed() >= Duration::from_secs(1) {
+                    return screen;
+                }
+            }
+            Found::Pending => missing_since = None,
+        }
+        if Instant::now() >= until {
+            return screen;
+        }
+        tokio::time::sleep(POLL).await;
+    }
 }
 
 /// `ask --batch`: every target in parallel; JSON array once all are done.

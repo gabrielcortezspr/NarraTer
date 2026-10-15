@@ -110,6 +110,11 @@ pub struct PtySession {
     /// (with the time of the last failed lookup, to retry sparingly).
     pane_pid: Option<i32>,
     pane_lookup_failed: Option<Instant>,
+    /// Claude Code on this machine: where it keeps this terminal's transcripts
+    /// (`~/.claude/projects/<spawn dir>/`). An ask reads its answer there (O5).
+    pub transcript_dir: Option<PathBuf>,
+    /// The exact transcript, when the status line reported it (D17).
+    pub transcript_hint: Option<PathBuf>,
 }
 
 /// A terminal's tmux session: local, or in its remote environment.
@@ -522,6 +527,8 @@ pub async fn pty_spawn(
 
     let key = crate::environments::session_key(&id);
     let mut tmux_session = None;
+    let is_claude = agent_type == "claude"
+        || std::path::Path::new(&program).file_name().is_some_and(|n| n == "claude");
     let (mut cmd, project_dir, spawn_dir) = match &remote {
         Some(r) => {
             let mut cmd = CommandBuilder::new(&r.argv[0]);
@@ -663,6 +670,8 @@ pub async fn pty_spawn(
             tmux: tmux_session,
             pane_pid: None,
             pane_lookup_failed: None,
+            transcript_dir: (is_claude && remote.is_none()).then(|| crate::transcript::claude_project_dir(&spawn_dir)).flatten(),
+            transcript_hint: None,
         });
     }
 

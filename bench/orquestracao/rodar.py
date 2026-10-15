@@ -102,8 +102,14 @@ def cena(versao: str, work: Path) -> dict:
     return {"nodes": nodes, "edges": edges}
 
 
+# Variante de um experimento de ablação, ex. BENCH_VARIANTE=sl0 (statusline desligada).
+# Vai no nome da rodada (vD-sl0-r1), fora do glob v?-r* do estudo principal.
+VARIANTE = os.environ.get("BENCH_VARIANTE", "")
+
+
 def prepara(versao: str, rep: int) -> Path:
-    run = BENCH / "runs" / f"v{versao}-r{rep}"
+    nome = f"v{versao}-{VARIANTE}-r{rep}" if VARIANTE else f"v{versao}-r{rep}"
+    run = BENCH / "runs" / nome
     if run.exists():
         shutil.rmtree(run)
     home, work = run / "home", run / "work" / "pedidos"
@@ -129,6 +135,10 @@ def prepara(versao: str, rep: int) -> Path:
         "hasCompletedOnboarding": True, "theme": "dark", "bypassPermissionsModeAccepted": True,
         "projects": {str(work): {"hasTrustDialogAccepted": True}},
     }))
+    if VARIANTE == "sl0":
+        # O instalador da statusline (D17) respeita o opt-out: marcador presente + slot vazio = não instala
+        (home / ".local/share/narrater").mkdir(parents=True, exist_ok=True)
+        (home / ".local/share/narrater/claude-statusline.installed").write_text("bench: statusline desligada\n")
     (home / ".config/narrater/scenes/default.json").write_text(json.dumps(cena(versao, work), ensure_ascii=False, indent=1))
     return run
 
@@ -232,7 +242,7 @@ def main():
     subprocess.run(["git", "add", "-A"], cwd=work, check=False)
     with open(run / "diff.patch", "w") as f:
         subprocess.run(["git", "diff", "--cached", "HEAD", "--", ".", ":(exclude).narrater"], cwd=work, stdout=f, check=False)
-    resumo = {"versao": versao, "rep": rep, "motivo": motivo, "inicio": inicio, "fim": fim,
+    resumo = {"versao": versao, "rep": rep, "variante": VARIANTE, "motivo": motivo, "inicio": inicio, "fim": fim,
               "duracao_s": (fim - inicio) if (fim and inicio) else None}
     (run / "rodada.json").write_text(json.dumps(resumo, indent=1))
     print(f"[bench] {json.dumps(resumo)}", flush=True)

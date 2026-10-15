@@ -28,5 +28,6 @@ Estudos de outros projetos (skill `pesquisa`). Um arquivo por assunto.
 | [`pesquisa/maestri.md`](pesquisa/maestri.md) | Como o Maestri faz agentes de qualquer fornecedor conversarem; origem do protocolo atual | 2026-10-01 |
 | [`pesquisa/orca.md`](pesquisa/orca.md) | Arquitetura do Orca, correlação com o NarraTer; §6 orquestração; §7 como ler a saída do worker além da tela (transcript, cursor) | 2026-10-15 |
 | [`pesquisa/leitor-de-estado.md`](pesquisa/leitor-de-estado.md) | Como saber que um agente terminou: CAO (AWS), Orca, o método de medição (`turn_eval`) e os resultados antes/depois | 2026-10-14 |
+| [`pesquisa/agent-teams.md`](pesquisa/agent-teams.md) | Agent Teams do Claude Code: caixa de correio, lista de tarefas com dependências, resposta final empurrada; o que reaproveitar sem quebrar a D01 | 2026-10-15 |
 | [`pesquisa/comparacao-versoes.md`](pesquisa/comparacao-versoes.md) | Benchmark de orquestração entre versões (A–D): tokens, contexto, tempo e trabalho feito; relatório em `relatorios/orquestracao-versoes.pdf` | 2026-10-15 |
 | [`pesquisa/visual.md`](pesquisa/visual.md) | Visual: HIG da Apple, tokens do Orca, Maestri, diagnóstico do NarraTer e de onde vem a porcentagem de uso de cada CLI | 2026-10-14 |
