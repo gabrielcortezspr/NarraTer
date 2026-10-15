@@ -366,6 +366,57 @@ def latencias(linhas: dict):
             "entrega_mediana_s": med(entrega), "retorno_mediana_s": med(retorno)}
 
 
+def fins_de_turno(jsonl: Path):
+    """[(início, fim)] de cada turno pedido a um agente: o fim é o registro system/turn_duration
+    do Claude Code ou o próximo pedido."""
+    out, cur = [], None
+    for linha in jsonl.read_text(errors="replace").splitlines():
+        try:
+            ev = json.loads(linha)
+        except json.JSONDecodeError:
+            continue
+        if ev.get("type") == "user" and isinstance(ev.get("message", {}).get("content"), str) and not ev.get("isMeta"):
+            if cur and cur[1] is None:
+                cur[1] = ts(ev["timestamp"])
+            cur = [ts(ev["timestamp"]), None]
+            out.append(cur)
+        elif ev.get("type") == "system" and ev.get("subtype") == "turn_duration" and cur and cur[1] is None:
+            cur[1] = ts(ev["timestamp"])
+    return out
+
+
+def prematuros(run: Path):
+    """Asks dados como prontos mais de 1 s antes do fim real do turno do alvo (asks.jsonl, versões C+).
+    O fim real vem do transcript do alvo; é a medida direta de "ocioso antes da hora"."""
+    asks_f = run / "home/.config/narrater/asks.jsonl"
+    if not asks_f.exists():
+        return None
+    ultimo = {}
+    for linha in asks_f.read_text().splitlines():
+        try:
+            d = json.loads(linha)
+        except json.JSONDecodeError:
+            continue
+        ultimo[d["id"]] = d
+    turnos = {}
+    for label, sessoes in agentes(run).items():
+        for _, sid in sessoes:
+            for f in (run / "home/.claude/projects").glob(f"*/{sid}.jsonl"):
+                turnos.setdefault(label, []).extend(fins_de_turno(f))
+    total, adiantados = 0, []
+    for d in ultimo.values():
+        if d.get("state") != "done" or not d.get("delivered") or not d.get("finished"):
+            continue
+        entregue, pronto = d["delivered"] / 1000, d["finished"] / 1000
+        cands = [t for t in turnos.get(d.get("to_label"), []) if entregue - 1 <= t[0] <= entregue + 5 and t[1]]
+        if not cands:
+            continue
+        total += 1
+        if pronto < cands[0][1] - 1.0:
+            adiantados.append(round(cands[0][1] - pronto, 1))
+    return {"asks": total, "prematuros": len(adiantados), "adiantamento_s": adiantados}
+
+
 def analisa(run: Path):
     rodada = json.loads((run / "rodada.json").read_text())
     placar = json.loads((run / "placar.json").read_text() or "{}")
@@ -416,6 +467,7 @@ def analisa(run: Path):
             "escritas_bash_lider": por_agente.get("Narrador", {}).get("escritas_bash", 0),
         },
         "latencias": latencias(linhas),
+        "prematuros": prematuros(run),
     }
     (run / "metricas.json").write_text(json.dumps(out, ensure_ascii=False, indent=1))
     return out
