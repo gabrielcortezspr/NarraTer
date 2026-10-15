@@ -528,6 +528,7 @@ async fn run_ask(
     asks.delivered(ask_id);
 
     // Phase 2: wait for the turn to end, read from the screen.
+    let mut check = TranscriptCheck::default();
     let result = loop {
         tokio::select! {
             back = &mut rx => {
@@ -543,16 +544,24 @@ async fn run_ask(
                 };
                 if delivered_at.elapsed() >= MIN_TURN {
                     match turn {
-                        TurnState::Idle => break Ok((AskState::Done, answer_or(anchor.as_ref(), msg, screen).await)),
+                        TurnState::Idle => match check.settle(anchor.as_ref(), msg) {
+                            Settle::Answer(a) => break Ok((AskState::Done, a)),
+                            Settle::Screen => break Ok((AskState::Done, screen)),
+                            Settle::KeepWaiting => {}
+                        },
                         TurnState::Attention => break Ok((AskState::Attention, notice_attention(&to_label, &screen))),
-                        TurnState::Working => {}
+                        TurnState::Working => check.reset(),
                     }
                 }
                 // Our turn ended between polls and a queued prompt already
                 // started the next one: answer with the screen at its end
                 // (the settle window rules out an idle right after delivery)
                 if let Some((_, text)) = last_idle.filter(|(at, _)| *at > delivered_at) {
-                    break Ok((AskState::Done, answer_or(anchor.as_ref(), msg, text).await));
+                    match check.settle(anchor.as_ref(), msg) {
+                        Settle::Answer(a) => break Ok((AskState::Done, a)),
+                        Settle::Screen => break Ok((AskState::Done, text)),
+                        Settle::KeepWaiting => {}
+                    }
                 }
                 if Instant::now() >= deadline {
                     break Ok((AskState::Timeout, notice_not_finished(&to_label)));
@@ -580,33 +589,50 @@ async fn run_ask(
     result
 }
 
-/// How long the transcript may lag behind the screen saying the turn ended.
-const TRANSCRIPT_GRACE: Duration = Duration::from_millis(3000);
+/// How long the transcript may lag behind the screen (our prompt not written
+/// yet, or not a transcript we can read) before the screen answers.
+const TRANSCRIPT_GRACE: Duration = Duration::from_secs(1);
+/// The screen says idle but the transcript says the turn is still running:
+/// trust the transcript this long (a premature "done" made the lead stop
+/// trusting `ask` in the E benchmark), then fall back to the screen.
+const TRANSCRIPT_OVERRIDE: Duration = Duration::from_secs(120);
 
-/// The ask's answer: the target's whole final message from its transcript
-/// when we can find it (O5), else the screen as before.
-async fn answer_or(anchor: Option<&crate::transcript::Anchor>, msg: &str, screen: String) -> String {
-    use crate::transcript::{final_answer, Found};
-    let Some(anchor) = anchor else { return screen };
-    let until = Instant::now() + TRANSCRIPT_GRACE;
-    let mut missing_since: Option<Instant> = None;
-    loop {
+/// What an ask does when the screen says the turn ended (O5).
+enum Settle {
+    Answer(String),
+    Screen,
+    KeepWaiting,
+}
+
+/// Reconciles the screen's "idle" with the transcript, when there is one.
+#[derive(Default)]
+struct TranscriptCheck {
+    missing_since: Option<Instant>,
+    pending_since: Option<Instant>,
+}
+
+impl TranscriptCheck {
+    fn settle(&mut self, anchor: Option<&crate::transcript::Anchor>, msg: &str) -> Settle {
+        use crate::transcript::{final_answer, Found};
+        let Some(anchor) = anchor else { return Settle::Screen };
         match final_answer(anchor, msg) {
-            Found::Answer(a) => return a,
-            // Our prompt isn't in any transcript: not a Claude we can read
-            // (or not flushed yet — give it a second)
+            Found::Answer(a) => Settle::Answer(a),
             Found::Missing => {
-                let since = *missing_since.get_or_insert_with(Instant::now);
-                if since.elapsed() >= Duration::from_secs(1) {
-                    return screen;
-                }
+                self.pending_since = None;
+                let since = *self.missing_since.get_or_insert_with(Instant::now);
+                if since.elapsed() >= TRANSCRIPT_GRACE { Settle::Screen } else { Settle::KeepWaiting }
             }
-            Found::Pending => missing_since = None,
+            Found::Pending => {
+                self.missing_since = None;
+                let since = *self.pending_since.get_or_insert_with(Instant::now);
+                if since.elapsed() >= TRANSCRIPT_OVERRIDE { Settle::Screen } else { Settle::KeepWaiting }
+            }
         }
-        if Instant::now() >= until {
-            return screen;
-        }
-        tokio::time::sleep(POLL).await;
+    }
+
+    /// The screen went back to working: start counting afresh next time.
+    fn reset(&mut self) {
+        *self = TranscriptCheck::default();
     }
 }
 

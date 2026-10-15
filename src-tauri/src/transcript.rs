@@ -93,12 +93,13 @@ impl Anchor {
     }
 }
 
-/// What the end of the turn looks like in a transcript.
+/// What the transcript says about the turn that answers our prompt.
 #[derive(Debug, PartialEq)]
 pub enum Found {
     /// The agent's final answer for our prompt.
     Answer(String),
-    /// Our prompt is there but the turn's last message isn't written yet.
+    /// Our prompt is there and the turn hasn't ended: the agent is still
+    /// working, whatever the screen says.
     Pending,
     /// No transcript received our prompt.
     Missing,
@@ -176,12 +177,22 @@ pub fn answer_in(jsonl: &str, needle: &str) -> Found {
     let mut ended = false;
     for v in &records[start + 1..] {
         if prompt_text(v).is_some() {
-            break; // the next prompt: our turn is over
+            // The next prompt (or an interruption): our turn is over
+            ended = true;
+            break;
+        }
+        // Claude Code closes every turn with this record
+        if v.get("type").and_then(|t| t.as_str()) == Some("system")
+            && v.get("subtype").and_then(|t| t.as_str()) == Some("turn_duration")
+        {
+            ended = true;
+            break;
         }
         if v.get("type").and_then(|t| t.as_str()) != Some("assistant") {
             continue;
         }
         let Some(blocks) = v.pointer("/message/content").and_then(|c| c.as_array()) else { continue };
+        let mut has_text = false;
         for b in blocks {
             match b.get("type").and_then(|t| t.as_str()) {
                 Some("tool_use") => texts.clear(), // narration before a tool isn't the answer
@@ -189,18 +200,27 @@ pub fn answer_in(jsonl: &str, needle: &str) -> Found {
                     if let Some(t) = b.get("text").and_then(|t| t.as_str()) {
                         if !t.trim().is_empty() {
                             texts.push(t.trim_end().to_string());
+                            has_text = true;
                         }
                     }
                 }
                 _ => {}
             }
         }
-        if v.pointer("/message/stop_reason").and_then(|s| s.as_str()) == Some("end_turn") {
+        // Each block is its own record and all carry the message's stop
+        // reason: the thinking block says end_turn ~15 s before the text is
+        // written (real case, benchmark E). Only a text block with end_turn
+        // counts, for versions that don't write turn_duration.
+        if has_text && v.pointer("/message/stop_reason").and_then(|s| s.as_str()) == Some("end_turn") {
             ended = true;
         }
     }
-    if !ended || texts.is_empty() {
+    if !ended {
         return Found::Pending;
+    }
+    if texts.is_empty() {
+        // Over, but with nothing to say (interrupted): the screen tells more
+        return Found::Missing;
     }
     // Each block may be written several times while streaming: keep the last copy of each
     texts.dedup();
@@ -288,6 +308,50 @@ mod tests {
         writeln!(more, "{}", assistant("m1", serde_json::json!([{"type": "text", "text": "novo"}]), Some("end_turn"))).unwrap();
         assert_eq!(final_answer(&anchor, "status?"), Found::Answer("novo".into()));
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Real case (benchmark E, round 2): the screen said DevA was idle at
+    /// 15:40:37.7, 5 s after delivery; a thinking block with end_turn came at
+    /// 15:40:47.7 and the answer text only at 15:41:03.1 (turn_duration right
+    /// after). Pending at both earlier moments; whole, the answer.
+    #[test]
+    fn a_real_premature_idle_is_pending_in_the_transcript() {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/transcripts/claude-2.1.300-ask-prematuro.jsonl");
+        let full = fs::read_to_string(path).unwrap();
+        let needle = needle_of("Projeto: /home/user/bench/runs/vE-r2/work/pedidos. NÃO altere nada ainda.");
+        let at_premature: String = full
+            .lines()
+            .filter(|l| {
+                let v: serde_json::Value = serde_json::from_str(l).unwrap();
+                v["timestamp"].as_str().unwrap() <= "2026-10-15T15:40:37.731Z"
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(answer_in(&at_premature, &needle), Found::Pending);
+        let at_thinking: String = full
+            .lines()
+            .filter(|l| {
+                let v: serde_json::Value = serde_json::from_str(l).unwrap();
+                v["timestamp"].as_str().unwrap() <= "2026-10-15T15:40:50.000Z"
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(answer_in(&at_thinking, &needle), Found::Pending);
+        match answer_in(&full, &needle) {
+            Found::Answer(a) => assert!(a.len() > 200, "a resposta inteira: {a}"),
+            other => panic!("esperava a resposta, veio {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_interrupted_turn_falls_back_to_the_screen() {
+        let t = [
+            user("[narrater from Narrador]: faça X"),
+            assistant("m1", serde_json::json!([{"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}]), Some("tool_use")),
+            user("[Request interrupted by user]"),
+        ]
+        .join("\n");
+        assert_eq!(answer_in(&t, &needle_of("faça X")), Found::Missing);
     }
 
     #[test]
