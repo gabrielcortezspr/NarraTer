@@ -152,7 +152,8 @@ export default function ActivityPanel() {
   const terminal = useActivityStore((s) => s.terminal);
   const ask = useActivityStore((s) => s.ask);
   const kind = useActivityStore((s) => s.kind);
-  const { setOpen, setTerminal, setAsk, setKind, clear } = useActivityStore.getState();
+  const showFlips = useActivityStore((s) => s.showFlips);
+  const { setOpen, setTerminal, setAsk, setKind, setShowFlips, clear } = useActivityStore.getState();
 
   const nodes = useCanvasStore((s) => s.nodes);
   const sessions = useTerminalsStore((s) => s.sessions);
@@ -163,7 +164,10 @@ export default function ActivityPanel() {
         .map((n) => ({ id: n.id, label: (n.data as { label?: string }).label ?? n.id })),
     [nodes]
   );
-  const shown = useMemo(() => visibleEvents({ events, terminal, ask, kind }), [events, terminal, ask, kind]);
+  const { shown, flips } = useMemo(
+    () => visibleEvents({ events, terminal, ask, kind, showFlips }),
+    [events, terminal, ask, kind, showFlips]
+  );
 
   if (!open) return null;
 
@@ -227,15 +231,28 @@ export default function ActivityPanel() {
             {k.label}
           </button>
         ))}
-        {ask && (
-          <button
-            onClick={() => setAsk(null)}
-            className="ml-auto flex items-center gap-1 h-6 px-2 rounded-md text-[10.5px] bg-info/15 text-ink-2 hover:bg-info/25"
-            title="Show every ask again"
-          >
-            #{short(ask)} <X size={10} />
-          </button>
-        )}
+        <div className="ml-auto flex items-center gap-1">
+          {(flips > 0 || showFlips) && (
+            <button
+              onClick={() => setShowFlips(!showFlips)}
+              className={`h-6 px-2 rounded-md text-[10.5px] transition-colors ${
+                showFlips ? "bg-raised text-ink" : "text-ink-muted hover:text-ink-2 hover:bg-hover"
+              }`}
+              title="States undone within 2 s (agents booting, redraws). The log on disk keeps them."
+            >
+              {showFlips ? "Hide quick flips" : `+${flips} quick flips`}
+            </button>
+          )}
+          {ask && (
+            <button
+              onClick={() => setAsk(null)}
+              className="flex items-center gap-1 h-6 px-2 rounded-md text-[10.5px] bg-info/15 text-ink-2 hover:bg-info/25"
+              title="Show every ask again"
+            >
+              #{short(ask)} <X size={10} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Log, newest first */}

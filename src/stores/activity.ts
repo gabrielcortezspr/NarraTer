@@ -18,11 +18,14 @@ interface ActivityStore {
   /** Only the events of one ask (its request, delivery, notes and answer). */
   ask: string | null;
   kind: ActivityKind;
+  /** Show state flips undone within FLIP_MS (agents booting, redraws). */
+  showFlips: boolean;
   toggle: () => void;
   setOpen: (open: boolean) => void;
   setTerminal: (id: string | null) => void;
   setAsk: (id: string | null) => void;
   setKind: (k: ActivityKind) => void;
+  setShowFlips: (v: boolean) => void;
   clear: () => Promise<void>;
 }
 
@@ -32,11 +35,13 @@ export const useActivityStore = create<ActivityStore>((set) => ({
   terminal: null,
   ask: null,
   kind: "all",
+  showFlips: false,
   toggle: () => set((s) => ({ open: !s.open })),
   setOpen: (open) => set({ open }),
   setTerminal: (terminal) => set({ terminal, ask: null }),
   setAsk: (ask) => set({ ask }),
   setKind: (kind) => set({ kind }),
+  setShowFlips: (showFlips) => set({ showFlips }),
   clear: async () => {
     await activityClear();
     set({ events: [], ask: null });
@@ -54,17 +59,37 @@ const KIND_OF: Record<ActivityEvent["kind"], ActivityKind> = {
   message: "message",
 };
 
-/** The events the panel shows with the current filters, newest first. */
-export function visibleEvents(s: Pick<ActivityStore, "events" | "terminal" | "ask" | "kind">): ActivityEvent[] {
-  const out: ActivityEvent[] = [];
+/** A state that another state of the same terminal replaced within this long
+ * is a flip: agents booting or redrawing. The file keeps it; the panel folds it. */
+export const FLIP_MS = 2000;
+
+/** The events the panel shows with the current filters, newest first, and how
+ * many quick state flips were folded away. */
+export function visibleEvents(
+  s: Pick<ActivityStore, "events" | "terminal" | "ask" | "kind" | "showFlips">
+): { shown: ActivityEvent[]; flips: number } {
+  const shown: ActivityEvent[] = [];
+  let flips = 0;
+  // Newest first: remember, per terminal, when its next (newer) state came
+  const nextState = new Map<string, number>();
   for (let i = s.events.length - 1; i >= 0; i--) {
     const e = s.events[i];
+    let flip = false;
+    if (e.kind === "state") {
+      const next = nextState.get(e.terminal);
+      flip = next !== undefined && next - e.ts < FLIP_MS;
+      nextState.set(e.terminal, e.ts);
+    }
     if (s.ask && e.ask !== s.ask) continue;
     if (s.terminal && e.terminal !== s.terminal && e.peer !== s.terminal) continue;
     if (s.kind !== "all" && KIND_OF[e.kind] !== s.kind) continue;
-    out.push(e);
+    if (flip && !s.showFlips) {
+      flips++;
+      continue;
+    }
+    shown.push(e);
   }
-  return out;
+  return { shown, flips };
 }
 
 /** Loads the recent log and follows `agent_activity`; returns the unlistener. */
