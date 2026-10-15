@@ -1,4 +1,6 @@
 import { initUsage } from "@/stores/usage";
+import { initActivity } from "@/stores/activity";
+import ActivityPanel from "@/components/ActivityPanel";
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import Canvas from "@/components/Canvas";
@@ -81,6 +83,9 @@ export default function App() {
     // Agent usage from the Claude status line → tile meters and sidebar
     initUsage().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
+    // Activity log written by the backend (states, asks, messages) → Activity panel
+    initActivity().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
+
     // Workspace layout changes made by agents → sidebar
     initWorkspaceEvents().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
 
@@ -104,6 +109,7 @@ export default function App() {
       />
       <div className="flex-1 min-w-0 relative">
         <Canvas />
+        <ActivityPanel />
       </div>
       <Toaster />
     </div>

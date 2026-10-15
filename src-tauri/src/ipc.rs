@@ -338,7 +338,7 @@ pub fn start_ask(
     if msg.trim().is_empty() {
         return Err("Error: empty prompt".into());
     }
-    let (target_id, to_label, asks) = {
+    let (target_id, to_label, asks, from_label) = {
         let inner = state.lock().unwrap();
         let (target_id, to_label) = match resolve_target(&inner, from, to) {
             Ok((id, _, label)) => (id, label),
@@ -354,9 +354,16 @@ pub fn start_ask(
                 }
             }
         };
-        (target_id, to_label, Arc::clone(&inner.asks))
+        (target_id, to_label, Arc::clone(&inner.asks), inner.label_of(from))
     };
     let id = crate::asks::new_id();
+    crate::activity::record(
+        crate::activity::ActivityEvent::new("ask", from, &from_label)
+            .peer(&target_id, &to_label)
+            .ask(&id)
+            .text(msg)
+            .detail(if detached { "no-wait" } else { "waits" }),
+    );
     asks.insert(crate::asks::AskRecord {
         id: id.clone(),
         from: from.to_string(),
@@ -373,11 +380,26 @@ pub fn start_ask(
     });
     let (state, app, from, to, msg, ask_id) =
         (Arc::clone(state), app.clone(), from.to_string(), to.to_string(), msg.to_string(), id.clone());
+    let (target, target_label) = (asks.get(&id).map(|r| r.to).unwrap_or_default(), asks.get(&id).map(|r| r.to_label).unwrap_or_default());
     tokio::spawn(async move {
+        let started = Instant::now();
         let (outcome, text) = match run_ask(&state, &app, &ask_id, &from, &to, &msg, timeout).await {
             Ok(r) => r,
             Err(e) => (AskState::Exited, e),
         };
+        // The answer, as the activity log tells it: who, how, from where, how long
+        let mut detail = format!("{:.1} s", started.elapsed().as_secs_f64());
+        if let Some(src) = crate::activity::take_source(&ask_id) {
+            detail = format!("{} · {}", detail, src);
+        }
+        crate::activity::record(
+            crate::activity::ActivityEvent::new("answer", &target, &target_label)
+                .peer(&from, &from_label)
+                .ask(&ask_id)
+                .status(outcome.as_str())
+                .text(&text)
+                .detail(detail),
+        );
         asks.finish(&ask_id, outcome, text);
     });
     Ok(id)
@@ -526,6 +548,9 @@ async fn run_ask(
     }
     let delivered_at = Instant::now();
     asks.delivered(ask_id);
+    crate::activity::record(
+        crate::activity::ActivityEvent::new("delivered", &target_id, &to_label).peer(from, &from_label).ask(ask_id),
+    );
 
     // Phase 2: wait for the turn to end, read from the screen.
     let mut check = TranscriptCheck::default();
@@ -545,9 +570,25 @@ async fn run_ask(
                 if delivered_at.elapsed() >= MIN_TURN {
                     match turn {
                         TurnState::Idle => match check.settle(anchor.as_ref(), msg) {
-                            Settle::Answer(a) => break Ok((AskState::Done, a)),
-                            Settle::Screen => break Ok((AskState::Done, screen)),
-                            Settle::KeepWaiting => {}
+                            Settle::Answer(a) => {
+                                crate::activity::set_source(ask_id, "transcript");
+                                break Ok((AskState::Done, a));
+                            }
+                            Settle::Screen => {
+                                crate::activity::set_source(ask_id, "screen");
+                                break Ok((AskState::Done, screen));
+                            }
+                            Settle::KeepWaiting => {
+                                if check.pending_since.is_some() && !check.noted {
+                                    check.noted = true;
+                                    crate::activity::record(
+                                        crate::activity::ActivityEvent::new("note", &target_id, &to_label)
+                                            .peer(from, &from_label)
+                                            .ask(ask_id)
+                                            .detail("screen looks idle, transcript says the turn is still running — waiting"),
+                                    );
+                                }
+                            }
                         },
                         TurnState::Attention => break Ok((AskState::Attention, notice_attention(&to_label, &screen))),
                         TurnState::Working => check.reset(),
@@ -558,8 +599,14 @@ async fn run_ask(
                 // (the settle window rules out an idle right after delivery)
                 if let Some((_, text)) = last_idle.filter(|(at, _)| *at > delivered_at) {
                     match check.settle(anchor.as_ref(), msg) {
-                        Settle::Answer(a) => break Ok((AskState::Done, a)),
-                        Settle::Screen => break Ok((AskState::Done, text)),
+                        Settle::Answer(a) => {
+                            crate::activity::set_source(ask_id, "transcript");
+                            break Ok((AskState::Done, a));
+                        }
+                        Settle::Screen => {
+                            crate::activity::set_source(ask_id, "screen");
+                            break Ok((AskState::Done, text));
+                        }
                         Settle::KeepWaiting => {}
                     }
                 }
@@ -609,6 +656,8 @@ enum Settle {
 struct TranscriptCheck {
     missing_since: Option<Instant>,
     pending_since: Option<Instant>,
+    /// The activity log already says we're waiting on the transcript.
+    noted: bool,
 }
 
 impl TranscriptCheck {
@@ -632,7 +681,8 @@ impl TranscriptCheck {
 
     /// The screen went back to working: start counting afresh next time.
     fn reset(&mut self) {
-        *self = TranscriptCheck::default();
+        let noted = self.noted;
+        *self = TranscriptCheck { noted, ..Default::default() };
     }
 }
 

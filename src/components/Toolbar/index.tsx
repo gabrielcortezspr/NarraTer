@@ -1,8 +1,9 @@
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MousePointer2, Terminal, StickyNote, Type, Folder, Paperclip, Globe,
-  Pencil, Eraser, Undo2, Check, Loader2, Save,
+  Pencil, Eraser, Undo2, Check, Loader2, Save, Activity,
 } from "lucide-react";
+import { useActivityStore } from "@/stores/activity";
 import { useToolStore, type Tool } from "@/stores/tool";
 import { useSketchStore } from "@/stores/sketch";
 import { usePersistenceStore } from "@/stores/persistence";
@@ -41,6 +42,8 @@ export default function Toolbar({ onTerminal, onAttachment }: Props) {
   const { active, setTool } = useToolStore();
   const { undo: undoSketch, clear: clearSketch, color, setColor, size, setSize } = useSketchStore();
   const saveState = usePersistenceStore((s) => s.state);
+  const activityOpen = useActivityStore((s) => s.open);
+  const toggleActivity = useActivityStore((s) => s.toggle);
 
   const handleTool = (tool: Tool) => {
     if (DISABLED_TOOLS.has(tool)) return;
@@ -139,6 +142,17 @@ export default function Toolbar({ onTerminal, onAttachment }: Props) {
         </AnimatePresence>
 
         <div className="w-px h-5 bg-line mx-0.5" />
+
+        {/* Activity log (Ctrl+J) */}
+        <button
+          onClick={() => toggleActivity()}
+          title="Activity — states, asks and messages (Ctrl+J)"
+          className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
+            activityOpen ? "bg-accent/15 text-accent-text" : "text-ink-2 hover:bg-hover hover:text-ink"
+          }`}
+        >
+          <Activity size={14} />
+        </button>
 
         {/* Auto-save indicator (Ctrl+S forces) */}
         <button

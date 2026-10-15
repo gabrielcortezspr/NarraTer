@@ -1,3 +1,4 @@
+mod activity;
 mod asks;
 mod bridge;
 mod browser;
@@ -42,6 +43,7 @@ pub fn run() {
         .setup(move |app| {
             let state_arc = std::sync::Arc::clone(&pty_state_for_ipc.0);
             let app_handle = tauri::Manager::app_handle(app).clone();
+            activity::attach(&app_handle);
             tauri::async_runtime::spawn(ipc::start_ipc_server(
                 app_handle.clone(),
                 std::sync::Arc::clone(&state_arc),
@@ -59,6 +61,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             usage::usage_snapshot,
+            activity::activity_list,
+            activity::activity_clear,
             pty::pty_spawn,
             pty::pty_write,
             pty::pty_resize,

@@ -496,3 +496,24 @@ export interface SessionUsage {
 
 export const usageSnapshot = () =>
   invoke<{ providers: ProviderUsage[]; sessions: SessionUsage[] }>("usage_snapshot");
+
+// --- Activity log (activity.rs) -------------------------------------------
+
+/** One event of the activity log, written by the backend as it happens. */
+export interface ActivityEvent {
+  ts: number;
+  kind: "state" | "ask" | "delivered" | "answer" | "message" | "spawn" | "exit" | "note";
+  terminal: string;
+  label: string;
+  peer?: string;
+  peer_label?: string;
+  status?: string;
+  ask?: string;
+  text?: string;
+  detail?: string;
+}
+
+export const activityList = (limit?: number, terminal?: string) =>
+  invoke<ActivityEvent[]>("activity_list", { limit, terminal });
+
+export const activityClear = () => invoke<void>("activity_clear");

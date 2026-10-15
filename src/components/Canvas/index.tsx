@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useMemo, useState, useEffect, useRef } from "react";
+import { useActivityStore } from "@/stores/activity";
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -302,6 +303,8 @@ function CanvasInner() {
         const key = e.key.toLowerCase();
         if (key === "s") { e.preventDefault(); saveNow().catch(console.error); }
         else if (key === "k") { e.preventDefault(); setPaletteOpen((v) => !v); }
+        // Ctrl+J: Activity panel (outside terminals — there it's a line feed)
+        else if (key === "j") { e.preventDefault(); useActivityStore.getState().toggle(); }
         else if (key === "z" && useToolStore.getState().active === "draw") { e.preventDefault(); undoSketch(); }
         else if (key === "z" && e.shiftKey) { e.preventDefault(); useCanvasStore.getState().redo(); }
         else if (key === "z") { e.preventDefault(); useCanvasStore.getState().undo(); }
