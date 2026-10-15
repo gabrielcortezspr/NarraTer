@@ -62,7 +62,7 @@ const short = (ask?: string) => (ask ? ask.replace(/^ask-/, "") : "");
 
 /** Folded text: first two non-empty lines, at most PREVIEW chars. Done in code —
  * WebKitGTK (Tauri on Linux) ignores CSS line-clamp on pre-wrapped text. */
-const PREVIEW = 220;
+const PREVIEW = 160;
 function preview(text: string): string {
   const lines = text.split("\n").filter((l) => l.trim() !== "");
   let out = lines.slice(0, 2).join("\n");
