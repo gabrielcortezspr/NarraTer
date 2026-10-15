@@ -257,5 +257,6 @@
   ],
   "entrega_mediana_s": 0.4,
   "retorno_mediana_s": 49.8
- }
+ },
+ "prematuros": null
 }

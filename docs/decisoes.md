@@ -28,7 +28,7 @@ Cada entrada tem seis campos:
 
 | Área | Decisões |
 |---|---|
-| Comunicação entre agentes | D01, D02, D06, D08 |
+| Comunicação entre agentes | D01, D02, D06, D08, D20 |
 | Leitor de estado | D10, D11, D12 |
 | Persistência | D07 |
 | Uso dos agentes | D17 |
@@ -679,3 +679,58 @@ API e leva de 2 a 6 minutos; 12 rodadas levam cerca de 50 minutos.
 **Revisar se:** uma versão tirar menos de 31/31 (a tarefa voltou a medir qualidade); o formato das
 transcrições do Claude Code mudar; ou entrarem agentes de outros fornecedores, que pedem métricas
 que não dependam do `.jsonl` do Claude.
+
+## D20 · A resposta do `ask` e o fim do turno vêm do transcript do agente quando ele existe
+
+`2026-10-15` · comunicação entre agentes · `src-tauri/src/transcript.rs`, `ipc.rs` (`run_ask`, `TranscriptCheck`)
+
+**Contexto.** O benchmark (D19) mostrou dois defeitos do `ask` lido da tela:
+- a resposta cortada (a tela tem cerca de 13 linhas);
+- a resposta dada antes da hora: o leitor dava o turno por encerrado 4 a 5 s depois da entrega, antes
+  de o agente começar.
+
+Os dois fazem o Narrador repetir pedidos. No pior caso, ele deixa de confiar no `ask`.
+
+**Decisão.** Para o Claude Code, o `ask` lê o transcript JSON Lines que o próprio Claude grava em
+`~/.claude/projects/<pasta>/`:
+- **Âncora.** Antes de enfileirar o pedido, anota o tamanho de cada transcript da pasta do agente e do
+  arquivo que a statusline informou (D17).
+- **Resposta.** No fim do turno, devolve o texto escrito depois da última chamada de ferramenta, no
+  arquivo que recebeu o pedido (identificado pela mensagem inteira).
+- **Fim do turno.** Se a tela diz ocioso mas o transcript não registrou o fim do turno, o `ask` continua
+  esperando, até 120 s. O fim é `system/turn_duration`, um texto com `end_turn` ou o próximo pedido.
+- **Fallback.** Sem transcript, a tela vale como antes. Nada exige cooperação do agente (D01, D05).
+
+**Alternativas consideradas.**
+- *Scrollback do emulador* (a O5 original): o Claude Code roda em tela alternativa, então o
+  histórico é vazio (`[medido]`, `pesquisa/orca.md` §7).
+- *Histórico do tmux com a tela alternativa desligada* (`CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`):
+  funciona, mas muda a rolagem do tile (o modo de cópia do tmux) e ainda depende da tela para saber
+  o fim. Fica como segunda fonte futura, para agentes sem transcript.
+- *Modelo do Orca* (`worker-read` + `worker_done` obrigatório): não ancora na entrega, corta cada
+  bloco em 1.200 caracteres e exige que o agente coopere.
+- *Resposta empurrada do Agent Teams*: só existe dentro do Claude; a ideia é a mesma, e a fazemos sem
+  depender dos arquivos internos de times.
+- *Usar só o `end_turn`*: o bloco de pensamento traz `end_turn` 15 s antes do texto
+  (`[observado]`, caso real virou teste).
+
+**Evidência.**
+- `[medido]` Leitor contra transcripts reais: acha a resposta certa em 126 de 126 pedidos das rodadas
+  C a G (incluindo batch), e nenhum casa com o transcript do outro dev.
+- `[medido]` Benchmark, 3 rodadas por versão:
+  - asks prontos antes da hora: D 4 de 27, E 12 de 31, F e G 0 de 40;
+  - respostas cortadas: D 1 a 5 por rodada, G 0;
+  - tokens processados: D 3,26 a 3,59 milhões, G 2,01 a 2,85 milhões;
+  - custo: D 1,02 e G 0,74 US$ (A, presa ao Claude, 0,69);
+  - D contra G sem sobreposição em tokens, custo e pedidos (Mann–Whitney U = 9, p = 0,10).
+- `[citado]` Testes `transcript::tests`, com o turno real do ask prematuro e o caso do batch.
+
+**Consequência.**
+- O transcript é formato interno do Claude Code e pode mudar sem aviso. O fallback para a tela evita
+  quebra, e o benchmark é o alarme.
+- Codex e outros agentes ainda leem a tela até ganharem leitor próprio.
+- Um turno legítimo de mais de 120 s em que a tela fique parada ainda cai na tela, por segurança.
+
+**Revisar se:** o Claude Code mudar o formato ou o local do transcript; o benchmark voltar a mostrar
+asks antes da hora ou respostas trocadas; ou existir uma fonte oficial de "fim de turno" que não
+exija cooperação.

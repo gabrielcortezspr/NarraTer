@@ -10,6 +10,7 @@
 \usepackage{booktabs}
 \usepackage{tabularx}
 \usepackage{xcolor}
+\usepackage{graphicx}
 \usepackage{pgfplots}
 \usepackage{pgfplotstable}
 \usepackage{float}
@@ -27,6 +28,8 @@
 \newcommand{\rot}[1]{\textsf{\footnotesize[#1]}}
 \makeatletter\let\inputtab\@@input\makeatother % \input não expansível quebra tabelas
 \newcommand{\versao}[1]{\textbf{#1}}
+\inputtab{dados/colunas.tex}
+\inputtab{dados/colunas-testes.tex}
 
 \pgfplotsset{
   narr/.style={
@@ -414,6 +417,143 @@ para os tokens. Entre versões vizinhas, as diferenças de tempo se sobrepõem.
   custo em US\$ depende. A ordem contrabalançada reduz o viés.
 \item \textbf{Ambiente}: Xvfb, um contêiner, um horário. O atraso de 25~s do Narrador e \texttt{IS\_SANDBOX} são iguais
   para todas as versões.
+\end{itemize}
+
+
+\section{Depois do estudo: as versões E, F e G}
+
+Com o diagnóstico em mãos, mudamos o \texttt{ask} e medimos cada mudança como uma versão nova, com o mesmo
+benchmark: mesma tarefa, mesmos modelos, três rodadas zeradas. Elas rodaram na mesma tarde, depois das de
+A--D e sem intercalar com elas. A D aparece de novo nas tabelas como referência, com as mesmas rodadas de
+antes.
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}l l X@{}}
+\toprule
+& Commit & O que muda \\
+\midrule
+\versao{E} & \texttt{8e2e5fa} & O \texttt{ask} devolve a resposta final inteira, lida do \emph{transcript} do Claude
+  (\texttt{\~{}/.claude/projects/<pasta>/*.jsonl}) a partir do tamanho anotado na entrega. Sem \emph{transcript}, vale a tela
+  (etapa O5). O Claude Code roda em tela alternativa e não tem \emph{scrollback} (\texttt{orca.md} §7). \\
+\versao{E-sl0} & \texttt{8e2e5fa} & A mesma E com a \emph{statusline} desligada: a ablação que respondia por que D custou mais que C. \\
+\versao{F} & \texttt{26e3c06} & O \emph{transcript} também decide se o turno acabou. Se a tela diz ``ocioso'' mas o pedido está no
+  \emph{transcript} sem fim de turno (\texttt{system/turn\_duration}), o \texttt{ask} continua esperando. \\
+\versao{G} & \texttt{c6ba63e} & Cada \texttt{ask} acha o próprio turno pela mensagem inteira e lê primeiro o \emph{transcript} que a
+  \emph{statusline} informou para aquele terminal. Na F, dois pedidos de um \texttt{batch} com o mesmo começo trocavam de resposta. \\
+\bottomrule
+\end{tabularx}
+\caption{As versões depois do estudo. Cada uma veio de uma falha encontrada nas rodadas da anterior.}
+\end{table}
+
+\subsection{Resultados}
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{@{}llllll@{}}
+\toprule
+\cabecalhodepois
+\midrule
+\inputtab{dados/tab-resultado-depois.tex}
+\bottomrule
+\end{tabular}
+\caption{Trabalho feito e duração (média e mínimo--máximo de três rodadas).}
+\end{table}
+
+\begin{table}[H]
+\centering\small
+\resizebox{\linewidth}{!}{\begin{tabular}{@{}llllll@{}}
+\toprule
+\cabecalhodepois
+\midrule
+\inputtab{dados/tab-tokens-depois.tex}
+\bottomrule
+\end{tabular}}
+\caption{Tokens e custo.}
+\end{table}
+
+\begin{table}[H]
+\centering\footnotesize
+\resizebox{\linewidth}{!}{\begin{tabular}{@{}llllll@{}}
+\toprule
+\cabecalhodepois
+\midrule
+\inputtab{dados/tab-coordenacao-depois.tex}
+\bottomrule
+\end{tabular}}
+\caption{Coordenação. ``Asks prontos antes da hora'' são os que terminaram mais de 1~s antes do fim real do turno
+do alvo, tirado do \emph{transcript} dele.}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.49\linewidth}
+\begin{tikzpicture}
+\begin{axis}[narr, xtick={3,4,5,6,7}, xticklabels={D,E,E-sl0,F,G}, xmin=2.5, xmax=7.5, ylabel={duração (min)}, ymin=0]
+\addplot[only marks, mark=*, mark size=2.2pt, cCinza, fill opacity=0.8] table[x=idx, y=duracao_min, col sep=comma, restrict x to domain=3:7] {dados/rodadas.csv};
+\addplot[only marks, mark=-, mark size=9pt, very thick, cNarr] table[x=idx, y=duracao_min, col sep=comma, restrict x to domain=3:7] {dados/versoes.csv};
+\end{axis}
+\end{tikzpicture}
+\end{minipage}\hfill
+\begin{minipage}{0.49\linewidth}
+\begin{tikzpicture}
+\begin{axis}[narr, xtick={3,4,5,6,7}, xticklabels={D,E,E-sl0,F,G}, xmin=2.5, xmax=7.5, ylabel={tokens processados (milhões)}, ymin=0,
+  y filter/.code={\pgfmathparse{#1/1000}}]
+\addplot[only marks, mark=*, mark size=2.2pt, cCinza, fill opacity=0.8] table[x=idx, y=processados_k, col sep=comma, restrict x to domain=3:7] {dados/rodadas.csv};
+\addplot[only marks, mark=-, mark size=9pt, very thick, cNarr] table[x=idx, y=processados_k, col sep=comma, restrict x to domain=3:7] {dados/versoes.csv};
+\end{axis}
+\end{tikzpicture}
+\end{minipage}
+\caption{Cada ponto é uma rodada; o traço é a média da versão.}
+\end{figure}
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{@{}llllll@{}}
+\toprule
+\cabecalhotestesdepois
+\midrule
+\inputtab{dados/tab-testes-depois.tex}
+\bottomrule
+\end{tabular}
+\caption{Mann--Whitney exato (U\,/\,$p$). O menor $p$ possível com 3 contra 3 é 0,10.}
+\end{table}
+
+\subsection{O que as rodadas mostraram}
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{A E revelou uma segunda falha, maior que a tela cortada.} \rot{medido} O leitor de estado dava o turno por
+  encerrado 4 a 5~s depois da entrega, antes de o agente começar. A ``resposta'' era a tela com o próprio pedido. Na
+  rodada E2, isso aconteceu em 8 de 16 \emph{asks}. O Narrador concluiu que ``as respostas foram capturadas antes da
+  hora'', deixou de confiar no \texttt{ask} e passou a vigiar a tela em \emph{loop}: 14 pedidos e quase 10~minutos.
+  \rot{medido} Revendo A--D com a mesma medida, isso já acontecia na C (1 de 20 \emph{asks}) e na D (4 de 27). Parte das
+  ``respostas cortadas'' do estudo eram, na verdade, respostas antes da hora.
+\item \textbf{O fim do turno no \emph{transcript} não é o \texttt{end\_turn}.} \rot{observado} O Claude Code grava cada bloco da
+  mensagem como um registro, e todos carregam o \texttt{stop\_reason}. O bloco de pensamento traz \texttt{end\_turn} 15~s
+  antes de o texto final ser escrito. O fim confiável é o registro \nolinkurl{system/turn_duration}. Esse caso real virou
+  teste (\nolinkurl{tests/transcripts/claude-2.1.300-ask-prematuro.jsonl}).
+\item \textbf{F e G zeraram as falhas do protocolo.} \rot{medido} Houve 0 \emph{asks} antes da hora em 40 (F e G somadas).
+  As respostas cortadas foram 1 na F, causada pela troca de respostas no \texttt{batch} que a G corrigiu, e 0 na G. O
+  Narrador voltou a fazer 3 a 7 pedidos, como na A. Contra a D, a F ficou abaixo em tempo, tokens, custo e turnos, e a
+  G em tokens, custo e pedidos, sem sobreposição em nenhuma rodada ($p=0{,}10$ em cada).
+  \rot{medido} A F custou US\$\,0,65 e a G US\$\,0,74 por tarefa, contra US\$\,0,69 da A, \emph{sem} a A prender o
+  NarraTer ao Claude: o mesmo custo com o protocolo agnóstico.
+\item \textbf{O que ainda separa G de A é trabalho, não coordenação.} \rot{medido} Na G3, a mais longa (5,2~min), o
+  Narrador ficou sozinho por 59~s, como na F. O resto foi o DevB (Haiku) trabalhando 243~s seguidos. A variação que
+  sobra é do ritmo dos agentes. \rot{inferido} O próximo ganho vem de tirar o Narrador do caminho entre as fases, com
+  as tarefas com dependências e a pega automática (O8, no espírito do Agent Teams).
+\item \textbf{\emph{Statusline}: suspeita, não confirmada.} \rot{medido} Na E, as três rodadas sem \emph{statusline} foram
+  mais baratas que as com ela (1,8 contra 2,9 milhões de tokens), mas $p=0{,}20$, e as com ela incluem a E2, inflada
+  pela falha do item~1. Com F e G a falha sumiu, e a comparação justa fica para mais rodadas (O9).
+\end{enumerate}
+
+\subsection{Ameaças específicas}
+
+\begin{itemize}
+\item As versões E--G rodaram depois de A--D, sem intercalar: horário e estado do servidor podem ter mudado.
+\item Cada versão nova nasceu de uma falha vista nas rodadas da anterior: as correções miram falhas que já sabíamos
+  existir. O teste de que funcionam é que elas sumiram em rodadas novas, e não só nas rodadas que as revelaram.
+\item O leitor de \emph{transcript} só existe para o Claude. Com outros agentes, o \texttt{ask} continua lendo a tela.
 \end{itemize}
 
 \section{Como reproduzir}

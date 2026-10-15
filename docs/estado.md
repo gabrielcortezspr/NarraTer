@@ -5,36 +5,32 @@ Máximo de ~30 linhas: se passar disso, algo aqui deveria estar num commit ou nu
 
 ## Última sessão
 
-2026-10-15, Gabriel com Claude Code, branch `ccr-03e0166a-1f50u2`. Benchmark de orquestração entre
-versões (D19): 4 versões × 3 rodadas, relatório em `docs/relatorios/orquestracao-versoes.pdf`.
+2026-10-15, Gabriel com Claude Code, branch `ccr-03e0166a-1f50u2`. Benchmark de orquestração (D19) e,
+a partir dele, o `ask` lendo o transcript do Claude (D20): versões E, F e G medidas.
 
 ## Onde parou
 
-`bench/orquestracao/` (skill `benchmark`) roda a mesma tarefa com 3 agentes em qualquer commit e mede
-tokens, contexto, tempo e trabalho feito contra 31 testes escondidos. Resultado
-(`pesquisa/comparacao-versoes.md`):
-- todas as versões tiraram 31/31;
-- A (MCP) foi a mais barata e D a mais cara: 2,2 contra 4,6 min e 1,8 contra 3,4 milhões de tokens;
-- o mecanismo identificado é a resposta do `ask` lida da tela, que chega cortada e força pedidos
-  repetidos.
-
-Dados brutos em `bench/orquestracao/resultados/2026-10-15/`.
+- O `ask` devolve a resposta final inteira do transcript do Claude e não dá o turno por encerrado
+  antes de ele terminar de fato (`src-tauri/src/transcript.rs`, D20).
+- Na versão G (`c6ba63e`), as falhas do protocolo foram a zero (0 de 24 asks antes da hora, 0 respostas
+  cortadas), com custo de US$ 0,74 contra 1,02 da D.
+- Relatório com a seção 7 (E, F, G) em `docs/relatorios/orquestracao-versoes.pdf`; estudos novos em
+  `pesquisa/agent-teams.md` e `pesquisa/orca.md` §7.
 
 ## Próximo passo
 
-O5 (`ask` devolve toda a saída desde a entrega, não só a tela) e rodar o benchmark de novo como
-aceite. Depois: tarefa mais difícil (sem teto) e agentes de outros fornecedores no benchmark; uso de
-Codex e Gemini (V4).
+O8: tarefas com dependências e pega automática (inspirada no Agent Teams), medida no benchmark. Depois:
+leitor de transcript do Codex; variantes O9 (dev ↔ dev, statusline, tarefa sem teto).
 
 ## Decisões pendentes
 
 - O3: quando a tela ociosa e o `narrater done` chegarem juntos, qual vale.
+- Tela alternativa do Claude: manter (decidido por ora); desligar seria preferência opcional.
 
 ## Lembrar
 
-- Benchmark: as versões compiladas e as rodadas ficam em `/home/user/bench` (fora do repositório e
-  efêmeras); `$BENCH/build.sh X` recompila. Precisa de `Xvfb :77` e `IS_SANDBOX=1`.
-- O app instala a statusline no `~/.claude/settings.json` de quem roda: em teste, use HOME próprio.
+- Benchmark: versões compiladas e rodadas em `/home/user/bench` (efêmero); `$BENCH/build.sh X`. Precisa de
+  `Xvfb :77` e `IS_SANDBOX=1`. Cópia das métricas em `bench/orquestracao/resultados/`.
+- O `turn_eval` vaza marcadores de sessão para o Claude medido (backlog E).
 - O vt100 mostra o desenho de linha DEC como `qqqq` no texto das respostas (backlog V).
-- No modo dev, o recarregamento a quente do front deixa os nomes fora do backend; reiniciar resolve.
 - Não usar `pkill -f` com padrão que aparece na própria linha de comando.

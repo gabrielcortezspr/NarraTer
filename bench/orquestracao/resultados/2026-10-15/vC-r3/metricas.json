@@ -247,5 +247,10 @@
   ],
   "entrega_mediana_s": 0.3,
   "retorno_mediana_s": 2.8
+ },
+ "prematuros": {
+  "asks": 7,
+  "prematuros": 0,
+  "adiantamento_s": []
  }
 }

@@ -405,7 +405,9 @@ def prematuros(run: Path):
                 turnos.setdefault(label, []).extend(fins_de_turno(f))
     total, adiantados = 0, []
     for d in ultimo.values():
-        if d.get("state") != "done" or not d.get("delivered") or not d.get("finished"):
+        # Só pedidos do Narrador aos devs: um ask de um dev ao Narrador costuma ser o "ask back",
+        # e o fim do turno do líder não tem leitura inequívoca
+        if d.get("state") != "done" or not d.get("delivered") or not d.get("finished") or d.get("to_label") == "Narrador":
             continue
         entregue, pronto = d["delivered"] / 1000, d["finished"] / 1000
         cands = [t for t in turnos.get(d.get("to_label"), []) if entregue - 1 <= t[0] <= entregue + 5 and t[1]]

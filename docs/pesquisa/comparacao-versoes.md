@@ -64,3 +64,32 @@ zerada, em ordem contrabalançada. As métricas saem das transcrições do Claud
 - Uma tarefa mais difícil (sem teto) e agentes de outros fornecedores, para medir o que B–D ganham
   com a D01.
 - Repetir depois de O5 para ver se as repetições somem.
+
+## Depois do estudo: E, F e G (2026-10-15, à tarde)
+
+Cada versão nova corrige uma falha vista nas rodadas da anterior. O método é o mesmo, com 3 rodadas por
+versão, e o relatório tem a seção 7 com tabelas e testes.
+
+| | D | E | E sem statusline | F | G |
+|---|---|---|---|---|---|
+| O que muda | — | `ask` lê a resposta no transcript (O5) | E sem statusline | transcript também decide o fim do turno | cada ask acha o próprio turno (batch) |
+| Duração (min) | 4,6 | 5,3 | 2,7 | 2,8 | 3,9 |
+| Tokens processados (milhões) | 3,44 | 2,94 | 1,77 | 1,73 | 2,50 |
+| Custo (US$) | 1,02 | 0,97 | 0,73 | 0,65 | 0,74 |
+| Pedidos do Narrador | 7–10 | 5–14 | 3–4 | 3–7 | 3–6 |
+| Asks prontos antes da hora | 4/27 | 12/31 | 3/14 | 0/16 | 0/24 |
+| Repetidos por resposta cortada | 1, 5, 1 | 0, 2, 1 | 0, 0, 0 | 0, 1, 0 | 0, 0, 0 |
+
+1. `[medido]` **A E achou uma falha maior que a tela cortada: o ask pronto antes da hora.** Ele voltava 4 a 5 s
+   depois da entrega, com a tela mostrando o próprio pedido. Na E2, isso aconteceu em 8 de 16 asks, e o
+   Narrador deixou de confiar no `ask`: 14 pedidos e 10 minutos. Isso já acontecia na C e na D, então parte
+   das "respostas cortadas" do estudo eram respostas antes da hora.
+2. `[medido]` **Na F e na G, as falhas do protocolo foram a zero** (0 de 40 asks antes da hora; 0 respostas
+   cortadas na G). O custo voltou ao nível da A, sem prender o NarraTer ao Claude. D contra G não se sobrepõe
+   em tokens, custo e pedidos.
+3. `[medido]` **O que ainda varia é o trabalho dos agentes.** Na G3, o Narrador ficou sozinho 59 s; o resto foi
+   o DevB (Haiku) trabalhando 243 s seguidos. O próximo ganho é tirar o Narrador do caminho entre as fases
+   (O8).
+4. `[inferido]` **Statusline: suspeita não confirmada** (E contra E sem statusline, p = 0,20, com a E2 inflada pela
+   falha 1). Fica para a O9.
+
