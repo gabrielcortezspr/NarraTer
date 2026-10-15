@@ -60,6 +60,16 @@ function timeOf(ts: number): string {
 
 const short = (ask?: string) => (ask ? ask.replace(/^ask-/, "") : "");
 
+/** Folded text: first two non-empty lines, at most PREVIEW chars. Done in code —
+ * WebKitGTK (Tauri on Linux) ignores CSS line-clamp on pre-wrapped text. */
+const PREVIEW = 220;
+function preview(text: string): string {
+  const lines = text.split("\n").filter((l) => l.trim() !== "");
+  let out = lines.slice(0, 2).join("\n");
+  if (out.length > PREVIEW) out = out.slice(0, PREVIEW);
+  return out.length < text.trim().length ? out.trimEnd() + " …" : out;
+}
+
 /** One line of the log: who, what, and the text it carries (click to unfold). */
 const Row = memo(function Row({ e, onAsk, onAgent }: { e: ActivityEvent; onAsk: (id: string) => void; onAgent: (id: string) => void }) {
   const [open, setOpen] = useState(false);
@@ -125,9 +135,8 @@ const Row = memo(function Row({ e, onAsk, onAgent }: { e: ActivityEvent; onAsk: 
           {e.detail && <div className="text-[10px] text-ink-muted">{e.detail}</div>}
           {hasText && (
             <button onClick={() => setOpen((v) => !v)} className="block w-full text-left" title={open ? "Fold" : "Unfold"}>
-              {/* The clamp goes on a div: WebKit ignores -webkit-box on a button */}
-              <div className={`text-[10.5px] text-ink-2 whitespace-pre-wrap break-words font-mono ${open ? "" : "line-clamp-2"}`}>
-                {e.text}
+              <div className="text-[10.5px] text-ink-2 whitespace-pre-wrap break-words font-mono">
+                {open ? e.text : preview(e.text!)}
               </div>
             </button>
           )}
