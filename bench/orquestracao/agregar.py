@@ -60,6 +60,8 @@ def linha(m):
         "so_lider_min": round((m["duracao_s"] - m["latencias"]["algum_dev_s"]) / 60, 2) if m["duracao_s"] else "",
         "algum_dev_min": round(m["latencias"]["algum_dev_s"] / 60, 2),
         "turnos_devs": sum(m["latencias"]["rodadas_dev"].values()),
+        "pedidos_lider": m["agentes"].get("Narrador", {}).get("pedidos", 0),
+        "repeticoes_tela": m["agentes"].get("Narrador", {}).get("repeticoes_tela", 0),
         "linhas_diff": m["diff"]["linhas_adicionadas"] + m["diff"]["linhas_removidas"],
     }
     for a in AGENTES:
@@ -168,6 +170,8 @@ def main():
         ("Turnos de trabalho dos devs (soma)", "turnos_devs", "{:.1f}"),
         ("Ocupação média dos devs (fração da duração)", "ocupacao_devs_frac", "{:.2f}"),
         ("Fração do tempo com os dois devs trabalhando", "paralelo_frac", "{:.2f}"),
+        ("Pedidos do Narrador aos devs", "pedidos_lider", "{:.1f}"),
+        ("\\quad repetidos porque a resposta veio cortada", "repeticoes_tela", "{:.1f}"),
         ("Narrador: chamadas de coordenação", "Narrador_coordenacao", "{:.1f}"),
         ("Narrador: rodou os testes", "Narrador_verificacao", "{:.1f}"),
         ("Narrador: leituras de código", "Narrador_leitura", "{:.1f}"),

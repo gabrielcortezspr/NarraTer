@@ -25,6 +25,11 @@ PRECOS = {
     "claude-haiku-5-5": {"entrada": 0.10, "saida": 0.50, "cache_lido": 0.01},
 }
 
+# Pedido do líder que só existe porque a resposta anterior veio incompleta (a tela do dev cortou
+# o relatório): heurística por palavras, conferida à mão nas rodadas do estudo de 2026-10-15.
+REPETE = re.compile(r"cortad|truncad|Repita|em uma linha|em uma única linha|relatório completo|lista completa|não coube|incomplet", re.I)
+PEDE = re.compile(r"narrater (ask|send)")
+
 FALA = re.compile(r"\[narrater from ([^\]#(]+)")
 
 
@@ -62,6 +67,8 @@ def metricas_sessao(jsonl: Path):
     edicoes = 0
     escritas_bash = 0
     # O que o agente fez com as ferramentas: coordenar, verificar (rodar testes), ler, editar
+    pedidos = 0
+    repeticoes = 0
     atividade = {"coordenacao": 0, "verificacao": 0, "leitura": 0, "edicao": 0, "outros": 0}
     compactacoes = 0
     recebidas = {}
@@ -116,6 +123,10 @@ def metricas_sessao(jsonl: Path):
                 if k:
                     mensageria[k] = mensageria.get(k, 0) + 1
                 cmd = entrada.get("command", "") if nome == "Bash" else ""
+                if k in ("ask", "send", "send_message", "ask_agent") or PEDE.search(cmd):
+                    pedidos += 1
+                    if REPETE.search(json.dumps(entrada, ensure_ascii=False)):
+                        repeticoes += 1
                 if k or nome in ("ToolSearch", "Skill"):
                     atividade["coordenacao"] += 1
                 elif "unittest" in cmd or "pytest" in cmd or "python3 -m pedidos" in cmd:
@@ -154,6 +165,8 @@ def metricas_sessao(jsonl: Path):
         "edicoes": edicoes,
         "escritas_bash": escritas_bash,
         "atividade": atividade,
+        "pedidos": pedidos,
+        "repeticoes_tela": repeticoes,
         "avisos_timeout": erros_ask,
         "primeiro": min(tempos) if tempos else None,
         "ultimo": max(tempos) if tempos else None,
