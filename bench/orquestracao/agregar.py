@@ -18,7 +18,7 @@ BENCH = Path(os.environ.get("BENCH", "/home/user/bench"))
 RUNS = Path(os.environ.get("BENCH_RUNS", BENCH / "runs"))
 RAIZ = Path(__file__).resolve().parents[2]
 SAIDA = Path(sys.argv[1]) if len(sys.argv) > 1 else RAIZ / "docs/relatorios/dados"
-VERSOES = {"A": "e708d7b", "B": "16cee0e", "C": "95fb11a", "D": "db3d535", "E": "8e2e5fa", "E-sl0": "8e2e5fa sem statusline", "F": "26e3c06"}
+VERSOES = {"A": "e708d7b", "B": "16cee0e", "C": "95fb11a", "D": "db3d535", "E": "8e2e5fa", "E-sl0": "8e2e5fa sem statusline", "F": "26e3c06", "G": "c6ba63e"}
 ORDEM = list(VERSOES)
 # Rodadas que entram: 1 a 3 de cada versão (desenho do estudo). A rodada 0 é piloto; as extras da D
 # (r4, D-sl0) foram interrompidas a pedido e ficam fora.
@@ -156,7 +156,7 @@ def main():
 
     # Dois grupos de tabelas: o estudo original (A–D) e o que veio depois (D como referência, E, F…).
     # Sufixo "" e "depois" no nome do arquivo e da macro LaTeX.
-    grupos = {"": ["A", "B", "C", "D"], "depois": ["D", "E", "E-sl0", "F"]}
+    grupos = {"": ["A", "B", "C", "D"], "depois": ["D", "E", "E-sl0", "F", "G"]}
     with open(SAIDA / "colunas.tex", "w") as f:
         for suf, vs in grupos.items():
             ds = [d for d in por_versao if d["versao"] in vs]
@@ -225,7 +225,7 @@ def main():
     ])
     # Testes entre pares de versões nas métricas principais, nos mesmos dois grupos das tabelas
     pares_grupos = {"": [("A", "B"), ("B", "C"), ("C", "D"), ("A", "D")],
-                    "depois": [("D", "E"), ("E", "E-sl0"), ("D", "F"), ("E", "F"), ("A", "F")]}
+                    "depois": [("D", "E"), ("E", "E-sl0"), ("D", "F"), ("D", "G"), ("A", "G")]}
     tem = {r["versao"] for r in rows}
     metricas = [("Duração", "duracao_min"), ("Tokens processados", "processados_k"), ("Custo", "custo_usd"),
                 ("Pedidos do Narrador", "pedidos_lider"), ("Turnos dos devs", "turnos_devs")]
