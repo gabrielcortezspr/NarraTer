@@ -17,6 +17,9 @@ a partir dele, o `ask` lendo o transcript do Claude (D20): versões E, F e G med
 - Relatório com a seção 7 (E, F, G) em `docs/relatorios/orquestracao-versoes.pdf`; estudos novos em
   `pesquisa/agent-teams.md` e `pesquisa/orca.md` §7.
 
+- Painel Activity (Ctrl+J, D21): histórico de estados, asks e mensagens gravado pelo backend em
+  `~/.config/narrater/activity.jsonl`; verificado no app real (`docs/pesquisa/img/painel-atividade*.png`).
+
 ## Próximo passo
 
 O8: tarefas com dependências e pega automática (inspirada no Agent Teams), medida no benchmark. Depois:

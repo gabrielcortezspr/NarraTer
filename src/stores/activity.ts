@@ -83,6 +83,8 @@ export function visibleEvents(
   }
   const lastShown = new Map<string, string | undefined>();
   s.events.forEach((e, i) => {
+    // A new session starts fresh: its first state always shows
+    if (e.kind === "spawn" || e.kind === "exit") lastShown.delete(e.terminal);
     if (e.kind !== "state" || folded.has(i)) return;
     if (lastShown.get(e.terminal) === e.status) folded.add(i);
     else lastShown.set(e.terminal, e.status);

@@ -34,6 +34,13 @@ concept to Linux.
   working directory (xterm.js frontend, real PTYs in the Rust backend, with
   zoom-aware culling and level-of-detail rendering). Every terminal of a scene
   runs whether or not it's on screen.
+- **Activity panel** (Ctrl+J, or the pulse button in the toolbar): a history of
+  every agent state (working, ready, needs you), every ask from request to
+  answer (with how long it took and whether the answer came from the agent's
+  transcript or its screen), direct messages, starts and exits. NarraTer writes
+  it itself as things happen, never an agent, to
+  `~/.config/narrater/activity.jsonl`, so it survives restarts. Filter by agent,
+  by kind, or click an ask's `#id` to follow that one request.
 - **Six node types**: terminal, note, text, file tree, attachment and portal.
 - **Browser portals**: a portal is a real Chrome tab rendered live on the
   canvas (headless Chrome over the DevTools Protocol). You browse it like a

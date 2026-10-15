@@ -131,6 +131,21 @@ nos quatro lados, e uma conexão pode ser solta em qualquer borda.
 - Pulso de fala: 900 ms ao longo da aresta. Ponto "trabalhando": 1,6 s de respiração.
 - `prefers-reduced-motion`: sem pulsos nem fluxos; só mudança de cor.
 
+## Painel Activity
+
+Painel à direita (Ctrl+J), em `--glass` como a moldura. É o histórico verificável do que os agentes
+fizeram (D21):
+- no topo, cada agente com a mesma luz de estado do tile, e clicar filtra por ele;
+- abaixo, os filtros por tipo (All, States, Asks, Messages) e o `#id` de um ask, que mostra só aquele
+  pedido;
+- na lista, o mais novo em cima, com uma linha por evento: ponto de cor, horário em `tabular-nums`,
+  quem, o quê.
+
+Cores dos pontos (cor é estado): trabalhando `--accent`, pronto `--ok`, precisa de você `--warn`,
+pedido em trânsito `--info`, nota "a tela parece ociosa, o transcript diz que não" `--queue`, falha
+`--danger`. Pedido e resposta aparecem recolhidos em 2 linhas e desdobram no clique. Trocas de estado
+desfeitas em menos de 2 s ficam escondidas, com um contador para exibi-las.
+
 ## Uso dos agentes (etapa V4)
 
 Implementado para o Claude (D17). Na barra lateral, a seção **Usage** mostra uma barra fina (4 px)

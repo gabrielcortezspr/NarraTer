@@ -28,7 +28,7 @@ Cada entrada tem seis campos:
 
 | Área | Decisões |
 |---|---|
-| Comunicação entre agentes | D01, D02, D06, D08, D20 |
+| Comunicação entre agentes | D01, D02, D06, D08, D20, D21 |
 | Leitor de estado | D10, D11, D12 |
 | Persistência | D07 |
 | Uso dos agentes | D17 |
@@ -734,3 +734,49 @@ Os dois fazem o Narrador repetir pedidos. No pior caso, ele deixa de confiar no 
 **Revisar se:** o Claude Code mudar o formato ou o local do transcript; o benchmark voltar a mostrar
 asks antes da hora ou respostas trocadas; ou existir uma fonte oficial de "fim de turno" que não
 exija cooperação.
+
+## D21 · O histórico de atividade é gravado pelo backend, nunca por um agente
+
+`2026-10-15` · comunicação entre agentes · `src-tauri/src/activity.rs`, `src/components/ActivityPanel`, `src/stores/activity.ts`
+
+**Contexto.** Para verificar o que aconteceu numa orquestração (quem pediu o quê, quando cada agente
+trabalhou, se a resposta chegou inteira), os fatos estavam espalhados:
+- as mudanças de estado iam ao front sem ficar salvas;
+- os asks ficavam em `asks.jsonl`, sem os estados;
+- as mensagens ficavam num registro em memória.
+
+O usuário pediu um histórico verificável e explicitamente não escrito por IA.
+
+**Decisão.** O backend grava cada evento no momento em que ele acontece, em
+`~/.config/narrater/activity.jsonl` (JSON Lines, gira em 5 MB, 5.000 eventos em memória):
+- estado do turno, início e saída de terminal;
+- pedido, entrega, nota quando o transcript contradiz a tela (D20) e resposta, com estado, duração e
+  origem (transcript ou tela);
+- mensagens diretas.
+
+O painel Activity lê e filtra esse registro e só dobra a exibição das trocas de estado de menos de 2 s.
+O arquivo fica intacto.
+
+**Alternativas consideradas.**
+- *Pedir aos agentes que registrem o que fazem* (notas, `narrater done`): depende de cooperação
+  (D01), e o registro seria a palavra do agente, não o fato.
+- *Reaproveitar o `asks.jsonl`*: não tem estados nem mensagens, e é compactado para 500 registros.
+- *Só em memória, como o ledger*: some ao reiniciar, e verificar depois é justamente o objetivo.
+- *Gravar só estados estáveis* (com debounce no backend): perderia exatamente as trocas rápidas que
+  explicam um ask antes da hora (D20). Por isso a dobra acontece só na exibição.
+
+**Evidência.**
+- `[observado]` Rodada de teste do benchmark com o build do painel (vH-r0): 36 eventos até a primeira
+  resposta. Nos dois asks iniciais, as notas "screen looks idle, transcript says the turn is still
+  running" aparecem logo após a entrega, o caso da D20 visto ao vivo.
+- `[observado]` Reaberto o app com o mesmo HOME, o histórico da rodada anterior continuou no painel.
+- `[observado]` O WebKitGTK do Tauri ignora o `line-clamp` do CSS em texto pré-formatado. A prévia
+  recolhida é cortada no código.
+
+**Consequência.**
+- Mais uma escrita em disco por evento: o volume é de dezenas por minuto com agentes ativos.
+- O texto de pedidos e respostas fica truncado em 4.000 caracteres no registro; o texto inteiro de um
+  ask continua no `asks.jsonl`.
+
+**Revisar se:** o arquivo crescer mais rápido que a rotação aguenta; ou o painel precisar de eventos
+de outros agentes (Codex, Gemini) que hoje só chegam pela tela, sem nada novo a registrar.
