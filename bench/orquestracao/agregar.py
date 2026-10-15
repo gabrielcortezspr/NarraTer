@@ -18,7 +18,7 @@ BENCH = Path(os.environ.get("BENCH", "/home/user/bench"))
 RUNS = Path(os.environ.get("BENCH_RUNS", BENCH / "runs"))
 RAIZ = Path(__file__).resolve().parents[2]
 SAIDA = Path(sys.argv[1]) if len(sys.argv) > 1 else RAIZ / "docs/relatorios/dados"
-VERSOES = {"A": "e708d7b", "B": "16cee0e", "C": "95fb11a", "D": "db3d535"}
+VERSOES = {"A": "e708d7b", "B": "16cee0e", "C": "95fb11a", "D": "db3d535", "E": "8e2e5fa"}
 AGENTES = ("Narrador", "DevA", "DevB")
 CONSULTAS = {"check", "inbox", "wait", "asks", "list", "list_peers", "check_messages", "whoami", "peers",
              "canvas_list_nodes", "status"}
@@ -38,7 +38,7 @@ def linha(m):
     p = m["placar"]
     o = p.get("oculto", {})
     row = {
-        "versao": m["versao"], "rep": m["rep"], "idx": "ABCD".index(m["versao"]), "concluiu": int(m["motivo"] == "concluida"),
+        "versao": m["versao"], "rep": m["rep"], "idx": "ABCDE".index(m["versao"]), "concluiu": int(m["motivo"] == "concluida"),
         "duracao_min": round(m["duracao_s"] / 60, 2) if m["duracao_s"] else "",
         "oculto_ok": p.get("oculto_ok", 0), "oculto_total": p.get("oculto_total", 0),
         **{f"oculto_{k.lower()}": o.get(k, {}).get("ok", 0) for k in ("Basico", "Bordas", "Defeitos", "Regressao")},
@@ -124,7 +124,7 @@ def main():
         rs = [r for r in rows if r["versao"] == v]
         if not rs:
             continue
-        d = {"versao": v, "idx": "ABCD".index(v), "n": len(rs)}
+        d = {"versao": v, "idx": "ABCDE".index(v), "n": len(rs)}
         for c in campos:
             media, mn, mx, dp = resumo(rs, c)
             d[c] = media
