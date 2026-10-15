@@ -34,18 +34,12 @@ Generaliza o ask-back atual.
 **O4 · `ask --resume <id>`** para reanexar a um ask depois de um timeout do shell do líder, em vez
 de reenviar.
 
-**O5 · Resultado = saída desde a entrega.** Devolver tudo que o alvo produziu desde a entrega, com
-limite e cursor, em vez de só a tela visível. Desenho revisto em 2026-10-15 (`pesquisa/orca.md` §7):
-o Claude Code roda em tela alternativa, sem scrollback (medido). As fontes, em ordem:
-1. transcript do provedor a partir do offset da entrega, com o caminho vindo da statusline (D17)
-   ou da busca por pasta e horário;
-2. histórico do servidor tmux desde a linha da entrega;
-3. a tela, marcada como parcial.
-**Próxima da fila.** O benchmark de 2026-10-15 (`pesquisa/comparacao-versoes.md`) mediu o custo de
-não ter isto. A resposta lida da tela chegou cortada em todas as rodadas de C e D e em duas de B, com
-1 a 5 pedidos repetidos por rodada. A versão A, que recebe o relatório inteiro por mensagem, não teve
-nenhum. Aceite: rodar `bench/orquestracao` de novo e ver as repetições caírem a zero sem aumentar os
-tokens.
+**O5 · Resultado = saída desde a entrega.** ✅ 2026-10-15 para o Claude (D20). O `ask` lê no transcript
+a resposta final inteira e usa o transcript também para não dar o turno por encerrado antes da hora.
+Medido no benchmark: versões E, F e G em `pesquisa/comparacao-versoes.md`. Falta:
+- leitor de transcript do Codex (`~/.codex/sessions/**/rollout-*.jsonl`);
+- histórico do servidor tmux como segunda fonte, para agentes sem transcript (com
+  `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN` opcional, `pesquisa/orca.md` §7).
 
 **O6 · `narrater tell "Dev" "…"`.** Mensagem sem espera (steering), entregue no próximo idle.
 
@@ -53,7 +47,16 @@ tokens.
 `done`, a decisão entre reusar e `dismiss`; `narrater list` mostra quem está ocioso e sem tarefa.
 
 **O8 · Tarefas com dependências no canvas.** Nós de tarefa ligados aos agentes, como quadro
-visível, em vez de uma tabela escondida. Depois de O1–O3.
+visível, em vez de uma tabela escondida. Depois de O1–O3. Reforçada pelo estudo do Agent Teams
+(`pesquisa/agent-teams.md`): quem termina pega sozinho a próxima tarefa livre (`narrater task
+next/done`), e quem não coopera recebe a tarefa por mensagem. É o próximo alvo de custo: depois da
+O5, o que sobra de custo são as voltas ao Narrador entre fases.
+
+**O9 · Variantes do benchmark.**
+- Topologia em triângulo (DevA ↔ DevB) contra a estrela de hoje.
+- Statusline ligada contra desligada com mais rodadas: na E, as rodadas sem statusline foram mais
+  baratas, mas p = 0,2.
+- Uma tarefa mais difícil, sem teto de qualidade.
 
 **Fora do escopo** (D06): heartbeat obrigatório, `worker_done` exigido, Run/Task/Dispatch,
 federação entre máquinas.
