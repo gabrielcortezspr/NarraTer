@@ -53,7 +53,7 @@ anterior: a comparação só vale se a tarefa, os testes escondidos e o método 
 ```sh
 cd bench/orquestracao
 python3 rodar.py D 0                 # piloto: confira final.png, agentes.log e o placar
-./rodar_todas.sh                     # 12 rodadas, ~3 h; ou passe a ordem: ./rodar_todas.sh A1 B1
+./rodar_todas.sh                     # 12 rodadas, ~50 min; ou passe a ordem: ./rodar_todas.sh A1 B1
 python3 analisar.py $BENCH/runs/v*-r[1-9]
 python3 agregar.py                   # tabelas e figuras em docs/relatorios/
 ```
@@ -62,10 +62,23 @@ Cada rodada em `$BENCH/runs/vX-rN/`: `agentes.log` (rótulo, modelo, sessão, pa
 `rodada.json`, `placar.json`, `diff.patch`, `final.png`, `tela-*.txt` (tmux, versões B+),
 `app.log`, `home/.claude/projects/*/<sessão>.jsonl` (as transcrições).
 
+## Guardar
+
+As rodadas brutas (`$BENCH/runs`) ficam fora do repositório e somem com o contêiner. Ao fim de um
+estudo, copie para `bench/orquestracao/resultados/<data>/`:
+- por rodada: `metricas.json`, `placar.json`, `rodada.json`, `agentes.log`, `diff.patch` e `pedido.txt`;
+- as transcrições compactadas, em `transcricoes.tar.xz` (confira antes que não há credenciais).
+
+`BENCH_RUNS=bench/orquestracao/resultados/<data> python3 agregar.py` refaz as tabelas a partir dessa cópia.
+
 ## Relatar
 
 - Separe `[medido]` de `[observado]` e `[inferido]` (D09). Com 3 rodadas por versão, só chame de
   diferença o que não se sobrepõe entre as rodadas; o resto é observação.
 - Custo em US$ é preço de API equivalente (tabela em `analisar.py`): a conta é de assinatura.
-- Atualize `docs/relatorios/orquestracao-versoes.tex`, compile com `tectonic` (ou `pdflatex`) e
-  resuma em `docs/pesquisa/comparacao-versoes.md`.
+- Atualize `docs/relatorios/orquestracao-versoes.tex` e compile com `pdflatex` (duas vezes; precisa
+  de texlive-latex-extra, texlive-pictures, texlive-lang-portuguese e lmodern). As tabelas entram
+  com `\inputtab`, porque `\input` quebra dentro de `tabular`. Resuma em
+  `docs/pesquisa/comparacao-versoes.md`.
+- Estudo anterior: 2026-10-15, versões A–D. Todas tiraram 31/31; a resposta cortada do `ask` foi o
+  mecanismo de custo (backlog O5).

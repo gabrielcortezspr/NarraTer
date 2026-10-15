@@ -2,7 +2,7 @@
 """Junta as métricas de todas as rodadas em CSVs e tabelas LaTeX para o relatório.
 
 Uso: agregar.py [SAIDA]   (padrão: docs/relatorios/dados)
-Lê $BENCH/runs/v?-r[1-9]*/metricas.json (rodada 0 = piloto, fica de fora).
+Lê $BENCH_RUNS/v?-r*/metricas.json (padrão $BENCH/runs; rodada 0 = piloto, fica de fora).
 """
 
 import csv
@@ -13,6 +13,9 @@ import sys
 from pathlib import Path
 
 BENCH = Path(os.environ.get("BENCH", "/home/user/bench"))
+# As rodadas brutas ficam fora do repositório; uma cópia das métricas de cada estudo fica em
+# resultados/<data>/ (BENCH_RUNS=bench/orquestracao/resultados/2026-10-15 refaz as tabelas dela)
+RUNS = Path(os.environ.get("BENCH_RUNS", BENCH / "runs"))
 RAIZ = Path(__file__).resolve().parents[2]
 SAIDA = Path(sys.argv[1]) if len(sys.argv) > 1 else RAIZ / "docs/relatorios/dados"
 VERSOES = {"A": "e708d7b", "B": "16cee0e", "C": "95fb11a", "D": "db3d535"}
@@ -23,7 +26,7 @@ CONSULTAS = {"check", "inbox", "wait", "asks", "list", "list_peers", "check_mess
 
 def carrega():
     rodadas = []
-    for f in sorted(BENCH.glob("runs/v?-r*/metricas.json")):
+    for f in sorted(RUNS.glob("v?-r*/metricas.json")):
         m = json.loads(f.read_text())
         if m["rep"] >= 1:
             rodadas.append(m)
@@ -35,7 +38,7 @@ def linha(m):
     p = m["placar"]
     o = p.get("oculto", {})
     row = {
-        "versao": m["versao"], "rep": m["rep"], "concluiu": int(m["motivo"] == "concluida"),
+        "versao": m["versao"], "rep": m["rep"], "idx": "ABCD".index(m["versao"]), "concluiu": int(m["motivo"] == "concluida"),
         "duracao_min": round(m["duracao_s"] / 60, 2) if m["duracao_s"] else "",
         "oculto_ok": p.get("oculto_ok", 0), "oculto_total": p.get("oculto_total", 0),
         **{f"oculto_{k.lower()}": o.get(k, {}).get("ok", 0) for k in ("Basico", "Bordas", "Defeitos", "Regressao")},
@@ -78,6 +81,25 @@ def linha(m):
     return row
 
 
+def mann_whitney(x, y):
+    """U e p bilateral exato (permutação) — sem scipy. Com 3 contra 3, o menor p possível é 0,10."""
+    from itertools import combinations
+    def u(a, b):
+        return sum((ai > bi) + 0.5 * (ai == bi) for ai in a for bi in b)
+    obs = u(x, y)
+    todos = list(x) + list(y)
+    n = len(x)
+    centro = len(x) * len(y) / 2
+    extremos = total = 0
+    for idx in combinations(range(len(todos)), n):
+        a = [todos[i] for i in idx]
+        b = [todos[i] for i in range(len(todos)) if i not in idx]
+        total += 1
+        if abs(u(a, b) - centro) >= abs(obs - centro) - 1e-9:
+            extremos += 1
+    return obs, extremos / total
+
+
 def resumo(rows, campo):
     vals = [r[campo] for r in rows if r[campo] != ""]
     if not vals:
@@ -96,7 +118,7 @@ def main():
         w.writeheader()
         w.writerows(rows)
 
-    campos = [k for k in rows[0] if k not in ("versao", "rep")]
+    campos = [k for k in rows[0] if k not in ("versao", "rep", "idx")]
     por_versao = []
     for v in VERSOES:
         rs = [r for r in rows if r["versao"] == v]
@@ -161,24 +183,42 @@ def main():
         ("Chamadas de coordenação (CLI/MCP)", "coordenacao", "{:.1f}"),
         ("\\quad das quais consultas de estado", "consultas", "{:.1f}"),
         ("Chamadas à API do Narrador", "Narrador_api", "{:.1f}"),
-        ("Entrega: pedido $\\to$ tela do dev (s, mediana)", "entrega_s", "{:.1f}"),
-        ("Detecção: fim do turno $\\to$ resposta ao líder bloqueado (s)", "deteccao_s", "{:.1f}"),
-        ("Fala de volta: dev envia $\\to$ tela do líder (s)", "volta_s", "{:.1f}"),
-        ("Retorno: fim do turno $\\to$ líder sabe (s)", "retorno_s", "{:.1f}"),
+        ("Entrega (s)", "entrega_s", "{:.1f}"),
+        ("Detecção (s)", "deteccao_s", "{:.1f}"),
+        ("Volta, só A (s)", "volta_s", "{:.1f}"),
+        ("Retorno até o líder saber (s)", "retorno_s", "{:.1f}"),
         ("Tempo com algum dev trabalhando (min)", "algum_dev_min", "{:.1f}"),
         ("Tempo só do Narrador (min)", "so_lider_min", "{:.1f}"),
         ("Turnos de trabalho dos devs (soma)", "turnos_devs", "{:.1f}"),
-        ("Ocupação média dos devs (fração da duração)", "ocupacao_devs_frac", "{:.2f}"),
-        ("Fração do tempo com os dois devs trabalhando", "paralelo_frac", "{:.2f}"),
+        ("Ocupação média dos devs", "ocupacao_devs_frac", "{:.2f}"),
+        ("Fração com os dois devs ativos", "paralelo_frac", "{:.2f}"),
         ("Pedidos do Narrador aos devs", "pedidos_lider", "{:.1f}"),
-        ("\\quad repetidos porque a resposta veio cortada", "repeticoes_tela", "{:.1f}"),
+        ("\\quad repetidos por resposta cortada", "repeticoes_tela", "{:.1f}"),
         ("Narrador: chamadas de coordenação", "Narrador_coordenacao", "{:.1f}"),
         ("Narrador: rodou os testes", "Narrador_verificacao", "{:.1f}"),
         ("Narrador: leituras de código", "Narrador_leitura", "{:.1f}"),
-        ("Narrador: edições", "Narrador_edicao", "{:.1f}"),
-        ("Edições de DevA", "DevA_edicoes", "{:.1f}"),
-        ("Edições de DevB", "DevB_edicoes", "{:.1f}"),
+        ("Narrador: edições (inclui via Bash)", "Narrador_edicao", "{:.1f}"),
+        ("DevA: chamadas Edit/Write", "DevA_edicoes", "{:.1f}"),
+        ("DevB: chamadas Edit/Write", "DevB_edicoes", "{:.1f}"),
     ])
+    # Testes entre pares de versões nas métricas principais
+    pares = [("A", "B"), ("B", "C"), ("C", "D"), ("A", "D")]
+    metricas = [("Duração", "duracao_min"), ("Tokens processados", "processados_k"), ("Custo", "custo_usd"),
+                ("Pedidos do Narrador", "pedidos_lider"), ("Turnos dos devs", "turnos_devs")]
+    with open(SAIDA / "tab-testes.tex", "w") as f, open(SAIDA / "testes.csv", "w") as g:
+        g.write("metrica,par,U,p\n")
+        for rotulo, c in metricas:
+            cels = []
+            for a, b in pares:
+                xa = [r[c] for r in rows if r["versao"] == a and r[c] != ""]
+                xb = [r[c] for r in rows if r["versao"] == b and r[c] != ""]
+                if xa and xb:
+                    U, pv = mann_whitney(xa, xb)
+                    cels.append(f"{U:g} / {pv:.2f}")
+                    g.write(f"{c},{a}-{b},{U:g},{pv:.3f}\n")
+                else:
+                    cels.append("--")
+            f.write(rotulo + " & " + " & ".join(cels) + " \\\\\n")
     print(f"{len(rows)} rodadas → {SAIDA}")
     for d in por_versao:
         print(f"v{d['versao']} n={d['n']} dur={d['duracao_min']} oculto={d['oculto_ok']} proc={d['processados_k']}k "

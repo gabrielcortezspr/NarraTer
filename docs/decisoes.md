@@ -34,7 +34,7 @@ Cada entrada tem seis campos:
 | Uso dos agentes | D17 |
 | CLI e distribuição | D03 |
 | Escopo do produto | D04, D05 |
-| Processo | D09 |
+| Processo | D09, D19 |
 | Design | D13, D14, D15, D16, D18 |
 
 ---
@@ -631,3 +631,51 @@ continuam desenhando, porque a corda ignora a alça.
 
 **Revisar se:** o canvas com dezenas de nós perder quadros ao arrastar; cordas ficarem presas ou
 cruzarem nós em layouts reais; ou usuários preferirem rotas retas.
+
+## D19 · Versões se comparam por um benchmark fixo: mesma tarefa, testes escondidos, rodada zerada
+
+`2026-10-15` · processo · `bench/orquestracao/`, skill `benchmark`, `docs/relatorios/orquestracao-versoes.tex`
+
+**Contexto.** Queríamos saber quanto cada mudança de orquestração custou ou rendeu em tokens,
+contexto, eficiência e trabalho feito. Sem um método fixo, cada comparação vira impressão.
+
+**Decisão.**
+- **Tarefa:** o repositório inventado `pedidos`, com regras próprias, uma funcionalidade que
+  atravessa os três módulos e dois defeitos descritos só como reclamação de cliente.
+- **Julgamento:** 31 testes escondidos em quatro níveis.
+- **Equipe:** três agentes com modelo fixo por papel (Narrador Opus 5.5, DevA Sonnet 5.5, DevB
+  Haiku 5.5), com os papéis padrão de cada versão.
+- **Condições:** toda rodada começa zerada (HOME, tmux, sessões e ambiente próprios); ordem
+  contrabalançada; métricas tiradas das transcrições do Claude Code, que são iguais em todas as
+  versões.
+- **Métrica principal de tokens:** os processados (entrada + cache lido + cache criado).
+
+**Alternativas consideradas.**
+- *Calculadora de expressões*: o modelo sabe o exercício de cor, o líder o faria sozinho e todas as
+  versões tirariam nota máxima.
+- *Encurtador de links com HTTP e banco*: realista, mas difícil de deixar igual entre rodadas, e a
+  nota fica menos objetiva.
+- *Mesmo modelo nos três agentes*: mais simples. Misturar modelos fixos por papel foi pedido do
+  usuário (orquestração é sobre diversidade) e continua sendo controle, porque cada papel tem o
+  mesmo modelo em todas as versões.
+- *Custo em US$ como métrica principal*: depende de acerto de cache entre rodadas próximas.
+- *Digitar o pedido na interface (xdotool)*: frágil. Um wrapper `claude` entrega o pedido como
+  prompt inicial pelo mesmo caminho em todas as versões.
+
+**Evidência.**
+- `[medido]` A solução de referência passa 31/31 nos testes escondidos, e o repositório inicial 5/31
+  (`oculto/placar.py`).
+- `[medido]` Doze rodadas (2026-10-15), resumidas em `pesquisa/comparacao-versoes.md`:
+  - todas tiraram 31/31;
+  - as métricas de custo separam A de D sem sobreposição;
+  - a resposta cortada aparece como mecanismo.
+- `[observado]` A primeira rodada de teste revelou que o Claude recusa `--dangerously-skip-permissions`
+  como root. `IS_SANDBOX=1` resolve e vale para todas as versões.
+
+**Consequência.** Toda mudança de orquestração pode ser medida antes de ir para a main. A tarefa atual
+bate no teto de qualidade, então mede só custo. Uma rodada custa cerca de US$ 0,70 a 1,00 em preço de
+API e leva de 2 a 6 minutos; 12 rodadas levam cerca de 50 minutos.
+
+**Revisar se:** uma versão tirar menos de 31/31 (a tarefa voltou a medir qualidade); o formato das
+transcrições do Claude Code mudar; ou entrarem agentes de outros fornecedores, que pedem métricas
+que não dependam do `.jsonl` do Claude.

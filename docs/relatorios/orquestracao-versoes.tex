@@ -1,31 +1,45 @@
 % Relatório: comparação da orquestração de agentes entre versões do NarraTer.
-% Compilar: cd docs/relatorios && pdflatex orquestracao-versoes.tex (duas vezes).
-% Os números vêm de dados/ (gerado por bench/orquestracao/agregar.py); não edite os .tex de dados.
+% Compilar: cd docs/relatorios && pdflatex orquestracao-versoes.tex && pdflatex orquestracao-versoes.tex
+% Os números vêm de dados/ (gerado por bench/orquestracao/agregar.py); não edite os arquivos de dados.
 \documentclass[11pt,a4paper]{article}
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage[brazil]{babel}
 \usepackage{lmodern}
-\usepackage[margin=2.3cm]{geometry}
+\usepackage[margin=2.2cm]{geometry}
 \usepackage{booktabs}
 \usepackage{tabularx}
-\usepackage{graphicx}
 \usepackage{xcolor}
 \usepackage{pgfplots}
 \usepackage{pgfplotstable}
-\usepackage{hyperref}
-\usepackage{enumitem}
 \usepackage{float}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage[hidelinks]{hyperref}
 \pgfplotsset{compat=1.18}
-\setlist{itemsep=2pt}
+\setlist{itemsep=2pt,topsep=4pt}
+\captionsetup{font=small,labelfont=bf}
 
-\definecolor{va}{HTML}{8A8F98}
-\definecolor{vb}{HTML}{4F7FD9}
-\definecolor{vc}{HTML}{8F7CFF}
-\definecolor{vd}{HTML}{2E9E6B}
-\newcommand{\rot}[1]{\textsf{\small[#1]}}
+\definecolor{cNarr}{HTML}{6D5BD0}
+\definecolor{cDevA}{HTML}{3D7DD8}
+\definecolor{cDevB}{HTML}{2E9E6B}
+\definecolor{cCinza}{HTML}{8A8F98}
+\newcommand{\rot}[1]{\textsf{\footnotesize[#1]}}
+\makeatletter\let\inputtab\@@input\makeatother % \input não expansível quebra tabelas
+\newcommand{\versao}[1]{\textbf{#1}}
 
-\title{Orquestração de agentes no NarraTer:\\ comparação entre quatro versões}
+\pgfplotsset{
+  narr/.style={
+    width=\linewidth, height=5.2cm,
+    xtick={0,1,2,3}, xticklabels={A,B,C,D},
+    xmin=-0.6, xmax=3.6,
+    ymajorgrids, grid style={cCinza!25},
+    tick label style={font=\footnotesize}, label style={font=\footnotesize},
+    legend style={font=\footnotesize, draw=none, fill=none},
+  },
+}
+
+\title{Orquestração de agentes no NarraTer:\\[2pt] \large comparação de quatro versões numa mesma tarefa de programação}
 \author{Gabriel Cortez \and Claude Code}
 \date{15 de outubro de 2026}
 
@@ -33,28 +47,387 @@
 \maketitle
 
 \begin{abstract}
-\input{texto/resumo.tex}
+\noindent
+Rodamos a mesma tarefa de programação em quatro versões do NarraTer, de julho a outubro de 2026,
+três vezes cada, sempre com o mesmo ponto de partida e os mesmos modelos: um Narrador (Claude Opus 5.5)
+coordenando dois desenvolvedores (Claude Sonnet 5.5 e Claude Haiku 5.5). As doze rodadas
+entregaram tudo o que foi pedido: 31 de 31 testes escondidos. A tarefa, portanto, não separa as
+versões pela qualidade. As versões se separam no custo. A mais antiga (A, modelo cooperativo com MCP)
+foi a mais rápida e a mais barata: 2,2~min e 1,8~milhão de tokens processados em média.
+A atual (D) gastou 4,6~min e 3,4~milhões. A latência do protocolo em si é de segundos e não explica
+a diferença, que vem do número de rodadas de trabalho que o Narrador encomenda. Um mecanismo
+concreto aparece em todas as rodadas de C e D e em duas de B: a resposta de um \texttt{ask}, lida da
+tela do agente, chega cortada, e o Narrador precisa pedir de novo. Na versão A, em que o agente envia
+o relatório inteiro por mensagem, isso não aconteceu nenhuma vez. Com três rodadas por versão,
+nenhuma diferença passa de $p=0{,}10$ (o menor valor possível nesse tamanho de amostra). Os
+resultados são indicações fortes, não provas.
 \end{abstract}
 
 \section{Objetivo}
-\input{texto/objetivo.tex}
+
+O NarraTer é um canvas de terminais em que agentes de IA conversam por arestas. Entre julho e outubro
+de 2026 o jeito de orquestrar mudou três vezes: saímos de um modelo cooperativo preso ao Claude Code
+(MCP, \emph{prompt} de sistema extra, \emph{hook} de parada) para um protocolo que trata o terminal
+como API universal (decisão D01), depois tornamos o \texttt{ask} assíncrono e durável (D07, D08) e,
+por fim, refizemos o leitor de estado que decide quando um agente terminou (D10--D12). A pergunta
+deste estudo é o que cada mudança custou ou rendeu em quatro eixos: \textbf{tokens},
+\textbf{contexto}, \textbf{eficiência} (tempo e coordenação) e \textbf{trabalho feito}.
 
 \section{Versões comparadas}
-\input{texto/versoes.tex}
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{@{}l l l X@{}}
+\toprule
+& Commit & Data & O que muda na orquestração \\
+\midrule
+\versao{A} & \texttt{e708d7b} & 13/07 & Modelo cooperativo. Servidor MCP \texttt{narrater-mcp} (Python), \emph{prompt} via
+  \texttt{--append-system-prompt}, \emph{hook} \texttt{Stop} avisa que o agente parou. Arestas dirigidas.
+  O agente responde com \texttt{reply\_message}/\texttt{send\_message}: o texto inteiro chega ao outro lado.
+  O papel de líder proíbe Bash, Edit e Write. Só funciona com Claude Code. \\
+\versao{B} & \texttt{16cee0e} & 12/10 & Protocolo agnóstico (D01). CLI \texttt{narrater} em Rust ensinada por
+  \emph{skill}; papéis como \texttt{CLAUDE.md} em \texttt{.narrater/roles/}; sessões em tmux. O \texttt{ask}
+  bloqueia até o fim do turno do alvo, lido da tela, e devolve o texto da tela. O líder não pode editar arquivos. \\
+\versao{C} & \texttt{95fb11a} & 14/10 & \texttt{ask} assíncrono (\texttt{--no-wait}), \texttt{narrater wait} e
+  pedidos duráveis em \texttt{asks.jsonl} (D07, D08). \\
+\versao{D} & \texttt{db3d535} & 15/10 & Leitor de estado novo (título da janela, primeiro plano do tmux, permissão;
+  D10--D12), \emph{statusline} de uso (D17) e o rework visual. \emph{Skills} e papéis idênticos aos de C. \\
+\bottomrule
+\end{tabularx}
+\caption{As quatro versões. C e D diferem só no backend de leitura de estado, na \emph{statusline} e na interface.}
+\end{table}
 
 \section{Método}
-\input{texto/metodo.tex}
+
+\subsection{Tarefa}
+
+Um repositório Python inventado (\texttt{pedidos}, cerca de 300 linhas, só biblioteca padrão) com
+regras de negócio próprias em \texttt{REGRAS.md}: desconto progressivo por faixas, imposto
+proporcional, frete. O Narrador recebe um único pedido:
+\begin{enumerate}
+\item implementar \texttt{docs/PEDIDO-MULTIMOEDA.md}: pedidos em BRL, USD ou EUR, tabela de câmbio
+  com a taxa da data anterior mais recente, regras aplicadas em reais e novos campos no relatório.
+  Atravessa os três módulos e exige combinar uma interface;
+\item corrigir duas reclamações de \texttt{docs/RECLAMACOES.md}, sem saber onde está o erro: o
+  desconto da terceira faixa calculado sobre a base errada, e linhas de um mesmo pedido
+  intercaladas no CSV virando dois pedidos (\texttt{groupby} sem ordenação);
+\item manter os testes existentes passando e escrever testes novos.
+\end{enumerate}
+Preferimos isso a um exercício clássico (uma calculadora de expressões) porque o modelo saberia o
+exercício clássico de cor: o líder o faria sozinho e todas as versões tirariam nota máxima.
+O texto do pedido é o mesmo em todas as rodadas e termina com ``escreva \texttt{TAREFA CONCLUIDA}''.
+
+\subsection{Julgamento}
+
+31 testes escondidos, que os agentes nunca veem, divididos em quatro níveis: \emph{Básico}~(7),
+\emph{Bordas}~(12), \emph{Defeitos}~(5) e \emph{Regressão}~(7). Os valores esperados foram calculados
+à mão a partir das regras. Uma solução de referência passa 31/31, e o repositório inicial passa 5/31
+(só regressão).
+
+\subsection{Condições}
+
+\begin{itemize}
+\item \textbf{Ponto de partida zerado em toda rodada}: \texttt{HOME} próprio (configuração do Claude,
+  \emph{skills}, sessões, memória, \texttt{\~{}/.config/narrater}), servidor tmux próprio, pasta de trabalho
+  copiada do zero, ambiente mínimo (só login e proxy) e sessões novas (\texttt{--session-id} gerado na hora).
+\item \textbf{Modelos fixos por papel}: Narrador = \texttt{claude-opus-5-5}, DevA = \texttt{claude-sonnet-5-5},
+  DevB = \texttt{claude-haiku-5-5}, Claude Code 2.1.300. Um \emph{wrapper} \texttt{claude} na frente do
+  \texttt{PATH} faz isso igual em todas as versões. O mesmo \emph{wrapper} entrega o pedido ao Narrador
+  como \emph{prompt} inicial, 25~s depois de ele subir, sem digitar na interface.
+\item \textbf{Papéis}: os papéis padrão de cada versão (\emph{leader} e \emph{coder}), com o texto que o
+  seletor de agentes copia. Permissões ignoradas (\texttt{--dangerously-skip-permissions}, com
+  \texttt{IS\_SANDBOX=1}, porque o contêiner roda como root).
+\item \textbf{Ordem contrabalançada}: A1 B1 C1 D1, D2 C2 B2 A2, C3 A3 D3 B3. O \emph{cache} de
+  \emph{prompt} do servidor dura até 1~h e baratearia quem roda logo depois de outra versão.
+\item \textbf{Fim}: o Narrador escreve a linha de fim, ou 40 minutos (nenhuma rodada chegou perto).
+\end{itemize}
+
+\subsection{Métricas}
+
+Tudo vem das transcrições do Claude Code (\texttt{\~{}/.claude/projects/*/<sessão>.jsonl}), que têm o
+mesmo formato nas quatro versões.
+\begin{itemize}
+\item \textbf{Tokens processados}: entrada + \emph{cache} lido + \emph{cache} criado, somados por chamada à API
+  (cada \texttt{message.id} contado uma vez). É o tamanho do contexto que o modelo leu e não muda
+  se o \emph{cache} acertou ou não. O custo em US\$ é o preço de API equivalente
+  (Opus 5.5: 4/20; Sonnet 5.5: 2/10; Haiku 5.5: 0,10/0,50 por milhão de tokens, \emph{cache} lido a 0,1$\times$ e
+  criado em 1~h a 2$\times$ a entrada). A conta usada é de assinatura e não paga por token.
+\item \textbf{Contexto}: contexto da primeira chamada (o custo fixo do agente antes da tarefa), pico e compactações.
+\item \textbf{Tempo}: do pedido entregue ao Narrador até a linha de fim. Um dev está ``trabalhando'' entre receber
+  uma fala e encerrar o turno; o resto é tempo só do Narrador.
+\item \textbf{Latências do protocolo}: \emph{entrega} (o líder pede e a fala aparece no dev); \emph{detecção} (o dev
+  termina o turno e chega a resposta ao líder, que já esperava; num \texttt{ask --batch} ou \texttt{wait} sem
+  ids só conta o último a terminar); \emph{volta} (versão A: o dev envia e a fala aparece no líder).
+\item \textbf{Coordenação}: pedidos do Narrador aos devs e, entre eles, os \textbf{repetidos porque a resposta
+  veio cortada}. Esses foram detectados por palavras (``cortado'', ``repita'', ``relatório completo''\dots) e
+  conferidos à mão.
+\end{itemize}
 
 \section{Resultados}
-\input{texto/resultados.tex}
+
+\subsection{Trabalho feito}
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{@{}lllll@{}}
+\toprule
+& \versao{A} & \versao{B} & \versao{C} & \versao{D} \\
+\midrule
+\inputtab{dados/tab-resultado.tex}
+\bottomrule
+\end{tabular}
+\caption{Média e (mínimo--máximo) das três rodadas de cada versão.}
+\label{tab:resultado}
+\end{table}
+
+\rot{medido} As doze rodadas terminaram sozinhas e passaram nos 31 testes escondidos. Os testes
+da própria equipe passaram em todas (de 41 a 60 testes). A tarefa não separa as versões pela
+qualidade: é o efeito teto que tentamos evitar trocando a calculadora pelo repositório inventado, e
+ele aconteceu mesmo assim. Em nenhuma rodada o Narrador editou um arquivo: o papel de líder foi
+respeitado nas quatro versões.
+
+\subsection{Tempo e tokens}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.49\linewidth}
+\begin{tikzpicture}
+\begin{axis}[narr, ylabel={duração (min)}, ymin=0]
+\addplot[only marks, mark=*, mark size=2.2pt, cCinza, fill opacity=0.8] table[x=idx, y=duracao_min, col sep=comma] {dados/rodadas.csv};
+\addplot[only marks, mark=-, mark size=9pt, very thick, cNarr] table[x=idx, y=duracao_min, col sep=comma] {dados/versoes.csv};
+\end{axis}
+\end{tikzpicture}
+\end{minipage}\hfill
+\begin{minipage}{0.49\linewidth}
+\begin{tikzpicture}
+\begin{axis}[narr, ylabel={tokens processados (milhões)}, ymin=0,
+  y filter/.code={\pgfmathparse{#1/1000}}]
+\addplot[only marks, mark=*, mark size=2.2pt, cCinza, fill opacity=0.8] table[x=idx, y=processados_k, col sep=comma] {dados/rodadas.csv};
+\addplot[only marks, mark=-, mark size=9pt, very thick, cNarr] table[x=idx, y=processados_k, col sep=comma] {dados/versoes.csv};
+\end{axis}
+\end{tikzpicture}
+\end{minipage}
+\caption{Cada ponto é uma rodada; o traço é a média da versão.}
+\label{fig:tempo}
+\end{figure}
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{@{}lllll@{}}
+\toprule
+& \versao{A} & \versao{B} & \versao{C} & \versao{D} \\
+\midrule
+\inputtab{dados/tab-tokens.tex}
+\bottomrule
+\end{tabular}
+\caption{Tokens e custo por rodada (média e mínimo--máximo).}
+\label{tab:tokens}
+\end{table}
+
+\rot{medido} A ordem se repete em tempo, tokens e custo: A $<$ B $<$ C $<$ D. Nas três rodadas, a A foi
+mais rápida e processou menos tokens que qualquer rodada da D. A média da D é 2,1$\times$ mais longa
+e processa 1,9$\times$ mais tokens. O custo de API equivalente vai de US\$\,0,69 a US\$\,1,02 por tarefa.
+O Narrador (Opus) responde por cerca de metade do custo em todas as versões. O DevB (Haiku) é quem mais
+processa tokens e o que menos custa.
+
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}
+\begin{axis}[narr, width=0.62\linewidth, ybar stacked, bar width=16pt, ymin=0,
+  ylabel={tokens processados (mil, média)}, legend columns=3,
+  legend style={at={(0.5,1.03)}, anchor=south}]
+\addplot[fill=cNarr, draw=none] table[x=idx, y=Narrador_processados_k, col sep=comma] {dados/versoes.csv};
+\addplot[fill=cDevA, draw=none] table[x=idx, y=DevA_processados_k, col sep=comma] {dados/versoes.csv};
+\addplot[fill=cDevB, draw=none] table[x=idx, y=DevB_processados_k, col sep=comma] {dados/versoes.csv};
+\legend{Narrador (Opus), DevA (Sonnet), DevB (Haiku)}
+\end{axis}
+\end{tikzpicture}
+\caption{O que cresce de A para D são os tokens dos devs; o Narrador fica parecido.}
+\label{fig:agentes}
+\end{figure}
+
+\subsection{Contexto}
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{@{}lllll@{}}
+\toprule
+& \versao{A} & \versao{B} & \versao{C} & \versao{D} \\
+\midrule
+\inputtab{dados/tab-contexto.tex}
+\bottomrule
+\end{tabular}
+\caption{Contexto em milhares de tokens.}
+\label{tab:contexto}
+\end{table}
+
+\rot{medido} O custo fixo de um agente, antes de qualquer trabalho, é de cerca de 30 a 33~mil tokens
+em todas as versões. Quase tudo é do próprio Claude Code (\emph{prompt} de sistema e ferramentas).
+O protocolo do NarraTer pesa pouco. As ferramentas MCP e o \emph{prompt} anexado da versão A custam ao
+Narrador cerca de 0,7~mil tokens a mais que a \emph{skill} de B--D. Ninguém chegou perto do limite: o
+maior pico foi de 93~mil tokens (DevB na D1), e não houve nenhuma compactação. Os picos dos devs
+crescem de A para D junto com o número de turnos.
+
+\subsection{Para onde vai o tempo}
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{@{}lllll@{}}
+\toprule
+& \versao{A} & \versao{B} & \versao{C} & \versao{D} \\
+\midrule
+\inputtab{dados/tab-coordenacao.tex}
+\bottomrule
+\end{tabular}
+\caption{Coordenação. Latências: medianas por rodada, em segundos; entrega = pedido até a tela do dev; detecção = fim do turno até a resposta ao líder que esperava; volta = mensagem do dev até a tela do líder.}
+\label{tab:coord}
+\end{table}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.49\linewidth}
+\begin{tikzpicture}
+\begin{axis}[narr, ybar stacked, bar width=16pt, ymin=0, ylabel={minutos (média)},
+  legend columns=2, legend style={at={(0.5,1.03)}, anchor=south}]
+\addplot[fill=cDevA, draw=none] table[x=idx, y=algum_dev_min, col sep=comma] {dados/versoes.csv};
+\addplot[fill=cNarr, draw=none] table[x=idx, y=so_lider_min, col sep=comma] {dados/versoes.csv};
+\legend{algum dev trabalhando, só o Narrador}
+\end{axis}
+\end{tikzpicture}
+\end{minipage}\hfill
+\begin{minipage}{0.49\linewidth}
+\begin{tikzpicture}
+\begin{axis}[narr, ymin=0, ylabel={por rodada},
+  legend columns=2, legend style={at={(0.5,1.03)}, anchor=south}]
+\addplot[only marks, mark=*, mark size=2.2pt, cDevA] table[x expr=\thisrow{idx}-0.12, y=pedidos_lider, col sep=comma] {dados/rodadas.csv};
+\addplot[only marks, mark=square*, mark size=2.2pt, red!70!black] table[x expr=\thisrow{idx}+0.12, y=repeticoes_tela, col sep=comma] {dados/rodadas.csv};
+\legend{pedidos aos devs, repetidos por resposta cortada}
+\end{axis}
+\end{tikzpicture}
+\end{minipage}
+\caption{À esquerda, a duração decomposta; à direita, pedidos do Narrador por rodada.}
+\label{fig:coord}
+\end{figure}
+
+\rot{medido} A latência mecânica do protocolo é pequena perto da duração das rodadas, de dois a seis
+minutos:
+\begin{itemize}
+\item a \emph{entrega} de um pedido leva de 0,2 a 0,5~s em todas as versões;
+\item a \emph{volta} da versão A leva de 0,2 a 0,5~s;
+\item a \emph{detecção} de fim de turno em B--D leva de 1,6 a 3,1~s. O leitor de estado de D não mudou
+  isso nesta tarefa, e nenhum \texttt{ask} terminou em \emph{timeout} ou em ``precisa de você''.
+\end{itemize}
+O que cresce de A para D é o trabalho encomendado:
+\begin{itemize}
+\item o Narrador faz 3 a 5 pedidos na A e 7 a 10 na D;
+\item os devs trabalham 3 a 5 turnos somados na A e 9 a 12 na D;
+\item o tempo com algum dev trabalhando vai de 1,6 para 3,6~min em média.
+\end{itemize}
+
+\rot{medido} \textbf{Respostas cortadas.} Em B, C e D, a resposta de um \texttt{ask} é o texto que a tela do
+alvo mostra ao fim do turno: de 10 a 30 linhas. O tile de 380~px usado aqui tem 13 linhas visíveis
+nas versões B, C e D, medido numa cena de um só terminal. Quando o relatório do dev é maior, o Narrador recebe só o fim e pede de novo, com
+frases como ``seu relatório ficou cortado na minha tela; envie completo com
+\texttt{narrater ask "Narrador"}'' ou ``repita só a última linha do unittest''. As contagens foram:
+\begin{itemize}
+\item A: 0 em 3 rodadas;
+\item B: 1, 1 e 0;
+\item C: 2, 1 e 3;
+\item D: 1, 5 e 1.
+\end{itemize}
+Cada repetição custa um turno do dev e um do Narrador, com o contexto inteiro relido.
+
+\subsection{Testes estatísticos}
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{@{}lllll@{}}
+\toprule
+& A$\times$B & B$\times$C & C$\times$D & A$\times$D \\
+\midrule
+\inputtab{dados/tab-testes.tex}
+\bottomrule
+\end{tabular}
+\caption{Mann--Whitney exato (U\,/\,$p$ bilateral) entre pares de versões. Com três rodadas contra três, o menor
+$p$ possível é 0,10, alcançado quando todas as rodadas de uma versão ficam acima de todas as da outra.}
+\label{tab:testes}
+\end{table}
+
+\rot{medido} Entre A e D, todas as métricas da tabela atingem o extremo: em tempo, tokens, custo,
+pedidos e turnos, as rodadas de uma versão não se sobrepõem às da outra. Entre C e D, isso só vale
+para os tokens. Entre versões vizinhas, as diferenças de tempo se sobrepõem.
 
 \section{Discussão}
-\input{texto/discussao.tex}
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{O custo da orquestração está nas rodadas de trabalho, não no transporte.} \rot{medido} Entrega e
+  detecção custam segundos, e o tempo total cresce em minutos. O que separa as versões é quantas vezes
+  o Narrador volta aos devs (tabela~\ref{tab:coord}). \rot{inferido} Melhorar o leitor de estado (D10--D12)
+  continua necessário para a correção do protocolo (nenhum \emph{ask} errou aqui), mas não é onde está o
+  ganho de eficiência.
+
+\item \textbf{Puxar a resposta da tela custa caro; empurrar o relatório não.} \rot{medido} A única diferença de
+  mecanismo que aparece rodada a rodada é a resposta cortada: zero na A, de 1 a 5 por rodada em C e D.
+  Na A o dev manda o relatório inteiro por mensagem. Em B--D, a resposta é um recorte da tela. A própria
+  \emph{skill} já recomenda pedir de antemão o ``\emph{ask back}'' para resultados longos. Nas repetições
+  conferidas à mão, o Narrador só pediu o relatório completo depois que a resposta chegou cortada.
+  \rot{inferido} Isso explica parte dos pedidos extras, não todos: D2, com 5 repetições, é a rodada mais longa.
+
+\item \textbf{A versão A não é a recomendação.} A A só funciona com Claude Code: exige MCP,
+  \texttt{--append-system-prompt} e \emph{hook}, exatamente o que a D01 recusou. O que ela ganha
+  aqui é que o relatório chega inteiro. \rot{inferido} Dá para levar isso para o protocolo agnóstico
+  sem exigir cooperação: devolver no \texttt{ask} o texto inteiro do último turno, lido do histórico
+  do emulador (\emph{scrollback}) e não só da tela visível. O pedido de ``\emph{ask back}'' também pode
+  ir junto quando o pedido é grande. Essa é a etapa O5 do \emph{backlog}, que já estava planejada. O critério
+  de aceite agora é este benchmark: as repetições devem cair a zero sem aumentar os tokens.
+
+\item \textbf{C contra D sem mecanismo identificado.} \rot{medido} C e D têm a mesma \emph{skill}, os mesmos papéis e
+  a mesma detecção (1,6--2,3~s contra 1,6--1,9~s), e D processou mais tokens em todas as rodadas.
+  \rot{inferido} Candidatos:
+  \begin{itemize}
+  \item a \emph{statusline} de D muda o rodapé da tela que vira resposta;
+  \item a variação da estratégia do Narrador: na D1 ele montou um quadro de notas
+    (\emph{Analise}, \emph{Contrato}, \emph{Revisao}) e pediu revisão cruzada.
+  \end{itemize}
+  Com três rodadas, não dá para separar uma coisa da outra.
+
+\item \textbf{O papel de líder é parte do resultado.} Na A, o líder não tem Bash e lê o código com a ferramenta
+  \texttt{Read}. Em B--D, o líder tem Bash, mas o usa quase só para a CLI, e lê
+  menos código (de 0 a 9 leituras por rodada; nenhuma nas três rodadas da D). Nas quatro versões o líder
+  delegou tudo e não editou nada, então essa diferença de permissão não mudou quem faz o trabalho.
+\end{enumerate}
 
 \section{Ameaças à validade}
-\input{texto/ameacas.tex}
+
+\begin{itemize}
+\item \textbf{Amostra pequena}: três rodadas por versão. Nenhum teste passa de $p=0{,}10$, e as diferenças entre
+  versões vizinhas se sobrepõem. Os resultados são indicações, não provas.
+\item \textbf{Teto de qualidade}: 31/31 em todas as rodadas. A tarefa mede custo, não capacidade. Uma tarefa
+  mais difícil pode inverter conclusões; um protocolo mais caro pode, por exemplo, pegar mais erros.
+\item \textbf{Uma tarefa, um fornecedor}: só Claude. O ganho principal de B--D (falar com Codex, Gemini e outros
+  sem cooperação) não é medido aqui.
+\item \textbf{Ferramentas de hoje em versões antigas}: a A foi escrita para o Claude Code de julho e rodou no
+  2.1.300; o MCP e o \emph{hook} ainda funcionam, mas o comportamento do agente mudou desde então.
+\item \textbf{Heurísticas}: ``resposta cortada'' é detectada por palavras e conferida à mão; a classificação das
+  chamadas (coordenação, leitura, verificação) é por padrão de comando.
+\item \textbf{\emph{Cache}}: a métrica principal (tokens processados) não depende de acerto de \emph{cache}, mas o
+  custo em US\$ depende. A ordem contrabalançada reduz o viés.
+\item \textbf{Ambiente}: Xvfb, um contêiner, um horário. O atraso de 25~s do Narrador e \texttt{IS\_SANDBOX} são iguais
+  para todas as versões.
+\end{itemize}
 
 \section{Como reproduzir}
-\input{texto/reproduzir.tex}
+
+Tudo está em \texttt{bench/orquestracao/} (skill \texttt{benchmark} do repositório):
+\begin{verbatim}
+git worktree add --detach $BENCH/vX <commit>  # uma por versão
+$BENCH/build.sh A B C D                    # compila em $BENCH/bin/vX
+Xvfb :77 -screen 0 1600x1000x24 &
+cd bench/orquestracao && ./rodar_todas.sh         # 12 rodadas, ~50 min
+python3 analisar.py $BENCH/runs/v?-r[1-9] && python3 agregar.py
+cd docs/relatorios && pdflatex orquestracao-versoes.tex
+\end{verbatim}
+Cada rodada guarda as transcrições, o placar, o \emph{diff}, a lista de agentes e uma captura de tela em
+\texttt{\$BENCH/runs/vX-rN/}.
 
 \end{document}

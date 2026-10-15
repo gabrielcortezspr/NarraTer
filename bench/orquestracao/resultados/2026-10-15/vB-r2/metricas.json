@@ -1,0 +1,245 @@
+{
+ "versao": "B",
+ "rep": 2,
+ "motivo": "concluida",
+ "inicio": 1792072287.913651,
+ "fim": 1792072448.596,
+ "duracao_s": 160.6823489665985,
+ "placar": {
+  "oculto": {
+   "Basico": {
+    "ok": 7,
+    "total": 7
+   },
+   "Bordas": {
+    "ok": 12,
+    "total": 12
+   },
+   "Defeitos": {
+    "ok": 5,
+    "total": 5
+   },
+   "Regressao": {
+    "ok": 7,
+    "total": 7
+   }
+  },
+  "oculto_ok": 31,
+  "oculto_total": 31,
+  "proprios_ok": 52,
+  "proprios_total": 52
+ },
+ "diff": {
+  "linhas_adicionadas": 406,
+  "linhas_removidas": 18,
+  "arquivos": [
+   "pedidos/cambio.py",
+   "pedidos/importa.py",
+   "pedidos/modelo.py",
+   "pedidos/preco.py",
+   "pedidos/relatorio.py",
+   "tests/test_cambio.py",
+   "tests/test_importa.py",
+   "tests/test_multimoeda.py",
+   "tests/test_preco.py",
+   "tests/test_relatorio.py",
+   "tests/test_relatorio_multimoeda.py"
+  ]
+ },
+ "agentes": {
+  "Narrador": {
+   "tokens": {
+    "entrada": 24,
+    "saida": 5163,
+    "cache_lido": 446003,
+    "cache_criado": 26845,
+    "cache_criado_1h": 26845,
+    "processados": 472872
+   },
+   "chamadas_api": 12,
+   "contexto_inicial": 30396,
+   "contexto_pico": 48734,
+   "contexto_final": 48734,
+   "compactacoes": 0,
+   "prompts_recebidos": 1,
+   "falas_recebidas": {},
+   "ferramentas": {
+    "Skill": 1,
+    "Bash": 9,
+    "Read": 3
+   },
+   "mensageria": {
+    "list": 1,
+    "ask": 6,
+    "check": 1
+   },
+   "edicoes": 0,
+   "escritas_bash": 0,
+   "atividade": {
+    "coordenacao": 9,
+    "verificacao": 0,
+    "leitura": 4,
+    "edicao": 0,
+    "outros": 0
+   },
+   "pedidos": 6,
+   "repeticoes_tela": 1,
+   "avisos_timeout": 0,
+   "primeiro": 1792072289.415,
+   "ultimo": 1792072448.634,
+   "modelo": "claude-opus-5-5",
+   "sessoes": 1,
+   "custo_usd": 0.4073
+  },
+  "DevA": {
+   "tokens": {
+    "entrada": 18,
+    "saida": 8658,
+    "cache_lido": 336766,
+    "cache_criado": 22098,
+    "cache_criado_1h": 22098,
+    "processados": 358882
+   },
+   "chamadas_api": 9,
+   "contexto_inicial": 31647,
+   "contexto_pico": 46782,
+   "contexto_final": 46782,
+   "compactacoes": 0,
+   "prompts_recebidos": 4,
+   "falas_recebidas": {
+    "Narrador": 4
+   },
+   "ferramentas": {
+    "Bash": 5
+   },
+   "mensageria": {},
+   "edicoes": 0,
+   "escritas_bash": 3,
+   "atividade": {
+    "coordenacao": 0,
+    "verificacao": 3,
+    "leitura": 2,
+    "edicao": 0,
+    "outros": 0
+   },
+   "pedidos": 0,
+   "repeticoes_tela": 0,
+   "avisos_timeout": 0,
+   "primeiro": 1792072306.411,
+   "ultimo": 1792072424.065,
+   "modelo": "claude-sonnet-5-5",
+   "sessoes": 1,
+   "custo_usd": 0.2424
+  },
+  "DevB": {
+   "tokens": {
+    "entrada": 40,
+    "saida": 15999,
+    "cache_lido": 1035245,
+    "cache_criado": 39941,
+    "cache_criado_1h": 39941,
+    "processados": 1075226
+   },
+   "chamadas_api": 20,
+   "contexto_inicial": 32420,
+   "contexto_pico": 65377,
+   "contexto_final": 65377,
+   "compactacoes": 0,
+   "prompts_recebidos": 6,
+   "falas_recebidas": {
+    "Narrador": 6
+   },
+   "ferramentas": {
+    "Bash": 12,
+    "Edit": 6
+   },
+   "mensageria": {},
+   "edicoes": 6,
+   "escritas_bash": 4,
+   "atividade": {
+    "coordenacao": 0,
+    "verificacao": 7,
+    "leitura": 3,
+    "edicao": 7,
+    "outros": 1
+   },
+   "pedidos": 0,
+   "repeticoes_tela": 0,
+   "avisos_timeout": 0,
+   "primeiro": 1792072306.445,
+   "ultimo": 1792072438.224,
+   "modelo": "claude-haiku-5-5",
+   "sessoes": 1,
+   "custo_usd": 0.0263
+  }
+ },
+ "total": {
+  "tokens": {
+   "entrada": 82,
+   "saida": 29820,
+   "cache_lido": 1818014,
+   "cache_criado": 88884,
+   "cache_criado_1h": 88884,
+   "processados": 1906980
+  },
+  "custo_usd": 0.676,
+  "chamadas_api": 41,
+  "mensageria": {
+   "list": 1,
+   "ask": 6,
+   "check": 1
+  },
+  "mensagens_entre_agentes": 10,
+  "compactacoes": 0,
+  "edicoes_lider": 0,
+  "escritas_bash_lider": 0
+ },
+ "latencias": {
+  "ocupado_s": {
+   "DevA": 57.1,
+   "DevB": 77.5
+  },
+  "algum_dev_s": 84.9,
+  "paralelo_s": 49.7,
+  "rodadas_dev": {
+   "DevA": 4,
+   "DevB": 6
+  },
+  "deteccao_s": [
+   2.5,
+   2.8,
+   1.9,
+   1.7,
+   1.5,
+   1.9
+  ],
+  "deteccao_mediana_s": 1.9,
+  "volta_s": [],
+  "volta_mediana_s": null,
+  "entrega_s": [
+   0.5,
+   0.4,
+   0.3,
+   0.6,
+   0.3,
+   0.4,
+   0.3,
+   0.2,
+   0.3
+  ],
+  "retorno_s": [
+   16.5,
+   2.8,
+   10.1,
+   1.7,
+   6.1,
+   7.3,
+   1.9,
+   6.4,
+   2.1,
+   1.9
+  ],
+  "entrega_mediana_s": 0.3,
+  "retorno_mediana_s": 6.1
+ }
+}

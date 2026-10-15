@@ -36,6 +36,11 @@ de reenviar.
 
 **O5 · Resultado = saída desde a entrega.** Guardar a posição no scrollback do vt100 no momento
 da entrega e devolver tudo que veio depois, com limite e cursor, em vez de só a tela visível.
+**Próxima da fila.** O benchmark de 2026-10-15 (`pesquisa/comparacao-versoes.md`) mediu o custo de
+não ter isto. A resposta lida da tela chegou cortada em todas as rodadas de C e D e em duas de B, com
+1 a 5 pedidos repetidos por rodada. A versão A, que recebe o relatório inteiro por mensagem, não teve
+nenhum. Aceite: rodar `bench/orquestracao` de novo e ver as repetições caírem a zero sem aumentar os
+tokens.
 
 **O6 · `narrater tell "Dev" "…"`.** Mensagem sem espera (steering), entregue no próximo idle.
 

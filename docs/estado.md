@@ -5,21 +5,26 @@ Máximo de ~30 linhas: se passar disso, algo aqui deveria estar num commit ou nu
 
 ## Última sessão
 
-2026-10-15, Gabriel com Claude Code, branch `ccr-03e0166a-1f50u2`. V4 (uso do Claude pela
-statusline, D17) e conexões como cordas com física (D18). PR #5 (Palco) já na main.
+2026-10-15, Gabriel com Claude Code, branch `ccr-03e0166a-1f50u2`. Benchmark de orquestração entre
+versões (D19): 4 versões × 3 rodadas, relatório em `docs/relatorios/orquestracao-versoes.pdf`.
 
 ## Onde parou
 
-`usage.rs` instala ou embrulha a statusline do Claude, e `narrater usage-report` leva o payload ao
-backend. A barra lateral mostra as janelas de 5 h e semanal; o tile mostra um anel com o contexto.
-As arestas viraram cordas (`src/lib/rope.ts`): alças nos quatro lados, desvio de nós, sono depois
-de assentar. Verificado: `tsc`, `cargo test` (85 ok), `scripts/rope-check.ts`, `turn_eval` com
-statusline (12/12) e o app real sob Xvfb (`docs/pesquisa/img/cordas.gif`).
+`bench/orquestracao/` (skill `benchmark`) roda a mesma tarefa com 3 agentes em qualquer commit e mede
+tokens, contexto, tempo e trabalho feito contra 31 testes escondidos. Resultado
+(`pesquisa/comparacao-versoes.md`):
+- todas as versões tiraram 31/31;
+- A (MCP) foi a mais barata e D a mais cara: 2,2 contra 4,6 min e 1,8 contra 3,4 milhões de tokens;
+- o mecanismo identificado é a resposta do `ask` lida da tela, que chega cortada e força pedidos
+  repetidos.
+
+Dados brutos em `bench/orquestracao/resultados/2026-10-15/`.
 
 ## Próximo passo
 
-Uso de Codex e Gemini (backlog V4). Depois, V5 (cordas com muitos nós) e a revisão do chat,
-composer, role manager e paleta pelo `docs/design.md`.
+O5 (`ask` devolve toda a saída desde a entrega, não só a tela) e rodar o benchmark de novo como
+aceite. Depois: tarefa mais difícil (sem teto) e agentes de outros fornecedores no benchmark; uso de
+Codex e Gemini (V4).
 
 ## Decisões pendentes
 
@@ -27,11 +32,9 @@ composer, role manager e paleta pelo `docs/design.md`.
 
 ## Lembrar
 
-- O app instala a statusline no `~/.claude/settings.json` de quem roda. Em teste, faça backup
-  antes e restaure depois; apague `~/.local/share/narrater/claude-statusline.installed`.
+- Benchmark: as versões compiladas e as rodadas ficam em `/home/user/bench` (fora do repositório e
+  efêmeras); `$BENCH/build.sh X` recompila. Precisa de `Xvfb :77` e `IS_SANDBOX=1`.
+- O app instala a statusline no `~/.claude/settings.json` de quem roda: em teste, use HOME próprio.
 - O vt100 mostra o desenho de linha DEC como `qqqq` no texto das respostas (backlog V).
-- No modo dev, o recarregamento a quente do front deixa os nomes fora do backend; reiniciar o
-  app resolve.
-- No boot com tmux, a resposta DA do terminal às vezes aparece no prompt (backlog V).
-- Teste no app real: `Xvfb :77` + `DISPLAY=:77`, captura com `import -window root`.
+- No modo dev, o recarregamento a quente do front deixa os nomes fora do backend; reiniciar resolve.
 - Não usar `pkill -f` com padrão que aparece na própria linha de comando.
