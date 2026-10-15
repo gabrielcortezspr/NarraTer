@@ -5,33 +5,35 @@ Máximo de ~30 linhas: se passar disso, algo aqui deveria estar num commit ou nu
 
 ## Última sessão
 
-2026-10-14, Gabriel com Claude Code, branch `ccr-03e0166a-1f50u2`. Estudo visual e perfil de design
-"Palco" (D13–D16), com o primeiro passo do rework visual (etapa V: V1–V3).
+2026-10-15, Gabriel com Claude Code, branch `ccr-03e0166a-1f50u2`. Benchmark de orquestração (D19) e,
+a partir dele, o `ask` lendo o transcript do Claude (D20): versões E, F e G medidas.
 
 ## Onde parou
 
-Tokens novos em `src/index.css`/`tailwind.config.js`; 440 classes com hex trocadas por tokens;
-terminal, arestas, palco, toolbar, barra lateral e demais tiles redesenhados. Verificado: `tsc`,
-`cargo test`, app real sob Xvfb (capturas em `docs/pesquisa/img/`). Leitor de estado e asks
-(D07–D12) seguem como estavam.
+- O `ask` devolve a resposta final inteira do transcript do Claude e não dá o turno por encerrado
+  antes de ele terminar de fato (`src-tauri/src/transcript.rs`, D20).
+- Na versão G (`c6ba63e`), as falhas do protocolo foram a zero (0 de 24 asks antes da hora, 0 respostas
+  cortadas), com custo de US$ 0,74 contra 1,02 da D.
+- Relatório com a seção 7 (E, F, G) em `docs/relatorios/orquestracao-versoes.pdf`; estudos novos em
+  `pesquisa/agent-teams.md` e `pesquisa/orca.md` §7.
+
+- Painel Activity (Ctrl+J, D21): histórico de estados, asks e mensagens gravado pelo backend em
+  `~/.config/narrater/activity.jsonl`; verificado no app real (`docs/pesquisa/img/painel-atividade*.png`).
 
 ## Próximo passo
 
-V4 (uso dos agentes): ler a porcentagem do Claude (rota a decidir: endpoint OAuth ou statusline,
-`docs/pesquisa/visual.md` §5) e mostrar no tile; depois revisar chat, composer, role manager e
-paleta pelo `docs/design.md`.
+O8: tarefas com dependências e pega automática (inspirada no Agent Teams), medida no benchmark. Depois:
+leitor de transcript do Codex; variantes O9 (dev ↔ dev, statusline, tarefa sem teto).
 
 ## Decisões pendentes
 
-- Rota do uso do Claude: endpoint OAuth (sem configurar nada, pode dar 429) ou statusline (sem
-  custo, mexe na statusline do usuário).
 - O3: quando a tela ociosa e o `narrater done` chegarem juntos, qual vale.
+- Tela alternativa do Claude: manter (decidido por ora); desligar seria preferência opcional.
 
 ## Lembrar
 
-- No modo dev, o recarregamento a quente do front (Vite) deixa os nomes fora do backend: `ask`
-  responde "no agent named"; reiniciar o app resolve.
-- No boot com tmux, a resposta DA do terminal às vezes aparece no prompt (backlog V).
-- Teste no app real: `xvfb-run -a npx tauri dev` (ou `Xvfb :77` + `DISPLAY=:77`), captura com
-  `import -window root`; identidade de um terminal em `/proc/<pid>/environ` do cliente tmux.
+- Benchmark: versões compiladas e rodadas em `/home/user/bench` (efêmero); `$BENCH/build.sh X`. Precisa de
+  `Xvfb :77` e `IS_SANDBOX=1`. Cópia das métricas em `bench/orquestracao/resultados/`.
+- O `turn_eval` vaza marcadores de sessão para o Claude medido (backlog E).
+- O vt100 mostra o desenho de linha DEC como `qqqq` no texto das respostas (backlog V).
 - Não usar `pkill -f` com padrão que aparece na própria linha de comando.

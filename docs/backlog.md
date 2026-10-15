@@ -34,8 +34,12 @@ Generaliza o ask-back atual.
 **O4 · `ask --resume <id>`** para reanexar a um ask depois de um timeout do shell do líder, em vez
 de reenviar.
 
-**O5 · Resultado = saída desde a entrega.** Guardar a posição no scrollback do vt100 no momento
-da entrega e devolver tudo que veio depois, com limite e cursor, em vez de só a tela visível.
+**O5 · Resultado = saída desde a entrega.** ✅ 2026-10-15 para o Claude (D20). O `ask` lê no transcript
+a resposta final inteira e usa o transcript também para não dar o turno por encerrado antes da hora.
+Medido no benchmark: versões E, F e G em `pesquisa/comparacao-versoes.md`. Falta:
+- leitor de transcript do Codex (`~/.codex/sessions/**/rollout-*.jsonl`);
+- histórico do servidor tmux como segunda fonte, para agentes sem transcript (com
+  `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN` opcional, `pesquisa/orca.md` §7).
 
 **O6 · `narrater tell "Dev" "…"`.** Mensagem sem espera (steering), entregue no próximo idle.
 
@@ -43,7 +47,16 @@ da entrega e devolver tudo que veio depois, com limite e cursor, em vez de só a
 `done`, a decisão entre reusar e `dismiss`; `narrater list` mostra quem está ocioso e sem tarefa.
 
 **O8 · Tarefas com dependências no canvas.** Nós de tarefa ligados aos agentes, como quadro
-visível, em vez de uma tabela escondida. Depois de O1–O3.
+visível, em vez de uma tabela escondida. Depois de O1–O3. Reforçada pelo estudo do Agent Teams
+(`pesquisa/agent-teams.md`): quem termina pega sozinho a próxima tarefa livre (`narrater task
+next/done`), e quem não coopera recebe a tarefa por mensagem. É o próximo alvo de custo: depois da
+O5, o que sobra de custo são as voltas ao Narrador entre fases.
+
+**O9 · Variantes do benchmark.**
+- Topologia em triângulo (DevA ↔ DevB) contra a estrela de hoje.
+- Statusline ligada contra desligada com mais rodadas: na E, as rodadas sem statusline foram mais
+  baratas, mas p = 0,2.
+- Uma tarefa mais difícil, sem teto de qualidade.
 
 **Fora do escopo** (D06): heartbeat obrigatório, `worker_done` exigido, Run/Task/Dispatch,
 federação entre máquinas.
@@ -92,7 +105,8 @@ Origem: [`pesquisa/visual.md`](pesquisa/visual.md).
 
 > Em andamento. 2026-10-14: perfil "Palco" definido em [`design.md`](design.md) (D13–D16); V1
 > (tokens), V2 (tiles e arestas) e V3 (moldura em vidro, atalhos fora da barra lateral) aplicados;
-> capturas antes/depois em `pesquisa/img/`. Falta: V4 (uso), modo claro, revisar painéis
+> capturas antes/depois em `pesquisa/img/`. 2026-10-15: V4 feito para o Claude via statusline
+> (D17) e conexões viraram cordas com física (D18). Falta: uso de Codex e Gemini, modo claro, revisar painéis
 > secundários (chat, composer, role manager, paleta) peça por peça. Achado: no boot com tmux, a
 > resposta do terminal à consulta DA (`1;2c0;276;0c`) às vezes aparece digitada no prompt.
 
@@ -110,3 +124,16 @@ saem da barra lateral.
 **V4 · Uso dos agentes.** Backend lê a porcentagem por CLI (Claude, Codex, Gemini primeiro) no
 modelo `usedPercent`/`windowMinutes`/`resetsAt`; o front mostra uma barra fina por janela (5 h,
 7 dias) no tile do agente e um resumo na moldura, com cinza < 60%, amarelo < 80%, vermelho acima.
+Feito para o Claude (D17). Pendente: Codex (`codex app-server`, `account/rateLimits/read`) e
+Gemini (`retrieveUserQuota`).
+
+**E · turn_eval vaza marcadores de sessão.** O `turn_eval` remove só 3 variáveis do ambiente do
+filho. O Claude medido herdou o id de sessão da sessão que o disparou (o `session_id` da statusline
+era o da sessão pai). Usar a mesma lista de `pty.rs` (`is_inherited_session_var`) e medir de novo.
+
+**V5 · Cordas, próximos passos.** Medir a física com dezenas de nós; evitar que uma corda fique
+presa entre dois nós próximos (escolher o lado do contorno pelo caminho mais curto); cordas
+paralelas entre o mesmo par não podem se sobrepor.
+
+**Achado (V4).** O texto que o vt100 extrai mostra os caracteres de desenho de linha DEC como
+`qqqq` nas respostas de `ask`; traduzir o conjunto G0 especial.

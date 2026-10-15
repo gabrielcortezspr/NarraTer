@@ -110,6 +110,11 @@ pub struct PtySession {
     /// (with the time of the last failed lookup, to retry sparingly).
     pane_pid: Option<i32>,
     pane_lookup_failed: Option<Instant>,
+    /// Claude Code on this machine: where it keeps this terminal's transcripts
+    /// (`~/.claude/projects/<spawn dir>/`). An ask reads its answer there (O5).
+    pub transcript_dir: Option<PathBuf>,
+    /// The exact transcript, when the status line reported it (D17).
+    pub transcript_hint: Option<PathBuf>,
 }
 
 /// A terminal's tmux session: local, or in its remote environment.
@@ -214,6 +219,8 @@ pub struct PtyStateInner {
     pub booting: HashSet<String>,
     /// Every ask with its outcome, persisted (`narrater wait`, `narrater asks`)
     pub asks: Arc<crate::asks::AskStore>,
+    /// Agent usage reported through the Claude status line (usage.rs)
+    pub usage: Arc<Mutex<crate::usage::UsageState>>,
 }
 
 impl PtyStateInner {
@@ -241,6 +248,7 @@ impl Default for PtyState {
         PtyState(Arc::new(Mutex::new(PtyStateInner {
             links: crate::names::Links::load(),
             asks: Arc::new(crate::asks::AskStore::load(crate::asks::default_path())),
+            usage: Arc::new(Mutex::new(crate::usage::UsageState::load())),
             ..Default::default()
         })))
     }
@@ -455,6 +463,7 @@ pub async fn pty_spawn(
         }
     };
     let agent_type = agent_type.unwrap_or_else(|| "shell".to_string());
+    let agent_type_for_log = agent_type.clone();
     let role = role.filter(|r| agent_type != "shell" && !r.instructions.trim().is_empty());
 
     // Labels address agents in `narrater ask`; disambiguate duplicates in
@@ -519,6 +528,8 @@ pub async fn pty_spawn(
 
     let key = crate::environments::session_key(&id);
     let mut tmux_session = None;
+    let is_claude = agent_type == "claude"
+        || std::path::Path::new(&program).file_name().is_some_and(|n| n == "claude");
     let (mut cmd, project_dir, spawn_dir) = match &remote {
         Some(r) => {
             let mut cmd = CommandBuilder::new(&r.argv[0]);
@@ -660,8 +671,12 @@ pub async fn pty_spawn(
             tmux: tmux_session,
             pane_pid: None,
             pane_lookup_failed: None,
+            transcript_dir: (is_claude && remote.is_none()).then(|| crate::transcript::claude_project_dir(&spawn_dir)).flatten(),
+            transcript_hint: None,
         });
     }
+    let spawn_label = state.0.lock().unwrap().label_of(&id);
+    crate::activity::record(crate::activity::ActivityEvent::new("spawn", &id, &spawn_label).detail(agent_type_for_log));
 
     let id_clone = id.clone();
     let app_clone = app_handle.clone();
@@ -673,7 +688,7 @@ pub async fn pty_spawn(
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => {
-                    let child = {
+                    let (child, exit_label) = {
                         let mut inner = state_arc.lock().unwrap();
                         // Superseded by a respawn under the same id: the new
                         // session owns the id now — nothing to clean, no exit
@@ -684,13 +699,17 @@ pub async fn pty_spawn(
                         // Dropping the senders wakes pending asks with a clean error
                         inner.ask_waiters.retain(|_, w| w.target_id != id_clone && w.asker_id != id_clone);
                         inner.inbox.remove(&id_clone);
+                        let label = inner.label_of(&id_clone);
                         inner.names.remove(&id_clone);
-                        inner.sessions.remove(&id_clone).map(|s| s.child)
+                        (inner.sessions.remove(&id_clone).map(|s| s.child), label)
                     };
                     let code = child
                         .and_then(|mut c| c.wait().ok())
                         .map(|status| status.exit_code())
                         .unwrap_or(0);
+                    crate::activity::record(
+                        crate::activity::ActivityEvent::new("exit", &id_clone, &exit_label).status(&code.to_string()),
+                    );
                     let _ = app_clone.emit("pty_exit", PtyExit { id: id_clone, code });
                     break;
                 }
@@ -786,6 +805,15 @@ pub fn now_ms() -> u64 {
 /// Records an inter-agent message on the ledger (ring buffer) and notifies
 /// the front via `narrater_msg` — feeds the history and the edge pulses.
 pub fn record_msg(state_arc: &Arc<Mutex<PtyStateInner>>, app: &AppHandle, entry: LedgerEntry) {
+    // Asks and their replies have their own events (ask/delivered/answer)
+    if entry.kind != "ask" && entry.kind != "reply" {
+        crate::activity::record(
+            crate::activity::ActivityEvent::new("message", &entry.from, &entry.from_label)
+                .peer(&entry.to, &entry.to_label)
+                .status(&entry.kind)
+                .text(&entry.msg),
+        );
+    }
     {
         let mut inner = state_arc.lock().unwrap();
         inner.ledger.push_back(entry.clone());
@@ -950,7 +978,12 @@ pub async fn start_status_monitor(app: AppHandle, state: Arc<Mutex<PtyStateInner
             }
         }
 
-        for (id, turn) in transitions {
+        let labels: Vec<String> = {
+            let inner = state.lock().unwrap();
+            transitions.iter().map(|(id, _)| inner.label_of(id)).collect()
+        };
+        for ((id, turn), label) in transitions.into_iter().zip(labels) {
+            crate::activity::record(crate::activity::ActivityEvent::new("state", &id, &label).status(turn.as_str()));
             let _ = app.emit("pty_status", PtyStatusEvent { id, status: turn.as_str() });
         }
 

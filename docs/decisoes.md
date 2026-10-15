@@ -28,13 +28,14 @@ Cada entrada tem seis campos:
 
 | Área | Decisões |
 |---|---|
-| Comunicação entre agentes | D01, D02, D06, D08 |
+| Comunicação entre agentes | D01, D02, D06, D08, D20, D21 |
 | Leitor de estado | D10, D11, D12 |
 | Persistência | D07 |
+| Uso dos agentes | D17 |
 | CLI e distribuição | D03 |
 | Escopo do produto | D04, D05 |
-| Processo | D09 |
-| Design | D13, D14, D15, D16 |
+| Processo | D09, D19 |
+| Design | D13, D14, D15, D16, D18 |
 
 ---
 
@@ -523,3 +524,259 @@ conexão só aparecem no hover do nó.
 (o mesmo da etapa O).
 
 **Revisar se:** usuários não perceberem que a aresta é clicável, ou não encontrarem as alças.
+
+## D17 · O uso do Claude vem da statusline, que o NarraTer embrulha sem nunca sobrescrever
+
+`2026-10-15` · uso dos agentes · `src-tauri/src/usage.rs`, `src-tauri/src/cli_core.rs` (`usage-report`), `src/stores/usage.ts`
+
+**Contexto.** Queremos mostrar a porcentagem das janelas de 5 h e 7 dias do plano do Claude e o
+contexto de cada sessão (V4). Havia duas rotas (`pesquisa/visual.md` §5): o endpoint OAuth de uso
+e o JSON que o Claude Code entrega à statusline a cada resposta.
+
+**Decisão.** Ficamos com a statusline. Na inicialização, o app instala
+`~/.local/share/narrater/claude-statusline.sh` em `statusLine.command` do `settings.json` do
+Claude. O script repassa o payload para `narrater usage-report`, que o envia ao backend pelo
+socket, no máximo uma vez a cada 2 s por terminal. Depois roda a statusline anterior do usuário
+com o mesmo payload, e a saída dela continua aparecendo. Regras do instalador (`usage::plan`):
+- slot vazio: instala;
+- slot com outro comando: embrulha (guarda o comando em `claude-statusline.user`);
+- slot já nosso: não mexe;
+- vazio depois de já termos instalado: o usuário tirou de propósito, e não reinstalamos (marcador
+  `claude-statusline.installed`).
+
+Um `settings.json` que não pode ser lido nunca é reescrito. Fora de um terminal do NarraTer
+(`NARRATER_ID` ausente), o script só roda o comando do usuário. Os limites do plano persistem em
+`~/.config/narrater/usage.json`.
+
+**Alternativas consideradas.**
+- *Endpoint OAuth (`/api/oauth/usage`)*: não exige configuração, mas o Orca registra 429 sob
+  polling, e ele lê o token de credenciais do usuário. A statusline já traz o dado a cada turno,
+  sem requisição extra.
+- *Política do Orca (não instalar se o usuário tem statusline)*: deixaria sem uso justamente quem
+  personalizou a statusline. Embrulhar preserva a saída dela.
+- *Hook do Claude*: os hooks não recebem `rate_limits`, e exigir hook fere D01. A statusline é
+  opcional: sem ela, o leitor de estado continua funcionando (D06).
+
+**Evidência.**
+- `[citado]` documentação oficial da statusline do Claude Code. O payload tem
+  `context_window.used_percentage`, `cost.total_cost_usd`, `model.display_name` e
+  `rate_limits.five_hour/seven_day.{used_percentage,resets_at}`; `rate_limits` só existe em
+  Pro/Max, depois da primeira resposta. A execução tem debounce de 300 ms. Uma statusline própria
+  esconde as dicas do rodapé, inclusive "esc to interrupt".
+- `[medido]` impacto no leitor de estado (D12). Comando: `NARRATER_EVAL_STATUSLINE=1 cargo run
+  --release --example turn_eval -- --reps 3 --claude` (Claude Code 2.1.300, este container).
+  Resultado: 12/12 corretos, 0 prematuros, latência ociosa de 455–628 ms, contra 466–670 ms sem
+  statusline. "esc to interrupt" aparece 0 vezes na tela, contra 560 sem. A regra do título (D11)
+  cobre o rodapé perdido. Transcrição: `tests/transcripts/claude-2.1.300-statusline-silent-tool.*`.
+- `[observado]` ponta a ponta no app real sob Xvfb:
+  - o instalador preservou `"theme": "dark"`;
+  - o Claude do tile Dev disparou o script;
+  - `usage.json` recebeu five_hour 0% e seven_day 7%;
+  - a barra lateral mostrou "Claude 5-hour 0%, Weekly 7%", e o tile mostrou o anel de contexto
+    "4%".
+- `[citado]` testes `usage::tests` (slot nunca sobrescrito; payload documentado; sessão por chave
+  de API sem limites mas com contexto).
+
+**Consequência.** Mexemos num arquivo de configuração do usuário (com backup implícito em
+`.user`). Com statusline, o rodapé perde "esc to interrupt", e o leitor depende mais do título.
+Codex e Gemini ainda não têm rota.
+
+**Revisar se:** o Claude Code deixar de mandar `rate_limits` à statusline ou passar a mandá-los
+aos hooks; o leitor errar com statusline numa versão nova (rodar o `turn_eval` acima); ou usuários
+reclamarem do embrulho.
+
+## D18 · Conexões são cordas com física: qualquer borda, contornam os nós, balançam e dormem
+
+`2026-10-15` · design · `src/lib/rope.ts`, `src/lib/useRope.ts`, `src/components/{AgentPipeEdge,AgentNoteEdge,RopeEdge}`, `src/components/ui/NodeHandles.tsx`
+
+**Contexto.** As arestas saíam só das alças esquerda e direita e eram uma Bézier fixa. Com nós
+acima ou abaixo, a curva dava voltas, e os terminais passavam por cima do traço.
+
+**Decisão.** Cada conexão é uma corda simulada:
+- Verlet com restrições de distância, folga de 5%, gravidade leve, amortecimento 0,9 e
+  12 iterações;
+- as pontas ficam no ponto da borda voltado para o centro do outro nó (qualquer lado), e isso é
+  recalculado quando os nós se movem;
+- os pontos internos são empurrados para fora das caixas de todos os nós, com 16 px de folga;
+- o caminho é desenhado com Catmull-Rom → Bézier;
+- a simulação só roda enquanto algo se move e dorme depois de 18 quadros calmos;
+- `prefers-reduced-motion` resolve direto, sem animar.
+
+Alças nos quatro lados e `ConnectionMode.Loose`: dá para soltar a conexão em qualquer borda.
+
+**Alternativas consideradas.**
+- *Bézier com alças fixas (antes)*: é a causa do problema.
+- *Roteamento ortogonal (estilo diagrama)*: contorna bem, mas fica rígido e técnico, contra o
+  perfil "Palco" (D13). Também exige um roteador global (A* em grade) a cada movimento.
+- *Desenhar as arestas acima dos nós*: o traço passaria por cima do conteúdo do terminal.
+- *Biblioteca de física (matter.js e afins)*: dependência grande para cerca de 20 pontos por
+  corda.
+
+**Evidência.**
+- `[medido]` `node --experimental-strip-types scripts/rope-check.ts`, com três cenários (nada no
+  caminho, um terminal no meio, dois terminais):
+  - 0 pontos dentro de obstáculos e 0 segmentos cruzando;
+  - assenta em 50–119 quadros;
+  - âncoras nos lados certos.
+- `[observado]` app real sob Xvfb. A corda Lead↔Dev contorna a nota "Plano". Ao arrastar Dev, as
+  âncoras trocam de lado, e a corda balança e assenta (`pesquisa/img/cordas.gif`,
+  `pesquisa/img/narrater-v4-cordas.png`).
+- `[inferido]` o custo é baixo: a simulação é O(pontos × obstáculos × iterações) e só roda em
+  movimento. Não medimos com mais de 10 nós.
+
+**Consequência.** O caminho é escrito direto no SVG (sem render do React por quadro). Uma corda
+pode ficar presa entre dois nós muito próximos (o empurrão vai para o lado mais perto, sem
+planejar a rota). Os ids das alças mudaram (`top|right|bottom|left` e `*-in`); as arestas antigas
+continuam desenhando, porque a corda ignora a alça.
+
+**Revisar se:** o canvas com dezenas de nós perder quadros ao arrastar; cordas ficarem presas ou
+cruzarem nós em layouts reais; ou usuários preferirem rotas retas.
+
+## D19 · Versões se comparam por um benchmark fixo: mesma tarefa, testes escondidos, rodada zerada
+
+`2026-10-15` · processo · `bench/orquestracao/`, skill `benchmark`, `docs/relatorios/orquestracao-versoes.tex`
+
+**Contexto.** Queríamos saber quanto cada mudança de orquestração custou ou rendeu em tokens,
+contexto, eficiência e trabalho feito. Sem um método fixo, cada comparação vira impressão.
+
+**Decisão.**
+- **Tarefa:** o repositório inventado `pedidos`, com regras próprias, uma funcionalidade que
+  atravessa os três módulos e dois defeitos descritos só como reclamação de cliente.
+- **Julgamento:** 31 testes escondidos em quatro níveis.
+- **Equipe:** três agentes com modelo fixo por papel (Narrador Opus 5.5, DevA Sonnet 5.5, DevB
+  Haiku 5.5), com os papéis padrão de cada versão.
+- **Condições:** toda rodada começa zerada (HOME, tmux, sessões e ambiente próprios); ordem
+  contrabalançada; métricas tiradas das transcrições do Claude Code, que são iguais em todas as
+  versões.
+- **Métrica principal de tokens:** os processados (entrada + cache lido + cache criado).
+
+**Alternativas consideradas.**
+- *Calculadora de expressões*: o modelo sabe o exercício de cor, o líder o faria sozinho e todas as
+  versões tirariam nota máxima.
+- *Encurtador de links com HTTP e banco*: realista, mas difícil de deixar igual entre rodadas, e a
+  nota fica menos objetiva.
+- *Mesmo modelo nos três agentes*: mais simples. Misturar modelos fixos por papel foi pedido do
+  usuário (orquestração é sobre diversidade) e continua sendo controle, porque cada papel tem o
+  mesmo modelo em todas as versões.
+- *Custo em US$ como métrica principal*: depende de acerto de cache entre rodadas próximas.
+- *Digitar o pedido na interface (xdotool)*: frágil. Um wrapper `claude` entrega o pedido como
+  prompt inicial pelo mesmo caminho em todas as versões.
+
+**Evidência.**
+- `[medido]` A solução de referência passa 31/31 nos testes escondidos, e o repositório inicial 5/31
+  (`oculto/placar.py`).
+- `[medido]` Doze rodadas (2026-10-15), resumidas em `pesquisa/comparacao-versoes.md`:
+  - todas tiraram 31/31;
+  - as métricas de custo separam A de D sem sobreposição;
+  - a resposta cortada aparece como mecanismo.
+- `[observado]` A primeira rodada de teste revelou que o Claude recusa `--dangerously-skip-permissions`
+  como root. `IS_SANDBOX=1` resolve e vale para todas as versões.
+
+**Consequência.** Toda mudança de orquestração pode ser medida antes de ir para a main. A tarefa atual
+bate no teto de qualidade, então mede só custo. Uma rodada custa cerca de US$ 0,70 a 1,00 em preço de
+API e leva de 2 a 6 minutos; 12 rodadas levam cerca de 50 minutos.
+
+**Revisar se:** uma versão tirar menos de 31/31 (a tarefa voltou a medir qualidade); o formato das
+transcrições do Claude Code mudar; ou entrarem agentes de outros fornecedores, que pedem métricas
+que não dependam do `.jsonl` do Claude.
+
+## D20 · A resposta do `ask` e o fim do turno vêm do transcript do agente quando ele existe
+
+`2026-10-15` · comunicação entre agentes · `src-tauri/src/transcript.rs`, `ipc.rs` (`run_ask`, `TranscriptCheck`)
+
+**Contexto.** O benchmark (D19) mostrou dois defeitos do `ask` lido da tela:
+- a resposta cortada (a tela tem cerca de 13 linhas);
+- a resposta dada antes da hora: o leitor dava o turno por encerrado 4 a 5 s depois da entrega, antes
+  de o agente começar.
+
+Os dois fazem o Narrador repetir pedidos. No pior caso, ele deixa de confiar no `ask`.
+
+**Decisão.** Para o Claude Code, o `ask` lê o transcript JSON Lines que o próprio Claude grava em
+`~/.claude/projects/<pasta>/`:
+- **Âncora.** Antes de enfileirar o pedido, anota o tamanho de cada transcript da pasta do agente e do
+  arquivo que a statusline informou (D17).
+- **Resposta.** No fim do turno, devolve o texto escrito depois da última chamada de ferramenta, no
+  arquivo que recebeu o pedido (identificado pela mensagem inteira).
+- **Fim do turno.** Se a tela diz ocioso mas o transcript não registrou o fim do turno, o `ask` continua
+  esperando, até 120 s. O fim é `system/turn_duration`, um texto com `end_turn` ou o próximo pedido.
+- **Fallback.** Sem transcript, a tela vale como antes. Nada exige cooperação do agente (D01, D05).
+
+**Alternativas consideradas.**
+- *Scrollback do emulador* (a O5 original): o Claude Code roda em tela alternativa, então o
+  histórico é vazio (`[medido]`, `pesquisa/orca.md` §7).
+- *Histórico do tmux com a tela alternativa desligada* (`CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`):
+  funciona, mas muda a rolagem do tile (o modo de cópia do tmux) e ainda depende da tela para saber
+  o fim. Fica como segunda fonte futura, para agentes sem transcript.
+- *Modelo do Orca* (`worker-read` + `worker_done` obrigatório): não ancora na entrega, corta cada
+  bloco em 1.200 caracteres e exige que o agente coopere.
+- *Resposta empurrada do Agent Teams*: só existe dentro do Claude; a ideia é a mesma, e a fazemos sem
+  depender dos arquivos internos de times.
+- *Usar só o `end_turn`*: o bloco de pensamento traz `end_turn` 15 s antes do texto
+  (`[observado]`, caso real virou teste).
+
+**Evidência.**
+- `[medido]` Leitor contra transcripts reais: acha a resposta certa em 126 de 126 pedidos das rodadas
+  C a G (incluindo batch), e nenhum casa com o transcript do outro dev.
+- `[medido]` Benchmark, 3 rodadas por versão:
+  - asks prontos antes da hora: D 4 de 27, E 12 de 31, F e G 0 de 40;
+  - respostas cortadas: D 1 a 5 por rodada, G 0;
+  - tokens processados: D 3,26 a 3,59 milhões, G 2,01 a 2,85 milhões;
+  - custo: D 1,02 e G 0,74 US$ (A, presa ao Claude, 0,69);
+  - D contra G sem sobreposição em tokens, custo e pedidos (Mann–Whitney U = 9, p = 0,10).
+- `[citado]` Testes `transcript::tests`, com o turno real do ask prematuro e o caso do batch.
+
+**Consequência.**
+- O transcript é formato interno do Claude Code e pode mudar sem aviso. O fallback para a tela evita
+  quebra, e o benchmark é o alarme.
+- Codex e outros agentes ainda leem a tela até ganharem leitor próprio.
+- Um turno legítimo de mais de 120 s em que a tela fique parada ainda cai na tela, por segurança.
+
+**Revisar se:** o Claude Code mudar o formato ou o local do transcript; o benchmark voltar a mostrar
+asks antes da hora ou respostas trocadas; ou existir uma fonte oficial de "fim de turno" que não
+exija cooperação.
+
+## D21 · O histórico de atividade é gravado pelo backend, nunca por um agente
+
+`2026-10-15` · comunicação entre agentes · `src-tauri/src/activity.rs`, `src/components/ActivityPanel`, `src/stores/activity.ts`
+
+**Contexto.** Para verificar o que aconteceu numa orquestração (quem pediu o quê, quando cada agente
+trabalhou, se a resposta chegou inteira), os fatos estavam espalhados:
+- as mudanças de estado iam ao front sem ficar salvas;
+- os asks ficavam em `asks.jsonl`, sem os estados;
+- as mensagens ficavam num registro em memória.
+
+O usuário pediu um histórico verificável e explicitamente não escrito por IA.
+
+**Decisão.** O backend grava cada evento no momento em que ele acontece, em
+`~/.config/narrater/activity.jsonl` (JSON Lines, gira em 5 MB, 5.000 eventos em memória):
+- estado do turno, início e saída de terminal;
+- pedido, entrega, nota quando o transcript contradiz a tela (D20) e resposta, com estado, duração e
+  origem (transcript ou tela);
+- mensagens diretas.
+
+O painel Activity lê e filtra esse registro e só dobra a exibição das trocas de estado de menos de 2 s.
+O arquivo fica intacto.
+
+**Alternativas consideradas.**
+- *Pedir aos agentes que registrem o que fazem* (notas, `narrater done`): depende de cooperação
+  (D01), e o registro seria a palavra do agente, não o fato.
+- *Reaproveitar o `asks.jsonl`*: não tem estados nem mensagens, e é compactado para 500 registros.
+- *Só em memória, como o ledger*: some ao reiniciar, e verificar depois é justamente o objetivo.
+- *Gravar só estados estáveis* (com debounce no backend): perderia exatamente as trocas rápidas que
+  explicam um ask antes da hora (D20). Por isso a dobra acontece só na exibição.
+
+**Evidência.**
+- `[observado]` Rodada de teste do benchmark com o build do painel (vH-r0): 36 eventos até a primeira
+  resposta. Nos dois asks iniciais, as notas "screen looks idle, transcript says the turn is still
+  running" aparecem logo após a entrega, o caso da D20 visto ao vivo.
+- `[observado]` Reaberto o app com o mesmo HOME, o histórico da rodada anterior continuou no painel.
+- `[observado]` O WebKitGTK do Tauri ignora o `line-clamp` do CSS em texto pré-formatado. A prévia
+  recolhida é cortada no código.
+
+**Consequência.**
+- Mais uma escrita em disco por evento: o volume é de dezenas por minuto com agentes ativos.
+- O texto de pedidos e respostas fica truncado em 4.000 caracteres no registro; o texto inteiro de um
+  ask continua no `asks.jsonl`.
+
+**Revisar se:** o arquivo crescer mais rápido que a rotação aguenta; ou o painel precisar de eventos
+de outros agentes (Codex, Gemini) que hoje só chegam pela tela, sem nada novo a registrar.

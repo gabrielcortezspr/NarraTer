@@ -1,5 +1,6 @@
 import { memo, useState, useEffect } from "react";
-import { Handle, Position, NodeResizer } from "@xyflow/react";
+import NodeHandles from "@/components/ui/NodeHandles";
+import { NodeResizer } from "@xyflow/react";
 import { X, Paperclip, FileText, ExternalLink } from "lucide-react";
 import { useCanvasStore } from "@/stores/canvas";
 import type { AttachmentNodeData } from "@/stores/canvas";
@@ -121,8 +122,9 @@ function AttachmentTile({ id, data, selected }: NodeProps<AttachmentNode>) {
         )}
       </div>
 
-      <Handle type="target" position={Position.Left} className="narrater-handle" />
-      <Handle type="source" position={Position.Right} className="narrater-handle" />
+      {/* Handles on all four sides, hidden until hover (D18) */}
+
+      <NodeHandles />
     </div>
   );
 }

@@ -1,0 +1,257 @@
+{
+ "versao": "A",
+ "rep": 2,
+ "motivo": "concluida",
+ "inicio": 1792072484.4320023,
+ "fim": 1792072614.695,
+ "duracao_s": 130.2629976272583,
+ "placar": {
+  "oculto": {
+   "Basico": {
+    "ok": 7,
+    "total": 7
+   },
+   "Bordas": {
+    "ok": 12,
+    "total": 12
+   },
+   "Defeitos": {
+    "ok": 5,
+    "total": 5
+   },
+   "Regressao": {
+    "ok": 7,
+    "total": 7
+   }
+  },
+  "oculto_ok": 31,
+  "oculto_total": 31,
+  "proprios_ok": 56,
+  "proprios_total": 56
+ },
+ "diff": {
+  "linhas_adicionadas": 428,
+  "linhas_removidas": 16,
+  "arquivos": [
+   "pedidos/cambio.py",
+   "pedidos/importa.py",
+   "pedidos/modelo.py",
+   "pedidos/preco.py",
+   "pedidos/relatorio.py",
+   "tests/test_cambio.py",
+   "tests/test_importa.py",
+   "tests/test_preco.py",
+   "tests/test_relatorio.py"
+  ]
+ },
+ "agentes": {
+  "Narrador": {
+   "tokens": {
+    "entrada": 30,
+    "saida": 5431,
+    "cache_lido": 593842,
+    "cache_criado": 25668,
+    "cache_criado_1h": 25668,
+    "processados": 619540
+   },
+   "chamadas_api": 15,
+   "contexto_inicial": 31090,
+   "contexto_pico": 48159,
+   "contexto_final": 48159,
+   "compactacoes": 0,
+   "prompts_recebidos": 5,
+   "falas_recebidas": {
+    "DevA": 2,
+    "DevB": 2
+   },
+   "ferramentas": {
+    "ToolSearch": 1,
+    "mcp__narrater__list_peers": 1,
+    "mcp__narrater__canvas_list_nodes": 1,
+    "Read": 8,
+    "Glob": 1,
+    "mcp__narrater__canvas_connect_nodes": 2,
+    "mcp__narrater__send_message": 4,
+    "mcp__narrater__ask_agent": 1
+   },
+   "mensageria": {
+    "list_peers": 1,
+    "canvas_list_nodes": 1,
+    "canvas_connect_nodes": 2,
+    "send_message": 4,
+    "ask_agent": 1
+   },
+   "edicoes": 0,
+   "escritas_bash": 0,
+   "atividade": {
+    "coordenacao": 10,
+    "verificacao": 0,
+    "leitura": 9,
+    "edicao": 0,
+    "outros": 0
+   },
+   "pedidos": 5,
+   "repeticoes_tela": 0,
+   "avisos_timeout": 0,
+   "primeiro": 1792072485.477,
+   "ultimo": 1792072614.796,
+   "modelo": "claude-opus-5-5",
+   "sessoes": 1,
+   "custo_usd": 0.4329
+  },
+  "DevA": {
+   "tokens": {
+    "entrada": 22,
+    "saida": 5200,
+    "cache_lido": 434633,
+    "cache_criado": 21142,
+    "cache_criado_1h": 21142,
+    "processados": 455797
+   },
+   "chamadas_api": 11,
+   "contexto_inicial": 31926,
+   "contexto_pico": 45156,
+   "contexto_final": 45156,
+   "compactacoes": 0,
+   "prompts_recebidos": 3,
+   "falas_recebidas": {
+    "Narrador": 3
+   },
+   "ferramentas": {
+    "Bash": 5,
+    "ToolSearch": 1,
+    "mcp__narrater__send_message": 2,
+    "mcp__narrater__reply_message": 1
+   },
+   "mensageria": {
+    "send_message": 2,
+    "reply_message": 1
+   },
+   "edicoes": 0,
+   "escritas_bash": 2,
+   "atividade": {
+    "coordenacao": 4,
+    "verificacao": 3,
+    "leitura": 2,
+    "edicao": 0,
+    "outros": 0
+   },
+   "pedidos": 2,
+   "repeticoes_tela": 0,
+   "avisos_timeout": 0,
+   "primeiro": 1792072501.553,
+   "ultimo": 1792072607.902,
+   "modelo": "claude-sonnet-5-5",
+   "sessoes": 1,
+   "custo_usd": 0.2235
+  },
+  "DevB": {
+   "tokens": {
+    "entrada": 32,
+    "saida": 17388,
+    "cache_lido": 688020,
+    "cache_criado": 35891,
+    "cache_criado_1h": 35891,
+    "processados": 723943
+   },
+   "chamadas_api": 16,
+   "contexto_inicial": 32588,
+   "contexto_pico": 59366,
+   "contexto_final": 59366,
+   "compactacoes": 0,
+   "prompts_recebidos": 2,
+   "falas_recebidas": {
+    "Narrador": 2
+   },
+   "ferramentas": {
+    "Bash": 9,
+    "mcp__narrater__whoami": 1,
+    "Write": 2,
+    "ToolSearch": 1,
+    "mcp__narrater__send_message": 2
+   },
+   "mensageria": {
+    "whoami": 1,
+    "send_message": 2
+   },
+   "edicoes": 2,
+   "escritas_bash": 4,
+   "atividade": {
+    "coordenacao": 4,
+    "verificacao": 4,
+    "leitura": 4,
+    "edicao": 3,
+    "outros": 0
+   },
+   "pedidos": 2,
+   "repeticoes_tela": 0,
+   "avisos_timeout": 0,
+   "primeiro": 1792072505.614,
+   "ultimo": 1792072599.951,
+   "modelo": "claude-haiku-5-5",
+   "sessoes": 1,
+   "custo_usd": 0.0228
+  }
+ },
+ "total": {
+  "tokens": {
+   "entrada": 84,
+   "saida": 28019,
+   "cache_lido": 1716495,
+   "cache_criado": 82701,
+   "cache_criado_1h": 82701,
+   "processados": 1799280
+  },
+  "custo_usd": 0.6792,
+  "chamadas_api": 42,
+  "mensageria": {
+   "list_peers": 1,
+   "canvas_list_nodes": 1,
+   "canvas_connect_nodes": 2,
+   "send_message": 8,
+   "ask_agent": 1,
+   "reply_message": 1,
+   "whoami": 1
+  },
+  "mensagens_entre_agentes": 9,
+  "compactacoes": 0,
+  "edicoes_lider": 0,
+  "escritas_bash_lider": 0
+ },
+ "latencias": {
+  "ocupado_s": {
+   "DevA": 43.2,
+   "DevB": 84.6
+  },
+  "algum_dev_s": 97.4,
+  "paralelo_s": 30.4,
+  "rodadas_dev": {
+   "DevA": 3,
+   "DevB": 2
+  },
+  "deteccao_s": [],
+  "deteccao_mediana_s": null,
+  "volta_s": [
+   0.2,
+   12.3,
+   0.2,
+   0.2
+  ],
+  "volta_mediana_s": 0.2,
+  "entrega_s": [
+   0.1,
+   0.3,
+   0.1,
+   0.2,
+   0.5
+  ],
+  "retorno_s": [
+   29.9,
+   8.1,
+   55.6
+  ],
+  "entrega_mediana_s": 0.2,
+  "retorno_mediana_s": 29.9
+ },
+ "prematuros": null
+}

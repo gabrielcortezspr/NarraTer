@@ -1,35 +1,21 @@
 import { memo, useEffect, useState } from "react";
-import { getBezierPath, type EdgeProps } from "@xyflow/react";
+import type { EdgeProps } from "@xyflow/react";
+import { useRope } from "@/lib/useRope";
 import { useTerminalsStore } from "@/stores/terminals";
 import { useCanvasStore } from "@/stores/canvas";
 import { pairKey, useLedgerStore } from "@/stores/ledger";
 
-// A "line of dialogue" between two agents (docs/design.md, "O grafo"):
+// A "line of dialogue" between two agents (docs/design.md, "O grafo"), drawn
+// as a rope (src/lib/rope.ts, D18): anchored on the sides that face each
+// other, hanging with a little slack, swaying when a node moves and going
+// around other nodes instead of under them.
 // - at rest: a thin, calm curve with no label;
 // - an endpoint working: the curve brightens and a slow accent flow runs on it;
 // - a message travels: a comet of light crosses the curve;
 // - messages queued: a yellow chip with the count at the middle;
 // - hover: the names of both ends ("A ↔ B").
-function AgentPipeEdge({
-  id,
-  source,
-  target,
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
-  sourcePosition,
-  targetPosition,
-  selected,
-}: EdgeProps) {
-  const [edgePath, labelX, labelY] = getBezierPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-  });
+function AgentPipeEdge({ id, source, target, selected }: EdgeProps) {
+  const { ready, d: edgePath, mid, pathRef, midRef } = useRope(source, target);
 
   const pending = useTerminalsStore((s) => (s.queues[target] ?? []).length);
   const targetStatus = useTerminalsStore((s) => s.sessions[target]?.status);
@@ -59,6 +45,7 @@ function AgentPipeEdge({
   }, [pulse]);
 
   const glowId = `pipe-glow-${id}`;
+  if (!ready) return null;
   const baseOpacity = selected ? 0.7 : pulsing ? 0.6 : working ? 0.35 : 0.18;
   const chipW = 26 + String(pending).length * 7;
 
@@ -75,10 +62,11 @@ function AgentPipeEdge({
       </defs>
 
       {/* Wide invisible path: easy to hover and click */}
-      <path d={edgePath} stroke="transparent" strokeWidth={16} fill="none" />
+      <path ref={pathRef} d={edgePath} stroke="transparent" strokeWidth={16} fill="none" />
 
       {/* The line itself */}
       <path
+        ref={pathRef}
         id={id}
         className="narrater-edge-line"
         d={edgePath}
@@ -92,6 +80,7 @@ function AgentPipeEdge({
       {/* An endpoint is working: slow accent flow */}
       {working && !pulsing && (
         <path
+          ref={pathRef}
           d={edgePath}
           pathLength={1}
           stroke="var(--accent)"
@@ -108,6 +97,7 @@ function AgentPipeEdge({
       {pulsing && (
         <path
           key={pulse}
+          ref={pathRef}
           d={edgePath}
           pathLength={1}
           stroke="var(--accent)"
@@ -122,7 +112,7 @@ function AgentPipeEdge({
 
       {/* Queued messages: count chip at the middle */}
       {pending > 0 && (
-        <g transform={`translate(${labelX},${labelY})`}>
+        <g ref={midRef} transform={`translate(${mid.x},${mid.y})`}>
           <title>{`${pending} message${pending > 1 ? "s" : ""} waiting in the queue`}</title>
           <rect
             x={-chipW / 2}
@@ -147,7 +137,7 @@ function AgentPipeEdge({
 
       {/* Hover: who talks to whom */}
       {pending === 0 && names.trim() !== "↔" && (
-        <g className="narrater-edge-label" transform={`translate(${labelX},${labelY})`}>
+        <g ref={midRef} className="narrater-edge-label" transform={`translate(${mid.x},${mid.y})`}>
           <rect
             x={-(names.length * 3.3 + 12)}
             y={-11}

@@ -1,5 +1,6 @@
 import { memo, useState, useCallback, useEffect, useRef } from "react";
-import { Handle, Position, NodeResizer } from "@xyflow/react";
+import NodeHandles from "@/components/ui/NodeHandles";
+import { NodeResizer } from "@xyflow/react";
 import { X, StickyNote, Radio, Check, Copy } from "lucide-react";
 import { useCanvasStore } from "@/stores/canvas";
 import type { NoteNodeData } from "@/stores/canvas";
@@ -156,8 +157,9 @@ lineStyle={{ borderColor: "transparent" }}
         onMouseDown={(e) => e.stopPropagation()}
       />
 
-      <Handle type="target" position={Position.Left} className="narrater-handle" />
-      <Handle type="source" position={Position.Right} className="narrater-handle" />
+      {/* Handles on all four sides, hidden until hover (D18) */}
+
+      <NodeHandles />
     </div>
   );
 }

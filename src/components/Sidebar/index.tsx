@@ -14,6 +14,8 @@ import { switchWorkspace as switchTo } from "@/lib/workspaceNav";
 import { useRolesStore } from "@/stores/roles";
 import RoutinesPanel from "@/components/RoutinesPanel";
 import Kbd from "@/components/ui/Kbd";
+import { UsageBar } from "@/components/UsageMeter";
+import { useUsageStore } from "@/stores/usage";
 const RoleManager = lazy(() => import("@/components/RoleManager"));
 
 interface ContextMenu {
@@ -282,6 +284,8 @@ export default function Sidebar({ collapsed, onToggle }: Props) {
             )}
           </div>
 
+          <UsageSection />
+
           <RoutinesPanel />
 
           {/* Spacer */}
@@ -476,5 +480,36 @@ function WorkspaceItem({
         </span>
       )}
     </button>
+  );
+}
+
+/** Plan limits of the agents' accounts (Claude 5 h / 7 days), from the status line. */
+function UsageSection() {
+  const claude = useUsageStore((s) => s.providers.claude);
+  const hasClaudeSession = useUsageStore((s) => Object.keys(s.sessions).length > 0);
+  if (!claude && !hasClaudeSession) return null;
+  const age = claude ? Math.round((Date.now() - claude.updated) / 60000) : 0;
+  return (
+    <div className="px-3 pt-4 pb-1">
+      <div className="flex items-center justify-between px-1">
+        <span className="text-2xs text-ink-muted font-semibold uppercase tracking-[0.06em] select-none">Usage</span>
+        {claude && age >= 1 && (
+          <span className="text-2xs tabular-nums text-ink-muted" title="Updated on each Claude reply">
+            {age < 60 ? `${age}m ago` : `${Math.round(age / 60)}h ago`}
+          </span>
+        )}
+      </div>
+      {claude ? (
+        <div className="mt-2 mx-1 flex flex-col gap-2.5">
+          <div className="text-[12px] text-ink font-medium">Claude</div>
+          {claude.five_hour && <UsageBar label="5-hour" window={claude.five_hour} />}
+          {claude.seven_day && <UsageBar label="Weekly" window={claude.seven_day} />}
+        </div>
+      ) : (
+        <p className="text-2xs text-ink-muted mt-1.5 px-1 leading-snug">
+          Plan limits show up after the first reply of a Claude Pro/Max session.
+        </p>
+      )}
+    </div>
   );
 }

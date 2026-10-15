@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useCallback, useState } from "react";
-import { Handle, Position, NodeResizer, useStore } from "@xyflow/react";
+import NodeHandles from "@/components/ui/NodeHandles";
+import { NodeResizer, useStore } from "@xyflow/react";
 import { X, FolderOpen, Clock, Plug, RotateCcw, Crown, MessageSquare, SquarePen } from "lucide-react";
 import { useComposerStore } from "@/stores/composer";
 import { useChatStore } from "@/stores/chat";
@@ -9,9 +10,12 @@ import { useCanvasStore } from "@/stores/canvas";
 import { useTerminalsStore } from "@/stores/terminals";
 import { useRoutinesStore } from "@/stores/routines";
 import type { SessionStatus } from "@/stores/terminals";
+import StatusDot, { STATUS_DOT } from "@/components/ui/StatusDot";
 import { openInEditor, ptyQueueCancel } from "@/lib/tauri";
 import type { QueueItem } from "@/lib/tauri";
 import IconButton from "@/components/ui/IconButton";
+import { ContextRing } from "@/components/UsageMeter";
+import { useUsageStore, formatReset } from "@/stores/usage";
 import { toast } from "@/stores/toasts";
 import { EDITORS } from "@/lib/editors";
 import type { TerminalNodeData } from "@/stores/canvas";
@@ -27,32 +31,6 @@ const LOD_ZOOM = 0.35;
 
 // Stable reference for the queue selector (avoids identity re-renders)
 const NO_QUEUE: QueueItem[] = [];
-
-// State colours (docs/design.md): working = the narrator's accent, ready = ok,
-// needs you = warn, starting = muted, exited = danger.
-const STATUS_DOT: Record<SessionStatus, { color: string; label: string }> = {
-  spawning: { color: "var(--text-3)", label: "Starting…" },
-  running: { color: "var(--accent)", label: "Working" },
-  idle: { color: "var(--ok)", label: "Ready" },
-  attention: { color: "var(--warn)", label: "Needs you — waiting for input" },
-  exited: { color: "var(--danger)", label: "Exited" },
-};
-
-/** Small state light; breathes while the agent works, rings when it needs you. */
-function StatusDot({ status }: { status: SessionStatus }) {
-  const { color, label } = STATUS_DOT[status];
-  return (
-    <span title={label} className="relative shrink-0 flex items-center justify-center w-2.5 h-2.5">
-      {status === "attention" && (
-        <span className="absolute inset-0 rounded-full animate-ping" style={{ background: color, opacity: 0.35 }} />
-      )}
-      <span
-        className={`relative rounded-full ${status === "running" ? "narrater-breathe" : ""}`}
-        style={{ width: 7, height: 7, background: color, boxShadow: status === "running" ? `0 0 8px ${color}` : "none" }}
-      />
-    </span>
-  );
-}
 
 function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   const termDivRef = useRef<HTMLDivElement>(null);
@@ -77,6 +55,8 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   const queuePending = queueItems.length;
   const routines = useRoutinesStore((s) => s.routines);
   const myRoutines = routines.filter((r) => r.target_id === id && r.status === "enabled");
+  const sessionUsage = useUsageStore((s) => s.sessions[id]);
+  const claudePlan = useUsageStore((s) => (agentType === "claude" ? s.providers.claude : undefined));
   const [showEditorMenu, setShowEditorMenu] = useState(false);
   const [showQueueMenu, setShowQueueMenu] = useState(false);
 
@@ -236,6 +216,22 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
           </span>
         )}
 
+        {/* Context window of this session (Claude status line → usage.rs) */}
+        {sessionUsage?.context_percent != null && (
+          <ContextRing
+            pct={sessionUsage.context_percent}
+            title={[
+              `Context ${Math.round(sessionUsage.context_percent)}% used`,
+              sessionUsage.model,
+              sessionUsage.cost_usd != null ? `$${sessionUsage.cost_usd.toFixed(2)} this session (estimate)` : null,
+              claudePlan?.five_hour
+                ? `Plan · 5h ${Math.round(claudePlan.five_hour.used_percent)}%${claudePlan.five_hour.resets_at ? ` (resets ${formatReset(claudePlan.five_hour.resets_at)})` : ""}`
+                : null,
+              claudePlan?.seven_day ? `Plan · 7d ${Math.round(claudePlan.seven_day.used_percent)}%` : null,
+            ].filter(Boolean).join("\n")}
+          />
+        )}
+
         {/* NarraTer Chat (agents answer with `narrater say`) — unread stays visible */}
         {agentType !== "shell" && (
           <button
@@ -346,10 +342,8 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
           </button>
         </div>
       )}
-
-      {/* Connection handles: hidden until the tile is hovered (index.css) */}
-      <Handle type="target" position={Position.Left} className="narrater-handle" />
-      <Handle type="source" position={Position.Right} className="narrater-handle" />
+      {/* Handles on all four sides, hidden until hover (D18) */}
+      <NodeHandles />
     </div>
   );
 }

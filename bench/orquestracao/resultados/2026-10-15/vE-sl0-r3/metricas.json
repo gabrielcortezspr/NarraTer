@@ -1,0 +1,250 @@
+{
+ "versao": "E",
+ "rep": 3,
+ "variante": "sl0",
+ "motivo": "concluida",
+ "inicio": 1792079868.8861501,
+ "fim": 1792080053.836,
+ "duracao_s": 184.94984984397888,
+ "placar": {
+  "oculto": {
+   "Basico": {
+    "ok": 7,
+    "total": 7
+   },
+   "Bordas": {
+    "ok": 12,
+    "total": 12
+   },
+   "Defeitos": {
+    "ok": 5,
+    "total": 5
+   },
+   "Regressao": {
+    "ok": 7,
+    "total": 7
+   }
+  },
+  "oculto_ok": 31,
+  "oculto_total": 31,
+  "proprios_ok": 47,
+  "proprios_total": 47
+ },
+ "diff": {
+  "linhas_adicionadas": 362,
+  "linhas_removidas": 19,
+  "arquivos": [
+   "pedidos/cambio.py",
+   "pedidos/importa.py",
+   "pedidos/modelo.py",
+   "pedidos/preco.py",
+   "pedidos/relatorio.py",
+   "tests/test_importa.py",
+   "tests/test_multimoeda.py",
+   "tests/test_preco.py",
+   "tests/test_relatorio.py"
+  ]
+ },
+ "agentes": {
+  "DevB": {
+   "tokens": {
+    "entrada": 30,
+    "saida": 15769,
+    "cache_lido": 740821,
+    "cache_criado": 45445,
+    "cache_criado_1h": 45445,
+    "processados": 786296
+   },
+   "chamadas_api": 15,
+   "contexto_inicial": 32399,
+   "contexto_pico": 69619,
+   "contexto_final": 69619,
+   "compactacoes": 0,
+   "prompts_recebidos": 2,
+   "falas_recebidas": {
+    "Narrador": 2
+   },
+   "ferramentas": {
+    "Bash": 9,
+    "Edit": 10
+   },
+   "mensageria": {
+    "list": 1
+   },
+   "edicoes": 10,
+   "escritas_bash": 0,
+   "atividade": {
+    "coordenacao": 1,
+    "verificacao": 4,
+    "leitura": 4,
+    "edicao": 10,
+    "outros": 0
+   },
+   "pedidos": 0,
+   "repeticoes_tela": 0,
+   "avisos_timeout": 0,
+   "primeiro": 1792079881.099,
+   "ultimo": 1792080022.49,
+   "modelo": "claude-haiku-5-5",
+   "sessoes": 1,
+   "custo_usd": 0.0244
+  },
+  "DevA": {
+   "tokens": {
+    "entrada": 42,
+    "saida": 13582,
+    "cache_lido": 979972,
+    "cache_criado": 33472,
+    "cache_criado_1h": 33472,
+    "processados": 1013486
+   },
+   "chamadas_api": 21,
+   "contexto_inicial": 31690,
+   "contexto_pico": 58651,
+   "contexto_final": 58651,
+   "compactacoes": 0,
+   "prompts_recebidos": 4,
+   "falas_recebidas": {
+    "Narrador": 4
+   },
+   "ferramentas": {
+    "Bash": 17
+   },
+   "mensageria": {
+    "ask": 2,
+    "list": 1
+   },
+   "edicoes": 0,
+   "escritas_bash": 7,
+   "atividade": {
+    "coordenacao": 3,
+    "verificacao": 9,
+    "leitura": 3,
+    "edicao": 2,
+    "outros": 0
+   },
+   "pedidos": 2,
+   "repeticoes_tela": 0,
+   "avisos_timeout": 0,
+   "primeiro": 1792079881.134,
+   "ultimo": 1792080041.529,
+   "modelo": "claude-sonnet-5-5",
+   "sessoes": 1,
+   "custo_usd": 0.4658
+  },
+  "Narrador": {
+   "tokens": {
+    "entrada": 44,
+    "saida": 5264,
+    "cache_lido": 729641,
+    "cache_criado": 22101,
+    "cache_criado_1h": 22101,
+    "processados": 751786
+   },
+   "chamadas_api": 20,
+   "contexto_inicial": 30425,
+   "contexto_pico": 44092,
+   "contexto_final": 44092,
+   "compactacoes": 0,
+   "prompts_recebidos": 4,
+   "falas_recebidas": {
+    "DevA": 1
+   },
+   "ferramentas": {
+    "Skill": 1,
+    "Bash": 15
+   },
+   "mensageria": {
+    "list": 1,
+    "ask": 4,
+    "wait": 2,
+    "check": 5
+   },
+   "edicoes": 0,
+   "escritas_bash": 0,
+   "atividade": {
+    "coordenacao": 13,
+    "verificacao": 0,
+    "leitura": 3,
+    "edicao": 0,
+    "outros": 0
+   },
+   "pedidos": 4,
+   "repeticoes_tela": 0,
+   "avisos_timeout": 0,
+   "primeiro": 1792079869.991,
+   "ultimo": 1792080053.916,
+   "modelo": "claude-opus-5-5",
+   "sessoes": 1,
+   "custo_usd": 0.4282
+  }
+ },
+ "total": {
+  "tokens": {
+   "entrada": 116,
+   "saida": 34615,
+   "cache_lido": 2450434,
+   "cache_criado": 101018,
+   "cache_criado_1h": 101018,
+   "processados": 2551568
+  },
+  "custo_usd": 0.9184,
+  "chamadas_api": 56,
+  "mensageria": {
+   "list": 3,
+   "ask": 6,
+   "wait": 2,
+   "check": 5
+  },
+  "mensagens_entre_agentes": 7,
+  "compactacoes": 0,
+  "edicoes_lider": 0,
+  "escritas_bash_lider": 0
+ },
+ "latencias": {
+  "ocupado_s": {
+   "DevB": 68.9,
+   "DevA": 115.6
+  },
+  "algum_dev_s": 123.3,
+  "paralelo_s": 61.1,
+  "rodadas_dev": {
+   "DevB": 2,
+   "DevA": 4
+  },
+  "deteccao_s": [
+   1.8,
+   1.9,
+   1.5
+  ],
+  "deteccao_mediana_s": 1.8,
+  "volta_s": [],
+  "volta_mediana_s": null,
+  "entrega_s": [
+   0.5,
+   0.4,
+   0.5,
+   0.4,
+   6.6,
+   0.4
+  ],
+  "retorno_s": [
+   5.8,
+   6.1,
+   29.3,
+   38.2,
+   10.8,
+   1.5
+  ],
+  "entrega_mediana_s": 0.5,
+  "retorno_mediana_s": 10.8
+ },
+ "prematuros": {
+  "asks": 5,
+  "prematuros": 2,
+  "adiantamento_s": [
+   57.2,
+   19.8
+  ]
+ }
+}

@@ -1,0 +1,253 @@
+{
+ "versao": "A",
+ "rep": 3,
+ "motivo": "concluida",
+ "inicio": 1792072936.8887117,
+ "fim": 1792073067.326,
+ "duracao_s": 130.43728828430176,
+ "placar": {
+  "oculto": {
+   "Basico": {
+    "ok": 7,
+    "total": 7
+   },
+   "Bordas": {
+    "ok": 12,
+    "total": 12
+   },
+   "Defeitos": {
+    "ok": 5,
+    "total": 5
+   },
+   "Regressao": {
+    "ok": 7,
+    "total": 7
+   }
+  },
+  "oculto_ok": 31,
+  "oculto_total": 31,
+  "proprios_ok": 50,
+  "proprios_total": 50
+ },
+ "diff": {
+  "linhas_adicionadas": 362,
+  "linhas_removidas": 15,
+  "arquivos": [
+   "pedidos/cambio.py",
+   "pedidos/importa.py",
+   "pedidos/modelo.py",
+   "pedidos/preco.py",
+   "pedidos/relatorio.py",
+   "tests/test_cambio.py",
+   "tests/test_importa.py",
+   "tests/test_preco.py",
+   "tests/test_relatorio.py"
+  ]
+ },
+ "agentes": {
+  "Narrador": {
+   "tokens": {
+    "entrada": 22,
+    "saida": 4873,
+    "cache_lido": 427671,
+    "cache_criado": 26104,
+    "cache_criado_1h": 26104,
+    "processados": 453797
+   },
+   "chamadas_api": 11,
+   "contexto_inicial": 31087,
+   "contexto_pico": 48589,
+   "contexto_final": 48589,
+   "compactacoes": 0,
+   "prompts_recebidos": 3,
+   "falas_recebidas": {
+    "DevA": 1,
+    "DevB": 1
+   },
+   "ferramentas": {
+    "ToolSearch": 1,
+    "Read": 9,
+    "mcp__narrater__list_peers": 1,
+    "mcp__narrater__canvas_list_nodes": 1,
+    "Glob": 1,
+    "mcp__narrater__canvas_connect_nodes": 2,
+    "mcp__narrater__send_message": 2,
+    "mcp__narrater__check_messages": 1,
+    "mcp__narrater__ask_agent": 1
+   },
+   "mensageria": {
+    "list_peers": 1,
+    "canvas_list_nodes": 1,
+    "canvas_connect_nodes": 2,
+    "send_message": 2,
+    "check_messages": 1,
+    "ask_agent": 1
+   },
+   "edicoes": 0,
+   "escritas_bash": 0,
+   "atividade": {
+    "coordenacao": 9,
+    "verificacao": 0,
+    "leitura": 10,
+    "edicao": 0,
+    "outros": 0
+   },
+   "pedidos": 3,
+   "repeticoes_tela": 0,
+   "avisos_timeout": 0,
+   "primeiro": 1792072938.288,
+   "ultimo": 1792073067.445,
+   "modelo": "claude-opus-5-5",
+   "sessoes": 1,
+   "custo_usd": 0.3919
+  },
+  "DevA": {
+   "tokens": {
+    "entrada": 20,
+    "saida": 4343,
+    "cache_lido": 379745,
+    "cache_criado": 19361,
+    "cache_criado_1h": 19361,
+    "processados": 399126
+   },
+   "chamadas_api": 10,
+   "contexto_inicial": 32075,
+   "contexto_pico": 42984,
+   "contexto_final": 42984,
+   "compactacoes": 0,
+   "prompts_recebidos": 2,
+   "falas_recebidas": {
+    "Narrador": 2
+   },
+   "ferramentas": {
+    "Bash": 4,
+    "mcp__narrater__send_message": 2,
+    "ToolSearch": 1,
+    "mcp__narrater__reply_message": 1
+   },
+   "mensageria": {
+    "send_message": 2,
+    "reply_message": 1
+   },
+   "edicoes": 0,
+   "escritas_bash": 1,
+   "atividade": {
+    "coordenacao": 4,
+    "verificacao": 2,
+    "leitura": 2,
+    "edicao": 0,
+    "outros": 0
+   },
+   "pedidos": 2,
+   "repeticoes_tela": 0,
+   "avisos_timeout": 0,
+   "primeiro": 1792072957.197,
+   "ultimo": 1792073058.774,
+   "modelo": "claude-sonnet-5-5",
+   "sessoes": 1,
+   "custo_usd": 0.1969
+  },
+  "DevB": {
+   "tokens": {
+    "entrada": 32,
+    "saida": 17752,
+    "cache_lido": 783978,
+    "cache_criado": 37831,
+    "cache_criado_1h": 37831,
+    "processados": 821841
+   },
+   "chamadas_api": 16,
+   "contexto_inicial": 32855,
+   "contexto_pico": 60813,
+   "contexto_final": 60813,
+   "compactacoes": 0,
+   "prompts_recebidos": 1,
+   "falas_recebidas": {
+    "Narrador": 1
+   },
+   "ferramentas": {
+    "Bash": 5,
+    "Write": 2,
+    "Edit": 10,
+    "ToolSearch": 1,
+    "mcp__narrater__send_message": 1
+   },
+   "mensageria": {
+    "send_message": 1
+   },
+   "edicoes": 12,
+   "escritas_bash": 0,
+   "atividade": {
+    "coordenacao": 2,
+    "verificacao": 2,
+    "leitura": 2,
+    "edicao": 12,
+    "outros": 1
+   },
+   "pedidos": 1,
+   "repeticoes_tela": 0,
+   "avisos_timeout": 0,
+   "primeiro": 1792072963.184,
+   "ultimo": 1792073048.141,
+   "modelo": "claude-haiku-5-5",
+   "sessoes": 1,
+   "custo_usd": 0.0243
+  }
+ },
+ "total": {
+  "tokens": {
+   "entrada": 74,
+   "saida": 26968,
+   "cache_lido": 1591394,
+   "cache_criado": 83296,
+   "cache_criado_1h": 83296,
+   "processados": 1674764
+  },
+  "custo_usd": 0.6131,
+  "chamadas_api": 37,
+  "mensageria": {
+   "list_peers": 1,
+   "canvas_list_nodes": 1,
+   "canvas_connect_nodes": 2,
+   "send_message": 5,
+   "check_messages": 1,
+   "ask_agent": 1,
+   "reply_message": 1
+  },
+  "mensagens_entre_agentes": 5,
+  "compactacoes": 0,
+  "edicoes_lider": 0,
+  "escritas_bash_lider": 0
+ },
+ "latencias": {
+  "ocupado_s": {
+   "DevA": 33.2,
+   "DevB": 84.8
+  },
+  "algum_dev_s": 97.2,
+  "paralelo_s": 20.7,
+  "rodadas_dev": {
+   "DevA": 2,
+   "DevB": 1
+  },
+  "deteccao_s": [],
+  "deteccao_mediana_s": null,
+  "volta_s": [
+   3.9,
+   0.3,
+   0.1
+  ],
+  "volta_mediana_s": 0.3,
+  "entrega_s": [
+   0.5,
+   0.3,
+   0.3
+  ],
+  "retorno_s": [
+   72.7
+  ],
+  "entrega_mediana_s": 0.3,
+  "retorno_mediana_s": 72.7
+ },
+ "prematuros": null
+}

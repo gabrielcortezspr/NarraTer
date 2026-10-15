@@ -33,3 +33,6 @@ Thumbs.db
 
 # Python bytecode (CLI asset)
 __pycache__/
+docs/relatorios/*.aux
+docs/relatorios/*.log
+docs/relatorios/*.out

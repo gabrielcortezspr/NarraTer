@@ -644,6 +644,13 @@ pub fn parse(argv: &[String], env: &mut Env) -> Parsed {
         "list" => cli.canvas("list", json!({})),
         "ask" => cli.ask(a),
         "wait" => cli.wait(a),
+        // Run by NarraTer's Claude Code status-line script, with its payload on stdin
+        "usage-report" => {
+            let text = (cli.env.stdin)().unwrap_or_default();
+            let payload: Value =
+                serde_json::from_str(&text).map_err(|_| "Error: usage-report takes the status-line JSON on stdin".to_string())?;
+            cli.send_params("usage", payload)
+        }
         "asks" => {
             let mut a = a;
             let all = a.flag("--all");

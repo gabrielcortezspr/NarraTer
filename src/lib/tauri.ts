@@ -467,3 +467,53 @@ export interface Role {
 
 export const loadRoles = () => invoke<Role[]>("load_roles");
 export const saveRoles = (roles: Role[]) => invoke<void>("save_roles", { roles });
+
+// ── Agent usage (usage.rs; docs/design.md "Uso dos agentes") ────────────
+
+export interface UsageWindow {
+  used_percent: number;
+  /** Unix epoch seconds. */
+  resets_at: number | null;
+}
+
+/** Account-level limits of a provider (Claude: 5-hour and 7-day windows). */
+export interface ProviderUsage {
+  provider: string;
+  five_hour: UsageWindow | null;
+  seven_day: UsageWindow | null;
+  /** Epoch ms of the report. */
+  updated: number;
+}
+
+/** What one agent session reported about itself through its status line. */
+export interface SessionUsage {
+  terminal: string;
+  context_percent: number | null;
+  cost_usd: number | null;
+  model: string | null;
+  updated: number;
+}
+
+export const usageSnapshot = () =>
+  invoke<{ providers: ProviderUsage[]; sessions: SessionUsage[] }>("usage_snapshot");
+
+// --- Activity log (activity.rs) -------------------------------------------
+
+/** One event of the activity log, written by the backend as it happens. */
+export interface ActivityEvent {
+  ts: number;
+  kind: "state" | "ask" | "delivered" | "answer" | "message" | "spawn" | "exit" | "note";
+  terminal: string;
+  label: string;
+  peer?: string;
+  peer_label?: string;
+  status?: string;
+  ask?: string;
+  text?: string;
+  detail?: string;
+}
+
+export const activityList = (limit?: number, terminal?: string) =>
+  invoke<ActivityEvent[]>("activity_list", { limit, terminal });
+
+export const activityClear = () => invoke<void>("activity_clear");

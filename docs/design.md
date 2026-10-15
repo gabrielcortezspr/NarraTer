@@ -101,6 +101,11 @@ estado diz *como está*; os dois nunca dividem a mesma forma (ícone × ponto).
 
 Regra: em repouso o grafo é só desenho; quem diz o que está acontecendo é o movimento.
 
+**Cordas (D18).** Toda conexão é uma corda: sai do ponto da borda voltado para o outro nó
+(qualquer lado), pende com folga leve, contorna os outros nós com 16 px de respiro em vez de
+passar por baixo deles, balança quando um nó é arrastado e para quando assenta. As alças ficam
+nos quatro lados, e uma conexão pode ser solta em qualquer borda.
+
 ## Tiles
 
 - Superfície `--surface`, raio 12 px, borda `--line`, fio de identidade de 1 px no topo.
@@ -126,7 +131,33 @@ Regra: em repouso o grafo é só desenho; quem diz o que está acontecendo é o 
 - Pulso de fala: 900 ms ao longo da aresta. Ponto "trabalhando": 1,6 s de respiração.
 - `prefers-reduced-motion`: sem pulsos nem fluxos; só mudança de cor.
 
+## Painel Activity
+
+Painel à direita (Ctrl+J), em `--glass` como a moldura. É o histórico verificável do que os agentes
+fizeram (D21):
+- no topo, cada agente com a mesma luz de estado do tile, e clicar filtra por ele;
+- abaixo, os filtros por tipo (All, States, Asks, Messages) e o `#id` de um ask, que mostra só aquele
+  pedido;
+- na lista, o mais novo em cima, com uma linha por evento: ponto de cor, horário em `tabular-nums`,
+  quem, o quê.
+
+Cores dos pontos (cor é estado, nunca enfeite):
+- pedido na fila `--queue`; pedido entregue (a fala atravessando) `--accent`; trabalhando `--accent`;
+- pronto `--ok`; precisa de você `--warn`; falha ou saída `--danger`;
+- o que não é estado (nota, mensagem, início) fica neutro em `--text-3`;
+- filtro ativo é seleção, então usa `bg-accent/20`; o ícone do título fica neutro.
+
+Tipografia: título 15 px; linhas 12 px; meta (horário, duração, contadores) 11 px em `tabular-nums`,
+que é o piso da moldura. Inter no texto, e JetBrains Mono só no `#id` do ask.
+
+Pedido e resposta aparecem recolhidos em 2 linhas e desdobram no clique. Trocas de estado desfeitas em
+menos de 2 s ficam escondidas, com um contador para exibi-las. O painel entra em 180 ms com
+`--ease`, sem animação com `prefers-reduced-motion`.
+
 ## Uso dos agentes (etapa V4)
 
-Barra fina (4 px) por janela (5 h, 7 dias) no tile do agente e resumo na moldura; cor da barra em
-`--text-3` até 60%, `--queue` até 80%, `--danger` acima; porcentagem em `tabular-nums`.
+Implementado para o Claude (D17). Na barra lateral, a seção **Usage** mostra uma barra fina (4 px)
+por janela do plano (5 h, semanal), com porcentagem, a hora do reset e a idade do dado. No
+cabeçalho do tile, um anel de 14 px mostra o contexto usado pela sessão, e o tooltip traz modelo,
+custo e as janelas do plano. A cor fica em `--text-3` até 60%, `--queue` até 80% e `--danger`
+acima. A porcentagem usa `tabular-nums`.
