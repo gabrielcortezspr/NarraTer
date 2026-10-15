@@ -51,6 +51,10 @@ def linha(m):
         "coordenacao": sum(t["mensageria"].values()),
         "consultas": sum(v for k, v in t["mensageria"].items() if k in CONSULTAS), "compactacoes": t["compactacoes"],
         "edicoes_lider": t["edicoes_lider"], "escritas_bash_lider": t["escritas_bash_lider"],
+        "entrega_s": m["latencias"]["entrega_mediana_s"] if m["latencias"]["entrega_mediana_s"] is not None else "",
+        "deteccao_s": m["latencias"]["deteccao_mediana_s"] if m["latencias"]["deteccao_mediana_s"] is not None else "",
+        "volta_s": m["latencias"]["volta_mediana_s"] if m["latencias"]["volta_mediana_s"] is not None else "",
+        "retorno_s": m["latencias"]["retorno_mediana_s"] if m["latencias"]["retorno_mediana_s"] is not None else "",
         "linhas_diff": m["diff"]["linhas_adicionadas"] + m["diff"]["linhas_removidas"],
     }
     for a in AGENTES:
@@ -148,6 +152,10 @@ def main():
         ("Chamadas de coordenação (CLI/MCP)", "coordenacao", "{:.1f}"),
         ("\\quad das quais consultas de estado", "consultas", "{:.1f}"),
         ("Chamadas à API do Narrador", "Narrador_api", "{:.1f}"),
+        ("Entrega: pedido $\\to$ tela do dev (s, mediana)", "entrega_s", "{:.1f}"),
+        ("Detecção: fim do turno $\\to$ resposta ao líder bloqueado (s)", "deteccao_s", "{:.1f}"),
+        ("Fala de volta: dev envia $\\to$ tela do líder (s)", "volta_s", "{:.1f}"),
+        ("Retorno: fim do turno $\\to$ líder sabe (s)", "retorno_s", "{:.1f}"),
         ("Edições feitas pelo Narrador", "edicoes_lider", "{:.1f}"),
         ("Escritas via Bash do Narrador", "escritas_bash_lider", "{:.1f}"),
         ("Edições de DevA", "DevA_edicoes", "{:.1f}"),

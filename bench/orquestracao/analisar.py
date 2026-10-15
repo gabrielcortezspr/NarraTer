@@ -179,6 +179,135 @@ def diff_stats(patch: Path):
     return {"linhas_adicionadas": add, "linhas_removidas": rem, "arquivos": sorted(arquivos)}
 
 
+def eventos(jsonl: Path):
+    """Linha do tempo bruta de uma sessão: (ts, tipo, dados)."""
+    out = []
+    for linha in jsonl.read_text(errors="replace").splitlines():
+        try:
+            ev = json.loads(linha)
+        except json.JSONDecodeError:
+            continue
+        if "timestamp" not in ev:
+            continue
+        t = ts(ev["timestamp"])
+        msg = ev.get("message", {})
+        if ev.get("type") == "assistant":
+            for b in msg.get("content", []):
+                if b.get("type") == "tool_use":
+                    out.append((t, "chamada", {"id": b["id"], "nome": b["name"], "entrada": b.get("input", {})}))
+            if msg.get("stop_reason") == "end_turn":
+                out.append((t, "fim_turno", {}))
+        elif ev.get("type") == "user":
+            c = msg.get("content")
+            if isinstance(c, str):
+                for m in FALA.finditer(c):
+                    out.append((t, "recebe", {"de": m.group(1).strip()}))
+            elif isinstance(c, list):
+                for b in c:
+                    if b.get("type") == "text":
+                        for m in FALA.finditer(b.get("text", "")):
+                            out.append((t, "recebe", {"de": m.group(1).strip()}))
+                    elif b.get("type") == "tool_result":
+                        r = b.get("content")
+                        r = r if isinstance(r, str) else json.dumps(r, ensure_ascii=False)
+                        out.append((t, "resultado", {"id": b.get("tool_use_id"), "texto": r}))
+    return sorted(out, key=lambda e: e[0])
+
+
+def alvos(nome, entrada, labels):
+    """Para quem uma chamada de mensageria do líder fala."""
+    k = eh_mensageria(nome, entrada)
+    if k not in ("ask", "send", "send_message", "ask_agent", "broadcast", "broadcast_message"):
+        return []
+    texto = json.dumps(entrada, ensure_ascii=False)
+    if k.startswith("broadcast"):
+        return list(labels)
+    if "to" in entrada:
+        return [entrada["to"]] if entrada["to"] in labels else []
+    # CLI: narrater ask DevA "..." / ask --batch '{"DevA": ...}' — o primeiro rótulo citado após "ask"
+    cmd = entrada.get("command", "")
+    pos = cmd.find("narrater ask")
+    trecho = cmd[pos:] if pos >= 0 else texto
+    if "--batch" in trecho[:40]:
+        return [l for l in labels if f'"{l}"' in trecho or f"\\\"{l}\\\"" in trecho]
+    achados = sorted(((trecho.find(l), l) for l in labels if trecho.find(l) >= 0))
+    return [achados[0][1]] if achados else []
+
+
+def latencias(linhas: dict):
+    """Entrega (líder pede → fala aparece no dev) e retorno (dev termina o turno → líder fica sabendo).
+
+    Retorno: depois de cada fim de turno de um dev que recebeu uma fala, o primeiro momento em que
+    o líder recebe uma fala desse dev ou o resultado de uma chamada de mensageria (ask, wait,
+    check, check_messages, inbox) que cita o rótulo do dev.
+    """
+    lider = linhas.get("Narrador", [])
+    devs = [l for l in linhas if l != "Narrador"]
+    pedidos = [(t, d) for t, tipo, d in lider if tipo == "chamada"]
+    entrega = []
+    for dev in devs:
+        envios = sorted(t for t, d in pedidos for a in alvos(d["nome"], d["entrada"], devs) if a == dev)
+        usados = set()
+        for t, tipo, d in linhas[dev]:
+            if tipo == "recebe" and d["de"] == "Narrador":
+                antes = [e for e in envios if e <= t + 1 and e not in usados]
+                if antes:
+                    usados.add(antes[-1])
+                    entrega.append(max(0.0, t - antes[-1]))
+    chamadas = {d["id"]: d for t, tipo, d in lider if tipo == "chamada"}
+    aprende = []
+    for t, tipo, d in lider:
+        if tipo == "recebe":
+            aprende.append((t, d["de"]))
+        elif tipo == "resultado" and d["id"] in chamadas:
+            c = chamadas[d["id"]]
+            k = eh_mensageria(c["nome"], c["entrada"])
+            if k in ("ask", "ask_agent", "wait", "check", "check_messages", "inbox"):
+                for dev in devs:
+                    if dev in d["texto"] or dev in json.dumps(c["entrada"]):
+                        aprende.append((t, dev))
+    retorno = []
+    for dev in devs:
+        trabalhando = False
+        for t, tipo, d in linhas[dev]:
+            if tipo == "recebe":
+                trabalhando = True
+            elif tipo == "fim_turno" and trabalhando:
+                trabalhando = False
+                depois = [ta for ta, de in aprende if de == dev and ta >= t - 0.5]
+                if depois:
+                    retorno.append(min(depois) - t)
+    # Detecção: o líder já estava bloqueado esperando (ask/wait/ask_agent chamado antes do fim do
+    # turno do dev e com resultado depois). É a latência do protocolo em si, sem o tempo que o
+    # líder levou para ir buscar a resposta.
+    resultados = {d["id"]: t for t, tipo, d in lider if tipo == "resultado"}
+    bloqueios = []
+    for t, tipo, d in lider:
+        if tipo == "chamada" and eh_mensageria(d["nome"], d["entrada"]) in ("ask", "ask_agent", "wait") and d["id"] in resultados:
+            bloqueios.append((t, resultados[d["id"]], d))
+    # Um ask --batch ou um wait sem ids só volta quando o último termina: conta só o último fim de
+    # turno dentro de cada bloqueio (os anteriores esperaram o colega, não o protocolo).
+    fins = sorted(t for dev in devs for t, tipo, _ in linhas[dev] if tipo == "fim_turno")
+    deteccao = []
+    for ini, fim, c in bloqueios:
+        dentro = [t for t in fins if ini < t <= fim + 0.5]
+        if dentro:
+            deteccao.append(max(0.0, fim - max(dentro)))
+    # Fala de volta (modelo da versão A): o dev chama send/reply e a fala aparece no líder
+    volta = []
+    for dev in devs:
+        envios = [t for t, tipo, d in linhas[dev] if tipo == "chamada"
+                  and eh_mensageria(d["nome"], d["entrada"]) in ("send", "send_message", "reply", "reply_message")]
+        for te in envios:
+            rec = [t for t, tipo, d in lider if tipo == "recebe" and d["de"] == dev and t >= te - 1]
+            if rec:
+                volta.append(min(rec) - te)
+    med = lambda xs: round(sorted(xs)[len(xs) // 2], 1) if xs else None
+    return {"deteccao_s": [round(x, 1) for x in deteccao], "deteccao_mediana_s": med(deteccao),
+            "volta_s": [round(x, 1) for x in volta], "volta_mediana_s": med(volta),"entrega_s": [round(x, 1) for x in entrega], "retorno_s": [round(x, 1) for x in retorno],
+            "entrega_mediana_s": med(entrega), "retorno_mediana_s": med(retorno)}
+
+
 def analisa(run: Path):
     rodada = json.loads((run / "rodada.json").read_text())
     placar = json.loads((run / "placar.json").read_text() or "{}")
@@ -204,6 +333,13 @@ def analisa(run: Path):
         m["sessoes"] = len(ms)
         m["custo_usd"] = custo(m["modelo"], m["tokens"])
         por_agente[label] = m
+    linhas = {}
+    for label, sessoes in agentes(run).items():
+        evs = []
+        for _, sid in sessoes:
+            for f in projetos.glob(f"*/{sid}.jsonl"):
+                evs += eventos(f)
+        linhas[label] = sorted(evs, key=lambda e: e[0])
     total_tok = soma([a["tokens"] for a in por_agente.values()])
     mens = soma([a["mensageria"] for a in por_agente.values()])
     out = {
@@ -221,6 +357,7 @@ def analisa(run: Path):
             "edicoes_lider": por_agente.get("Narrador", {}).get("edicoes", 0),
             "escritas_bash_lider": por_agente.get("Narrador", {}).get("escritas_bash", 0),
         },
+        "latencias": latencias(linhas),
     }
     (run / "metricas.json").write_text(json.dumps(out, ensure_ascii=False, indent=1))
     return out
@@ -234,7 +371,9 @@ def main():
         print(f"v{m['versao']} r{m['rep']} {m['motivo']:<10} dur={m['duracao_s'] and round(m['duracao_s'])}s "
               f"oculto={p.get('oculto_ok')}/{p.get('oculto_total')} proprios={p.get('proprios_ok')}/{p.get('proprios_total')} "
               f"US${m['total']['custo_usd']:.2f} proc={t.get('processados', 0):,} saida={t.get('saida', 0):,} msgs={m['total']['mensagens_entre_agentes']} "
-              f"edicoes_lider={m['total']['edicoes_lider']}")
+              f"edicoes_lider={m['total']['edicoes_lider']} entrega~{m['latencias']['entrega_mediana_s']}s "
+              f"retorno~{m['latencias']['retorno_mediana_s']}s deteccao~{m['latencias']['deteccao_mediana_s']}s "
+              f"volta~{m['latencias']['volta_mediana_s']}s")
         for label, a in m["agentes"].items():
             print(f"   {label:<9} {a['modelo']:<18} proc={a['tokens']['processados']:>9,} saida={a['tokens']['saida']:>6,} "
                   f"ctx0={a['contexto_inicial']:>6,} pico={a['contexto_pico']:>7,} api={a['chamadas_api']:>3} "
