@@ -345,6 +345,17 @@ processo ou outro dispatch geram `source_changed`.
   (`target/turn-eval-statusline/work/*.statusline.json`). A statusline que já instalamos pode informar
   o transcript de cada terminal sem hook novo.
 
+- `[observado]` **Impacto visual** (app D sob Xvfb, dois tiles Claude Haiku lado a lado, mesmo pedido longo):
+  - parados, os dois ficam iguais (`img/tela-alternativa-parado.png`);
+  - ao rolar o mouse (`img/tela-alternativa-rolado.png`), a tela cheia rola dentro do próprio
+    Claude: a caixa de digitação continua fixa, aparece "Jump to bottom" e o histórico é o do Claude;
+  - na tela normal, a roda leva o tmux ao modo de cópia: aparece um marcador amarelo
+    (`15:15:17 [55/63]`), a caixa de digitação sai de vista até voltar ao fim, e dá para
+    selecionar e copiar o texto antigo pelo terminal.
+
+  `[inferido]` Não testado: redimensionar o tile na tela normal pode deixar o texto antigo quebrado na
+  largura anterior.
+
 ### 7.3 O que levar para a O5
 
 | Peça | Do Orca | Nosso ajuste |
