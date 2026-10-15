@@ -296,3 +296,67 @@ continua sendo a base; se o agente cooperar, a resposta fica mais rica.
 **Não trazer:** heartbeat obrigatório, `worker_done` "exatamente uma vez"
 como requisito, a tríade Run/Task/Dispatch, consumer fences e federação.
 É complexidade que só se paga com o modelo cooperativo deles.
+
+## 7. Ler a saída do worker além da tela (2026-10-15)
+
+> Atualização. Pergunta: o Orca resolve o problema que o benchmark mediu
+> ([`comparacao-versoes.md`](comparacao-versoes.md)), a resposta do `ask` cortada na tela? Leitura do
+> código no commit `02b4ea28` (2026-10-15) e testes nossos com o Claude Code 2.1.300.
+
+### 7.1 Como o Orca faz
+
+`[citado]` O comando é `orca orchestration worker-read --dispatch <id> [--source auto|transcript|terminal]
+[--cursor <c>] [--limit <n>]` (`src/cli/specs/orchestration-worker-specs.ts:62`). Ele tem duas fontes, nesta
+ordem:
+
+1. **Transcript do provedor** (Claude, Codex, Grok, OMP). O Orca instala hooks na configuração do
+   agente, e o hook informa `session_id` e `transcript_path`. Com isso o Orca lê o `.jsonl` a partir de
+   um offset em bytes (`worker-transcript-local-read.ts`). Sem hook, ou com um provedor sem
+   leitor (Gemini, OpenCode…), cai para a fonte 2 com `fallbackReason` tipado.
+2. **Terminal**: um anel de até 2000 linhas montado do fluxo do PTY, sem ANSI e com os redesenhos
+   colapsados. Spinner e linha reescrita não se acumulam (`terminal-tail-buffer.ts`). Em tela
+   alternativa, devolve só a tela renderizada por `@xterm/headless`.
+
+**O cursor** é opaco e preso à fonte: `owr1_` + JSON com dispatch, fonte, hash de identidade, posição e
+os 64 bytes antes do offset como checkpoint (`worker-output-cursor.ts`). Arquivo reescrito, troca de
+processo ou outro dispatch geram `source_changed`.
+
+**Limites que pesam para nós:**
+- `[citado]` **Não ancora "desde o dispatch".** A primeira leitura sem cursor devolve as últimas 40
+  mensagens (ou 120 linhas), e o cursor aponta para o fim. A data do dispatch só serve para escolher a
+  sessão certa do hook (`worker-provider-session.ts`).
+- `[citado]` **Cada bloco de texto é cortado em 1.200 caracteres** (`worker-transcript-payload.ts`), sem
+  paginação dentro do bloco. Um relatório final longo chega cortado no transcript também.
+- `[citado]` Por isso o resultado normal no Orca **não** vem do `worker-read`. Vem do `worker_done`,
+  que o worker é obrigado a mandar (`preamble.ts:97`: corpo de 3 frases, `--outcome`,
+  `--files-modified`, `--report-path`). O `worker-read` é ferramenta de inspeção e recuperação.
+  O `report-path` é só um texto: o Orca nunca lê o arquivo.
+
+### 7.2 O que medimos aqui
+
+- `[medido]` **O Claude Code 2.1.300 roda em tela alternativa.** Testamos `claude` em tmux 80×13 e
+  pedimos 60 linhas. O resultado: `#{alternate_on}=1` e `#{history_size}=0`, ou seja, só as 13 linhas
+  visíveis existem. Ler o scrollback, como a O5 dizia, **não funcionaria** com o Claude.
+- `[medido]` Com `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1` (variável encontrada no binário), o mesmo
+  teste deu `alternate_on=0`, `history_size=64` e as 60 linhas inteiras no histórico do tmux.
+- `[inferido]` O nosso vt100 lê a saída do **cliente** tmux, que também usa tela alternativa. O histórico
+  tem que vir do servidor tmux (`capture-pane -S <linha>`), não do scrollback do vt100.
+- `[observado]` O JSON que o Claude manda à statusline (D17) traz `transcript_path` e `session_id`
+  (`target/turn-eval-statusline/work/*.statusline.json`). A statusline que já instalamos pode informar
+  o transcript de cada terminal sem hook novo.
+
+### 7.3 O que levar para a O5
+
+| Peça | Do Orca | Nosso ajuste |
+|---|---|---|
+| Fonte preferida | Transcript via hook | Transcript via **statusline** (já instalada, opcional, D06). Se não houver, procurar por pasta (`~/.claude/projects/<cwd>`) e horário |
+| Âncora | Fim do arquivo (tail) | **Offset no momento da entrega**: devolve o turno inteiro, não um tail |
+| Corte | 1.200 caracteres por bloco | Sem corte na última mensagem do assistente; limite total com aviso |
+| Cursor | Opaco, fonte + identidade + checkpoint | Copiar a ideia (o hash de 64 bytes detecta arquivo reescrito) |
+| Fallback 1 | Anel de linhas do PTY | Histórico do servidor tmux desde a entrega (com `DISABLE_ALTERNATE_SCREEN` opcional para o Claude) |
+| Fallback 2 | Tela do xterm headless | A tela de hoje (`screen.text()`), marcada como parcial |
+| Relatório do worker | `worker_done` obrigatório | Continua opcional (`narrater ask "Líder" "…"` / reply), D01 |
+
+Resumo: o Orca tem as peças (transcript com cursor, fallback rotulado), mas não resolve o nosso caso
+direito. Ele não ancora na entrega e corta o texto. Por isso empurra o resultado para uma mensagem
+obrigatória do worker, o que a D01 não permite.

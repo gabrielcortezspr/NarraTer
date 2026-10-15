@@ -34,8 +34,13 @@ Generaliza o ask-back atual.
 **O4 · `ask --resume <id>`** para reanexar a um ask depois de um timeout do shell do líder, em vez
 de reenviar.
 
-**O5 · Resultado = saída desde a entrega.** Guardar a posição no scrollback do vt100 no momento
-da entrega e devolver tudo que veio depois, com limite e cursor, em vez de só a tela visível.
+**O5 · Resultado = saída desde a entrega.** Devolver tudo que o alvo produziu desde a entrega, com
+limite e cursor, em vez de só a tela visível. Desenho revisto em 2026-10-15 (`pesquisa/orca.md` §7):
+o Claude Code roda em tela alternativa, sem scrollback (medido). As fontes, em ordem:
+1. transcript do provedor a partir do offset da entrega, com o caminho vindo da statusline (D17)
+   ou da busca por pasta e horário;
+2. histórico do servidor tmux desde a linha da entrega;
+3. a tela, marcada como parcial.
 **Próxima da fila.** O benchmark de 2026-10-15 (`pesquisa/comparacao-versoes.md`) mediu o custo de
 não ter isto. A resposta lida da tela chegou cortada em todas as rodadas de C e D e em duas de B, com
 1 a 5 pedidos repetidos por rodada. A versão A, que recebe o relatório inteiro por mensagem, não teve
@@ -118,6 +123,10 @@ modelo `usedPercent`/`windowMinutes`/`resetsAt`; o front mostra uma barra fina p
 7 dias) no tile do agente e um resumo na moldura, com cinza < 60%, amarelo < 80%, vermelho acima.
 Feito para o Claude (D17). Pendente: Codex (`codex app-server`, `account/rateLimits/read`) e
 Gemini (`retrieveUserQuota`).
+
+**E · turn_eval vaza marcadores de sessão.** O `turn_eval` remove só 3 variáveis do ambiente do
+filho. O Claude medido herdou o id de sessão da sessão que o disparou (o `session_id` da statusline
+era o da sessão pai). Usar a mesma lista de `pty.rs` (`is_inherited_session_var`) e medir de novo.
 
 **V5 · Cordas, próximos passos.** Medir a física com dezenas de nós; evitar que uma corda fique
 presa entre dois nós próximos (escolher o lado do contorno pelo caminho mais curto); cordas
