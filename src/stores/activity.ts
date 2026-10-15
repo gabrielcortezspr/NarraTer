@@ -60,7 +60,8 @@ const KIND_OF: Record<ActivityEvent["kind"], ActivityKind> = {
 };
 
 /** A state that another state of the same terminal replaced within this long
- * is a flip: agents booting or redrawing. The file keeps it; the panel folds it. */
+ * is a flip: agents booting or redrawing. The file keeps it; the panel folds it
+ * (and the repeats it leaves behind: ready → [working] → ready). */
 export const FLIP_MS = 2000;
 
 /** The events the panel shows with the current filters, newest first, and how
@@ -68,22 +69,33 @@ export const FLIP_MS = 2000;
 export function visibleEvents(
   s: Pick<ActivityStore, "events" | "terminal" | "ask" | "kind" | "showFlips">
 ): { shown: ActivityEvent[]; flips: number } {
-  const shown: ActivityEvent[] = [];
-  let flips = 0;
-  // Newest first: remember, per terminal, when its next (newer) state came
+  // Which state events are flips: replaced by a newer state of the same
+  // terminal within FLIP_MS, or (once those are folded) repeating the last
+  // state still shown for that terminal
+  const folded = new Set<number>();
   const nextState = new Map<string, number>();
   for (let i = s.events.length - 1; i >= 0; i--) {
     const e = s.events[i];
-    let flip = false;
-    if (e.kind === "state") {
-      const next = nextState.get(e.terminal);
-      flip = next !== undefined && next - e.ts < FLIP_MS;
-      nextState.set(e.terminal, e.ts);
-    }
+    if (e.kind !== "state") continue;
+    const next = nextState.get(e.terminal);
+    if (next !== undefined && next - e.ts < FLIP_MS) folded.add(i);
+    nextState.set(e.terminal, e.ts);
+  }
+  const lastShown = new Map<string, string | undefined>();
+  s.events.forEach((e, i) => {
+    if (e.kind !== "state" || folded.has(i)) return;
+    if (lastShown.get(e.terminal) === e.status) folded.add(i);
+    else lastShown.set(e.terminal, e.status);
+  });
+
+  const shown: ActivityEvent[] = [];
+  let flips = 0;
+  for (let i = s.events.length - 1; i >= 0; i--) {
+    const e = s.events[i];
     if (s.ask && e.ask !== s.ask) continue;
     if (s.terminal && e.terminal !== s.terminal && e.peer !== s.terminal) continue;
     if (s.kind !== "all" && KIND_OF[e.kind] !== s.kind) continue;
-    if (flip && !s.showFlips) {
+    if (folded.has(i) && !s.showFlips) {
       flips++;
       continue;
     }
