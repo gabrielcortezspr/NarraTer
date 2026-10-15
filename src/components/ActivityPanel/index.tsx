@@ -21,7 +21,8 @@ const KINDS: { id: ActivityKind; label: string }[] = [
   { id: "message", label: "Messages" },
 ];
 
-const STATE_WORD: Record<string, string> = { working: "working", idle: "ready", attention: "needs you" };
+// The backend's turn states (TurnState::as_str) in the panel's words
+const STATE_WORD: Record<string, string> = { running: "working", idle: "ready", attention: "needs you" };
 
 const ANSWER_COLOR: Record<string, string> = {
   done: "var(--ok)",
@@ -35,7 +36,7 @@ const ANSWER_COLOR: Record<string, string> = {
 function colorOf(e: ActivityEvent): string {
   switch (e.kind) {
     case "state":
-      return e.status === "working" ? "var(--accent)" : e.status === "attention" ? "var(--warn)" : "var(--ok)";
+      return e.status === "running" ? "var(--accent)" : e.status === "attention" ? "var(--warn)" : "var(--ok)";
     case "answer":
       return ANSWER_COLOR[e.status ?? ""] ?? "var(--text-3)";
     case "ask":
@@ -125,7 +126,7 @@ const Row = memo(function Row({ e, onAsk, onAgent }: { e: ActivityEvent; onAsk: 
           {hasText && (
             <button
               onClick={() => setOpen((v) => !v)}
-              className={`block w-full text-left text-[10.5px] text-ink-2 whitespace-pre-wrap break-words font-mono ${open ? "" : "line-clamp-2"}`}
+              className={`w-full text-left text-[10.5px] text-ink-2 whitespace-pre-wrap break-words font-mono ${open ? "block" : "line-clamp-2"}`}
               title={open ? "Fold" : "Unfold"}
             >
               {e.text}
