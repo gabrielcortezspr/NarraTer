@@ -1,0 +1,7 @@
+{
+  "delivered_s": 1.8038659510000001,
+  "expected": "idle",
+  "is_shell": true,
+  "oracle_s": 5.4766647791250005,
+  "scenario": "shell-ticking"
+}

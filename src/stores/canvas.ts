@@ -334,9 +334,10 @@ function hydrate(data: SceneData): SceneSlice {
     sourceHandle: e.source_handle,
     targetHandle: e.target_handle,
     type: e.edge_type ?? "default",
-    animated: e.edge_type === "agent-pipe",
+    // No React Flow "animated" dashes: the pipe edge animates only when something happens
+    animated: false,
     style: e.edge_type !== "agent-pipe" && e.edge_type !== "agent-note"
-      ? { stroke: "#4a4a4a", strokeWidth: 1.5 }
+      ? { stroke: "rgb(var(--text-rgb) / 0.2)", strokeWidth: 1.5 }
       : undefined,
   }));
   return { nodes, edges, floors: data.floors ?? [], groundStatus: data.ground_status ?? null, drawings: data.drawings ?? [] };

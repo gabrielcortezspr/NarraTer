@@ -5,6 +5,9 @@ import { Terminal, Bot, Code2, Wrench, Sparkles, Braces, type LucideIcon } from 
 // launch the program and how to show it.
 export type AgentType = "shell" | "claude" | "codex" | "gemini" | "opencode" | "custom";
 
+// Identity colours (docs/design.md, "Identidade dos agentes"): shown only on
+// the agent icon and the tile's top thread, never as state. Hues stay clear
+// of the state colours where the vendor's brand allows.
 export interface AgentPreset {
   label: string;
   description: string;
@@ -20,13 +23,13 @@ export const AGENT_PRESETS: Record<AgentType, AgentPreset> = {
   shell: {
     label: "Shell",
     description: "bash / zsh / fish — default terminal",
-    color: "#6b7280",
+    color: "#8e8e93",
     Icon: Terminal,
   },
   claude: {
     label: "Claude Code",
     description: "Anthropic's coding agent",
-    color: "#8b5cf6",
+    color: "#d97757",
     Icon: Bot,
     command: "claude",
     skipPermissionsArgs: ["--dangerously-skip-permissions"],
@@ -34,7 +37,7 @@ export const AGENT_PRESETS: Record<AgentType, AgentPreset> = {
   codex: {
     label: "Codex",
     description: "OpenAI's coding agent",
-    color: "#3b82f6",
+    color: "#d1d1d6",
     Icon: Code2,
     command: "codex",
     skipPermissionsArgs: ["--dangerously-bypass-approvals-and-sandbox"],
@@ -42,7 +45,7 @@ export const AGENT_PRESETS: Record<AgentType, AgentPreset> = {
   gemini: {
     label: "Gemini CLI",
     description: "Google's coding agent",
-    color: "#f59e0b",
+    color: "#5b9dff",
     Icon: Sparkles,
     command: "gemini",
     skipPermissionsArgs: ["--yolo"],
@@ -50,14 +53,14 @@ export const AGENT_PRESETS: Record<AgentType, AgentPreset> = {
   opencode: {
     label: "OpenCode",
     description: "Open-source coding agent",
-    color: "#10b981",
+    color: "#63e6be",
     Icon: Braces,
     command: "opencode",
   },
   custom: {
     label: "Custom",
     description: "Any command (aider, qwen, agy…)",
-    color: "#14b8a6",
+    color: "#ff7eb6",
     Icon: Wrench,
   },
 };

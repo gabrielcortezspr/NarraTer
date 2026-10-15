@@ -29,10 +29,12 @@ Cada entrada tem seis campos:
 | Área | Decisões |
 |---|---|
 | Comunicação entre agentes | D01, D02, D06, D08 |
+| Leitor de estado | D10, D11, D12 |
 | Persistência | D07 |
 | CLI e distribuição | D03 |
 | Escopo do produto | D04, D05 |
 | Processo | D09 |
+| Design | D13, D14, D15, D16 |
 
 ---
 
@@ -302,3 +304,222 @@ diante.
 como tal.
 
 **Revisar se:** o custo do formato fizer decisões deixarem de ser registradas.
+
+## D10 · Shell no tmux: primeiro plano lido do /proc, e job rodando conta como atividade
+
+`2026-10-14` · leitor de estado · `foreground_busy`/`tmux_pane_pid` em `src-tauri/src/screen.rs`, `compute_turn` em `src-tauri/src/pty.rs` · estudo em [`pesquisa/leitor-de-estado.md`](pesquisa/leitor-de-estado.md) §5
+
+**Contexto.** Os terminais persistentes rodam dentro do tmux. Ali o primeiro plano do PTY é o
+cliente tmux, e o app só olhava a tela: um comando silencioso (`sleep`) parecia fim de turno e o
+ask voltava antes da hora.
+
+**Decisão.** Para shell local no tmux, pegar o pid do shell do painel (`tmux display-message
+#{pane_pid}`, uma vez, com nova tentativa a cada 2 s se falhar) e ler `/proc/<pid>/stat`: há job
+em primeiro plano quando o `tpgid` do terminal difere do grupo do shell. E, para todo shell,
+enquanto há job em primeiro plano a tela é marcada como ativa: o turno só assenta 0,6 s depois de o
+job acabar e o prompt ser redesenhado.
+
+**Alternativas consideradas.**
+- *`#{pane_current_command}` do tmux a cada tick*: um processo novo a cada 200 ms por terminal, e
+  o nome do comando não diz se é o shell esperando ou um job (ex.: `bash` rodando um script).
+- *Só ler o primeiro plano, sem marcar atividade*: medido, deixou 4/15 retornos prematuros de
+  2–3 ms, no instante entre o fim do job e o redesenho do prompt.
+- *Desligar o tmux para shells*: perderia a persistência dos terminais.
+
+**Evidência.**
+- `[medido]` `turn_eval`, tmux com comando silencioso e com rajada + silêncio: antes 6/6
+  prematuros (−2,2 s e −3,2 s); depois 0/20, latência 603–802 ms (Fisher exato, p ≈ 4,3×10⁻⁶).
+- `[medido]` só lendo o primeiro plano: 4/15 prematuros de 2–3 ms em `tmux-burst-then-silent`.
+- `[observado]` app real sob Xvfb: `narrater ask` para um shell no tmux com `sleep 6; echo …`
+  passou a durar ~7,2 s e devolver a saída (antes voltava em ~1 s, sem ela), 3/3.
+- `[citado]` `proc(5)`: o campo 8 de `/proc/<pid>/stat` é o `tpgid`, o grupo em primeiro plano do
+  terminal do processo.
+
+**Consequência.** Shells remotos (SSH/Docker) continuam só com a tela, porque o `/proc` é local.
+Um ask para shell passa a demorar, no máximo, ~0,8 s além do fim real.
+
+**Revisar se:** surgir shell local em que o `tpgid` não reflita o job (ex.: um multiplexador
+dentro do tmux), ou se o atraso de 0,6 s após o job pesar em fluxos com muitos comandos curtos.
+
+## D11 · O título da janela entra no leitor; menu + título em repouso bastam para "attention"
+
+`2026-10-14` · leitor de estado · `title_signal` e `classify` em `src-tauri/src/screen.rs` · estudo em [`pesquisa/leitor-de-estado.md`](pesquisa/leitor-de-estado.md) §1.2 e §5
+
+**Contexto.** O leitor só olhava o conteúdo da tela e exigia 1,2 s de tela parada. Isso atrasava
+toda resposta do Claude em ~1,3 s e, quando o Claude pisca um marcador durante o diálogo de
+permissão, impedia de vez a detecção.
+
+**Decisão.** Guardar o título (OSC 0/2) e usá-lo com o catálogo de glifos do Orca: spinner
+(braile, `◐◑◒◓`, `✦`, `⏲`) = trabalhando; `✋` = permissão; `✳`/`◇` = em repouso. Com título em
+repouso e rodapé sem marca de trabalho, o turno assenta em 0,4 s em vez de 1,2 s; com título em
+repouso e menu de aprovação na tela, é `attention` na hora, sem exigir tela parada. Mudança de
+título conta como atividade. Sem glifo conhecido, tudo segue como antes.
+
+**Alternativas consideradas.**
+- *Ignorar mudanças pequenas da tela (uma célula piscando)*: resolveria a piscada, mas spinners
+  de uma célula também significam trabalho; um agente sem outro sinal passaria a parecer ocioso.
+- *Estado "pronto" pegajoso como o CAO*: estabiliza a exibição, mas não resolve a detecção (a tela
+  nunca chegava a "pronto").
+- *Usar os hooks do Claude no app*: exato, mas contraria a D01.
+- *Só o título, sem o rodapé*: o título fica `✳` também no diálogo de permissão; sozinho não
+  distingue repouso de espera por aprovação.
+
+**Evidência.**
+- `[medido]` `turn_eval` com Claude Code 2.1.299 (`haiku`), turnos normais: antes n=9, 1.294–2.112
+  ms (mediana 1.355); depois n=15, 466–670 ms (mediana 551), 0 prematuros (Mann–Whitney exato,
+  p ≈ 1,5×10⁻⁶).
+- `[medido]` permissão: antes 0/3 detectados em 180 s; depois 3/3, 103–222 ms após o
+  `PermissionRequest`.
+- `[observado]` títulos `✳ …` / `◐ …` / `◑ …` nas transcrições; piscada de 0,6 s em 3 execuções
+  e ausente em 11 (causa não identificada).
+- `[observado]` `tests/turn_transcripts.rs`: o leitor antigo falha em todas as 6 transcrições
+  (1,3 s de atraso; 24,8 s com a piscada) e o novo passa em todas.
+- `[citado]` glifos: Orca `src/shared/agent-title-glyphs.ts` (1.4.214). Os de Gemini, braile e
+  `✋` **não foram verificados** aqui.
+
+**Consequência.** O leitor passa a depender, para o Claude, de um detalhe da TUI que pode mudar
+entre versões; as transcrições de teste denunciam isso. A tela continua sendo a base para
+qualquer agente sem título conhecido.
+
+**Revisar se:** uma versão nova do Claude Code mudar os glifos (o teste de transcrições falha),
+ou se aparecer `attention` falso com título em repouso e uma lista numerada "1. Yes…" numa
+resposta comum.
+
+## D12 · O leitor de estado é medido contra um oráculo, e transcrições reais viram teste
+
+`2026-10-14` · leitor de estado / processo · `src-tauri/examples/turn_eval.rs`, `turn_replay.rs`, `tests/turn_transcripts.rs`, `tests/transcripts/`
+
+**Contexto.** As heurísticas eram testadas contra telas escritas à mão e pelo `turn_probe`, sem
+número de acerto. Não havia como dizer se uma mudança melhorava ou piorava.
+
+**Decisão.** Um avaliador que roda programas reais e compara o leitor com um oráculo independente
+(timestamp do próprio comando; hooks `Stop` e `PermissionRequest` do Claude, só no avaliador).
+Cada execução grava a saída bruta; algumas gravações viram fixtures com o momento do oráculo, e um
+teste de integração as reproduz exigindo: não prematuro, latência ≤ 1 s e estado esperado.
+
+**Alternativas consideradas.**
+- *Continuar só com testes de tela escritos à mão*: não pegaram a piscada nem o atraso de 1,3 s.
+- *Rotular o fim do turno à mão nas gravações*: mais lento e subjetivo que um hook que dispara no
+  evento real.
+- *Hook `Notification` como oráculo da permissão*: medido, chega ~5,9 s depois do diálogo.
+
+**Evidência.**
+- `[observado]` o avaliador encontrou três problemas que os testes existentes não viam: shell no
+  tmux, piscada no diálogo de permissão e o oráculo errado da permissão.
+- `[observado]` o teste de transcrições distingue os dois leitores (antigo falha, novo passa).
+
+**Consequência.** Toda regra nova que lê a tela de uma CLI deve vir com uma transcrição em
+`tests/transcripts/`. Medir o Claude gasta chamadas de modelo (pequenas, com `haiku`).
+
+**Revisar se:** o oráculo de alguma CLI não existir (sem hooks); aí a referência terá de ser
+rotulada à mão, e o método precisa dizer isso.
+
+## D13 · Perfil de design "Palco": moldura neutra, cor só para estado
+
+`2026-10-14` · design · perfil em [`design.md`](design.md) · estudo em [`pesquisa/visual.md`](pesquisa/visual.md)
+
+**Contexto.** O front era percebido como duro. O violeta saturado aparecia em logo, seleção,
+arestas, rótulos, atalhos e minimapa; os níveis de fundo quase não se distinguiam; o texto
+apagado não passava no contraste mínimo. Orca e Maestri, que o usuário usou como referência,
+seguem a HIG da Apple.
+
+**Decisão.** Um perfil com metáfora própria ("o canvas é um palco, os terminais são personagens,
+as arestas são falas") e seis regras: a moldura recua; cor é estado; profundidade por luz (base →
+elevado → flutuante); vidro só na camada de controle; movimento só quando algo acontece;
+legibilidade primeiro. Tokens únicos em `src/index.css`, nunca hex nos componentes.
+
+**Alternativas consideradas.**
+- *Copiar o Orca*: monocromático puro funciona para uma IDE de abas, mas o NarraTer é um grafo; sem
+  nenhuma cor o usuário perde a leitura de quem está trabalhando à distância.
+- *Manter o visual e só ajustar valores*: a cor como decoração era o problema de fundo, não o tom.
+- *Imitar o Liquid Glass em tudo*: a própria HIG proíbe na camada de conteúdo ("Don’t use Liquid
+  Glass in the content layer").
+
+**Evidência.**
+- `[citado]` HIG (dark-mode, materials, color, typography) e `docs/STYLEGUIDE.md` do Orca.
+- `[medido]` contraste WCAG (script em Python, sRGB): texto apagado antigo `#6b7280` 3,52:1 e
+  `#555` 2,28:1 sobre o tile; tokens novos `--text-3` 5,22:1 e `--text-2` ≥ 6:1.
+- `[medido]` cores fixas nos componentes: 440 classes com hex trocadas por tokens; restam só
+  paletas que são dados (cores que o usuário escolhe).
+- `[observado]` capturas antes/depois em `docs/pesquisa/img/`.
+- `[inferido]` "mais bonito e intuitivo" não foi medido com usuários.
+
+**Consequência.** Componentes novos precisam seguir `docs/design.md`. Não há modo claro ainda (a
+HIG recomenda os dois).
+
+**Revisar se:** usuários não distinguirem estados à distância, ou se o modo claro for pedido
+(os tokens já estão em um lugar só para isso).
+
+## D14 · O acento é um violeta contido (#8f7cff), não monocromático
+
+`2026-10-14` · design · `--accent` em `src/index.css`
+
+**Contexto.** O violeta era a identidade do NarraTer, mas usado em tudo.
+
+**Decisão.** Manter um violeta como "o narrador", mais claro e menos saturado (`#8f7cff`, e
+`#b0a4ff` quando é texto), restrito a seleção, foco, agente trabalhando e fala atravessando.
+
+**Alternativas consideradas.**
+- *Monocromático (Orca)*: perde a identidade e o sinal de "trabalhando" no grafo.
+- *Manter `#8b5cf6`*: como texto sobre o popover dá 4,3:1, abaixo do mínimo; o novo dá 6,4:1
+  (`--accent-text`).
+- *Azul do sistema da Apple*: confundiria com links e com a identidade do Gemini.
+
+**Evidência.**
+- `[medido]` `#8f7cff` sobre o palco 6,08:1; `#b0a4ff` 8,99:1 (palco) e 6,37:1 (popover).
+- `[observado]` captura ativa: os agentes trabalhando ficam visíveis à distância.
+
+**Consequência.** O violeta deixa de marcar papéis, atalhos e arestas em repouso.
+
+**Revisar se:** o violeta confundir com a cor de identidade de algum agente novo.
+
+## D15 · A fonte da interface continua Inter
+
+`2026-10-14` · design · `tailwind.config.js`, `src/index.css`
+
+**Contexto.** A HIG usa SF Pro e o Orca usa Geist.
+
+**Decisão.** Manter Inter Variable (já embarcada), com corpo de 13 px e tracking levemente
+negativo, e JetBrains Mono no terminal.
+
+**Alternativas consideradas.**
+- *SF Pro*: `[inferido]` a licença da Apple restringe o uso às plataformas Apple; não foi
+  verificada aqui, e por isso não entra.
+- *Geist*: dependência nova sem ganho claro sobre a Inter.
+- *Fonte do sistema*: no Linux varia entre distribuições (Cantarell, Ubuntu, DejaVu), quebrando a
+  consistência.
+
+**Evidência.** `[citado]` HIG typography (macOS: corpo 13 pt, mínimo 10 pt); `[inferido]` a Inter
+tem métricas próximas da SF Pro.
+
+**Consequência.** Nenhuma dependência nova.
+
+**Revisar se:** surgir uma fonte com licença livre mais próxima da SF Pro, ou se a Inter não
+renderizar bem no WebKitGTK em alguma distribuição.
+
+## D16 · No grafo, arestas em repouso não têm rótulo; o movimento conta o que acontece
+
+`2026-10-14` · design · `src/components/AgentPipeEdge`, `AgentNoteEdge`, `src/index.css`
+
+**Contexto.** Cada aresta tinha um rótulo fixo ("agent pipe", "agent→note"), brilho e tracejado
+violeta sempre ligados.
+
+**Decisão.** Aresta agente ↔ agente: curva fina neutra em repouso; acende com fluxo lento quando
+um lado trabalha; um cometa de luz atravessa quando uma mensagem passa; chip amarelo com o número
+da fila; no hover, "A ↔ B". Aresta agente → nota: tracejado discreto, sem animação. Alças de
+conexão só aparecem no hover do nó.
+
+**Alternativas consideradas.**
+- *Rótulo sempre visível (antes)*: com muitas arestas vira ruído e esconde o que mudou.
+- *Cor de identidade nas arestas*: misturaria identidade com estado (D13).
+- *Seta indicando direção*: as conexões são não direcionadas (aresta é permissão para os dois
+  lados).
+
+**Evidência.**
+- `[observado]` captura ativa: fila e trabalho legíveis sem rótulo fixo.
+- `[inferido]` a descoberta da conversa por hover/clique não foi testada com usuários.
+
+**Consequência.** O histórico da aresta continua no clique; o cometa depende do ledger em memória
+(o mesmo da etapa O).
+
+**Revisar se:** usuários não perceberem que a aresta é clicável, ou não encontrarem as alças.

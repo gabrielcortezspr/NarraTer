@@ -153,30 +153,30 @@ export default function WorkspaceNav() {
   const dot = (name: string) => (
     <span
       className="w-1.5 h-1.5 rounded-full shrink-0"
-      style={{ background: name === current ? "#8b5cf6" : runningSet.has(name) ? "#4ade80" : "#333" }}
+      style={{ background: name === current ? "var(--accent)" : runningSet.has(name) ? "var(--ok)" : "var(--line-strong)" }}
     />
   );
 
   return (
     <>
       {armed && (
-        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-50 px-3 py-1.5 rounded-md bg-[#1a1a1a] border border-[#8b5cf6] text-[11px] text-[#c4b5fd] shadow-xl pointer-events-none">
+        <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-50 px-3 py-1.5 rounded-md bg-raised border border-accent text-[11px] text-accent-text shadow-xl pointer-events-none">
           Ctrl+Space — n/p workspace · 1…9 · l last · w switcher · o terminal · f floor · ? help
         </div>
       )}
       {overlay?.kind === "recent" && (
         <div className="absolute inset-0 z-50 flex items-center justify-center pointer-events-none">
-          <div className="min-w-[260px] max-w-[420px] rounded-xl bg-[#141414]/95 border border-[#2a2a2a] shadow-2xl p-2">
+          <div className="min-w-[260px] max-w-[420px] rounded-xl bg-surface/95 border border-line shadow-2xl p-2">
             {overlay.items.map((name, i) => (
               <div
                 key={name}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs ${
-                  i === overlay.index ? "bg-[#8b5cf633] text-white" : "text-[#888]"
+                  i === overlay.index ? "bg-accent/20 text-white" : "text-ink-2"
                 }`}
               >
                 {dot(name)}
                 <span className="truncate">{name}</span>
-                {i === 0 && <span className="ml-auto text-[9px] text-[#555]">current</span>}
+                {i === 0 && <span className="ml-auto text-[9px] text-ink-muted">current</span>}
               </div>
             ))}
           </div>
@@ -197,15 +197,15 @@ export default function WorkspaceNav() {
       )}
       {overlay?.kind === "help" && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40" onMouseDown={() => setOverlay(null)}>
-          <div className="w-[420px] rounded-xl bg-[#141414] border border-[#2a2a2a] shadow-2xl p-4">
-            <div className="text-[11px] uppercase tracking-wider text-[#666] mb-3">Navigation</div>
+          <div className="w-[420px] rounded-xl bg-surface border border-line shadow-2xl p-4">
+            <div className="text-[11px] uppercase tracking-wider text-ink-muted mb-3">Navigation</div>
             {NAV_SHORTCUTS.map(([keys, what]) => (
               <div key={keys} className="flex items-center justify-between gap-4 py-0.5">
-                <span className="text-[11px] font-mono text-[#8b5cf6] whitespace-pre">{keys}</span>
-                <span className="text-[11px] text-[#999] text-right">{what}</span>
+                <span className="text-[11px] font-mono text-accent-text whitespace-pre">{keys}</span>
+                <span className="text-[11px] text-ink-2 text-right">{what}</span>
               </div>
             ))}
-            <div className="mt-3 text-[10px] text-[#555]">
+            <div className="mt-3 text-[10px] text-ink-muted">
               Workspaces you leave keep running in the background (green dot); right-click one in the sidebar to stop it.
             </div>
           </div>
@@ -235,7 +235,7 @@ function Picker({
   const sel = Math.min(index, Math.max(items.length - 1, 0));
   return (
     <div className="absolute inset-0 z-50 flex items-start justify-center pt-[18vh] bg-black/40" onMouseDown={onClose}>
-      <div className="w-[360px] rounded-xl bg-[#141414] border border-[#2a2a2a] shadow-2xl overflow-hidden" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="w-[360px] rounded-xl bg-surface border border-line shadow-2xl overflow-hidden" onMouseDown={(e) => e.stopPropagation()}>
         <input
           ref={inputRef}
           value={query}
@@ -247,7 +247,7 @@ function Picker({
             else if (e.key === "Escape") onClose();
           }}
           placeholder="Switch to workspace…"
-          className="w-full bg-transparent px-3 py-2.5 text-sm text-white border-b border-[#2a2a2a] focus:outline-none"
+          className="w-full bg-transparent px-3 py-2.5 text-sm text-white border-b border-line focus:outline-none"
         />
         <div className="max-h-[50vh] overflow-y-auto p-1">
           {items.map((name, i) => (
@@ -255,15 +255,15 @@ function Picker({
               key={name}
               onClick={() => onPick(name)}
               className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-xs text-left ${
-                i === sel ? "bg-[#8b5cf633] text-white" : "text-[#888] hover:bg-[#1f1f1f]"
+                i === sel ? "bg-accent/20 text-white" : "text-ink-2 hover:bg-hover"
               }`}
             >
               {dot(name)}
               <span className="truncate">{name}</span>
-              {i < 9 && !q && <span className="ml-auto text-[9px] font-mono text-[#555]">{i + 1}</span>}
+              {i < 9 && !q && <span className="ml-auto text-[9px] font-mono text-ink-muted">{i + 1}</span>}
             </button>
           ))}
-          {items.length === 0 && <div className="px-3 py-2 text-xs text-[#555]">No workspace matches</div>}
+          {items.length === 0 && <div className="px-3 py-2 text-xs text-ink-muted">No workspace matches</div>}
         </div>
       </div>
     </div>

@@ -1,21 +1,16 @@
 import type { ReactNode } from "react";
 
 // Icon-only button for headers/panels: stops mousedown propagation (so it
-// doesn't start a node drag), consistent hover and aria-label from the title.
+// doesn't start a node drag), quiet at rest, hover background + full ink,
+// aria-label from the title.
 interface IconButtonProps {
   title: string;
   onClick: (e: React.MouseEvent) => void;
   children: ReactNode;
-  /** Hover color: accent (default), danger (close/delete) or info. */
+  /** danger: close/delete turn red on hover. "info" is kept for older callers. */
   intent?: "accent" | "danger" | "info";
   className?: string;
 }
-
-const HOVER: Record<NonNullable<IconButtonProps["intent"]>, string> = {
-  accent: "hover:text-accent",
-  danger: "hover:text-status-exited",
-  info: "hover:text-[#60a5fa]",
-};
 
 export default function IconButton({ title, onClick, children, intent = "accent", className = "" }: IconButtonProps) {
   return (
@@ -28,7 +23,9 @@ export default function IconButton({ title, onClick, children, intent = "accent"
         e.stopPropagation();
         onClick(e);
       }}
-      className={`text-ink-faint ${HOVER[intent]} transition-colors p-0.5 rounded hover:bg-canvas-border nodrag ${className}`}
+      className={`text-ink-muted ${
+        intent === "danger" ? "hover:text-danger-text" : "hover:text-ink"
+      } hover:bg-hover active:bg-press transition-colors duration-100 p-1 rounded-md nodrag ${className}`}
     >
       {children}
     </button>

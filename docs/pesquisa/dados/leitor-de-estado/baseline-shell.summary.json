@@ -1,0 +1,98 @@
+[
+  {
+    "correct": 3,
+    "latencies_ms": [
+      602.564453125,
+      801.075439453125,
+      801.133544921875
+    ],
+    "outcomes": [
+      "idle",
+      "idle",
+      "idle"
+    ],
+    "premature": 0,
+    "runs": 3,
+    "scenario": "shell-silent"
+  },
+  {
+    "correct": 3,
+    "latencies_ms": [
+      770.911865234375,
+      770.93310546875,
+      772.111572265625
+    ],
+    "outcomes": [
+      "idle",
+      "idle",
+      "idle"
+    ],
+    "premature": 0,
+    "runs": 3,
+    "scenario": "shell-ticking"
+  },
+  {
+    "correct": 3,
+    "latencies_ms": [
+      798.030029296875,
+      798.27392578125,
+      798.581787109375
+    ],
+    "outcomes": [
+      "idle",
+      "idle",
+      "idle"
+    ],
+    "premature": 0,
+    "runs": 3,
+    "scenario": "shell-burst-then-silent"
+  },
+  {
+    "correct": 0,
+    "latencies_ms": [
+      -3205.029296875,
+      -3204.191162109375,
+      -3204.148681640625
+    ],
+    "outcomes": [
+      "idle",
+      "idle",
+      "idle"
+    ],
+    "premature": 3,
+    "runs": 3,
+    "scenario": "tmux-silent"
+  },
+  {
+    "correct": 3,
+    "latencies_ms": [
+      762.706298828125,
+      765.482666015625,
+      768.79150390625
+    ],
+    "outcomes": [
+      "idle",
+      "idle",
+      "idle"
+    ],
+    "premature": 0,
+    "runs": 3,
+    "scenario": "tmux-ticking"
+  },
+  {
+    "correct": 0,
+    "latencies_ms": [
+      -2209.53369140625,
+      -2208.30908203125,
+      -2208.1416015625
+    ],
+    "outcomes": [
+      "idle",
+      "idle",
+      "idle"
+    ],
+    "premature": 3,
+    "runs": 3,
+    "scenario": "tmux-burst-then-silent"
+  }
+]

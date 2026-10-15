@@ -5,30 +5,33 @@ Máximo de ~30 linhas: se passar disso, algo aqui deveria estar num commit ou nu
 
 ## Última sessão
 
-2026-10-14, Gabriel com Claude Code, branch `ccr-03e0166a-1f50u2`. Estudo do Orca, memória de
-desenvolvimento (CLAUDE.md, skills `encerrar` e `pesquisa`) e etapas O1 + O2 da orquestração.
+2026-10-14, Gabriel com Claude Code, branch `ccr-03e0166a-1f50u2`. Estudo visual e perfil de design
+"Palco" (D13–D16), com o primeiro passo do rework visual (etapa V: V1–V3).
 
 ## Onde parou
 
-`narrater ask --no-wait`, `narrater wait` e `narrater asks` funcionando, com asks duráveis em
-`~/.config/narrater/asks.jsonl` (D07, D08). Verificado: `cargo test` (79 + 6), `tsc`, e ponta a
-ponta no app real sob Xvfb (ordem de chegada, espera parcial, `--all`, retomada por id, restart →
-`unknown`). Skills dos agentes já ensinam o fluxo.
+Tokens novos em `src/index.css`/`tailwind.config.js`; 440 classes com hex trocadas por tokens;
+terminal, arestas, palco, toolbar, barra lateral e demais tiles redesenhados. Verificado: `tsc`,
+`cargo test`, app real sob Xvfb (capturas em `docs/pesquisa/img/`). Leitor de estado e asks
+(D07–D12) seguem como estavam.
 
 ## Próximo passo
 
-Etapa O3, mensagens tipadas opcionais: `narrater done` / `question` / `reply`, começando pelo
-ask-back em `run_ask` (`src-tauri/src/ipc.rs`), que hoje encerra o ask do líder com a pergunta.
+V4 (uso dos agentes): ler a porcentagem do Claude (rota a decidir: endpoint OAuth ou statusline,
+`docs/pesquisa/visual.md` §5) e mostrar no tile; depois revisar chat, composer, role manager e
+paleta pelo `docs/design.md`.
 
 ## Decisões pendentes
 
-- Quando chegarem os dois sinais (tela ociosa e `narrater done`), qual vale para encerrar o ask.
+- Rota do uso do Claude: endpoint OAuth (sem configurar nada, pode dar 429) ou statusline (sem
+  custo, mexe na statusline do usuário).
+- O3: quando a tela ociosa e o `narrater done` chegarem juntos, qual vale.
 
 ## Lembrar
 
-- Shell dentro do tmux com comando silencioso parece ocioso (backlog, etapa E). Em teste de ponta a
-  ponta use comandos que imprimem enquanto rodam.
-- Teste ponta a ponta neste container: `apt install libwebkit2gtk-4.1-dev xvfb tmux`, cena em
-  `~/.config/narrater/scenes/default.json`, `xvfb-run -a npx tauri dev`, e a identidade de um
-  terminal lida de `/proc/<pid>/environ` do cliente tmux.
-- O Orca foi só lido, não executado. Conferir a saída `--json` antes da etapa P.
+- No modo dev, o recarregamento a quente do front (Vite) deixa os nomes fora do backend: `ask`
+  responde "no agent named"; reiniciar o app resolve.
+- No boot com tmux, a resposta DA do terminal às vezes aparece no prompt (backlog V).
+- Teste no app real: `xvfb-run -a npx tauri dev` (ou `Xvfb :77` + `DISPLAY=:77`), captura com
+  `import -window root`; identidade de um terminal em `/proc/<pid>/environ` do cliente tmux.
+- Não usar `pkill -f` com padrão que aparece na própria linha de comando.

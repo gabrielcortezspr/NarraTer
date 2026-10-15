@@ -195,13 +195,13 @@ export default function Composer() {
 
   return (
     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 w-[640px] max-w-[92%]" onMouseDown={(e) => e.stopPropagation()}>
-      <div className="relative rounded-xl bg-[#141414]/95 border border-[#2a2a2a] shadow-2xl backdrop-blur">
+      <div className="relative rounded-xl bg-surface/95 border border-line shadow-2xl backdrop-blur">
         <div className="flex items-center justify-between px-3 pt-2 text-[11px]">
-          <span className="text-[#777]">
-            Prompt for <span className="text-[#c4b5fd]">{data.label}</span>
-            {isShell && <span className="text-[#555]"> · shell: sent as a command</span>}
+          <span className="text-ink-muted">
+            Prompt for <span className="text-accent-text">{data.label}</span>
+            {isShell && <span className="text-ink-muted"> · shell: sent as a command</span>}
           </span>
-          <button onClick={close} title="Close (the draft stays)" className="text-[#555] hover:text-white"><X size={12} /></button>
+          <button onClick={close} title="Close (the draft stays)" className="text-ink-muted hover:text-ink"><X size={12} /></button>
         </div>
         <textarea
           ref={areaRef}
@@ -237,24 +237,24 @@ export default function Composer() {
             }
           }}
           placeholder={isShell ? "A command (multi-line ok)…" : "Write a prompt… @ to reference a teammate, note or portal; paste a screenshot"}
-          className="w-full bg-transparent px-3 py-2 text-[13px] text-[#e5e5e5] resize-none focus:outline-none font-mono leading-relaxed"
+          className="w-full bg-transparent px-3 py-2 text-[13px] text-ink resize-none focus:outline-none font-mono leading-relaxed"
         />
         {popup && matches.length > 0 && (
-          <div className="absolute bottom-full left-3 mb-1 w-[300px] rounded-lg bg-[#1a1a1a] border border-[#2a2a2a] shadow-xl p-1">
+          <div className="absolute bottom-full left-3 mb-1 w-[300px] rounded-lg bg-raised border border-line shadow-xl p-1">
             {matches.map((m, i) => (
               <button
                 key={`${m.kind}-${m.name}`}
                 onMouseDown={(e) => { e.preventDefault(); insertMention(m); }}
-                className={`w-full flex items-center gap-2 px-2 py-1 rounded text-xs text-left ${i === popup.index ? "bg-[#8b5cf633] text-white" : "text-[#999]"}`}
+                className={`w-full flex items-center gap-2 px-2 py-1 rounded text-xs text-left ${i === popup.index ? "bg-accent/20 text-white" : "text-ink-2"}`}
               >
                 {icon(m.kind)}
                 <span className="truncate">{m.name}</span>
-                <span className="ml-auto text-[9px] text-[#555]">{m.kind}</span>
+                <span className="ml-auto text-[9px] text-ink-muted">{m.kind}</span>
               </button>
             ))}
           </div>
         )}
-        <div className="flex items-center justify-between px-3 pb-2 text-[10px] text-[#555]">
+        <div className="flex items-center justify-between px-3 pb-2 text-[10px] text-ink-muted">
           <span className="flex items-center gap-3">
             <span className="flex items-center gap-1"><AtSign size={10} /> mention</span>
             <span className="flex items-center gap-1"><ImagePlus size={10} /> paste an image</span>
@@ -263,9 +263,9 @@ export default function Composer() {
           <button
             onClick={() => void send()}
             disabled={busy || !text.trim()}
-            className="flex items-center gap-1 px-2 py-1 rounded-md bg-[#8b5cf6] text-white disabled:opacity-40"
+            className="flex items-center gap-1 px-2 py-1 rounded-md bg-accent text-white disabled:opacity-40"
           >
-            <Send size={11} /> Send <span className="text-[#ddd6fe]">Ctrl+↵</span>
+            <Send size={11} /> Send <span className="text-accent-text">Ctrl+↵</span>
           </button>
         </div>
       </div>

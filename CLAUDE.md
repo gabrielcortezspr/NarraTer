@@ -20,6 +20,8 @@ npm install && npm run tauri dev          # app em desenvolvimento
 cd src-tauri && cargo test                # testes do backend
 npx tsc --noEmit                          # typecheck do frontend
 cd src-tauri && cargo run --example turn_probe -- 'Reply with PONG' claude   # heurística de turno contra um programa real
+cd src-tauri && cargo run --release --example turn_eval -- --reps 5 --claude # leitor de estado medido contra um oráculo
+cd src-tauri && cargo run --example turn_replay -- FILE.cast --at 8          # reproduz uma gravação no emulador
 ```
 
 A CLI que os agentes usam é o binário `narrater-cli` (`src-tauri/src/bin/narrater-cli/`), que o
@@ -49,8 +51,14 @@ duplica trabalho num agente que talvez já esteja fazendo.
 frontend é a fonte da verdade do grafo (nós, arestas, notas); comandos de canvas da CLI vão ao
 frontend por `canvas_request`.
 
-**Regra que lê a tela de um agente se testa contra o programa real** com o `turn_probe`, não
-contra uma tela lembrada.
+**Regra que lê a tela de um agente se testa contra o programa real (D12).** Meça com o
+`turn_eval` (oráculo independente: timestamp do comando, hooks do Claude só no avaliador) e
+acrescente a transcrição em `src-tauri/tests/transcripts/`, que o teste `turn_transcripts`
+reproduz. Nunca escreva a regra contra uma tela lembrada.
+
+**A interface segue `docs/design.md` (D13).** Cores só pelos tokens de `src/index.css` (classes
+`bg-surface`, `text-ink-muted`, `bg-accent/15`…), nunca hex nos componentes; cor é estado, não
+decoração; texto com informação ≥ 4,5:1 de contraste.
 
 **Toda decisão é justificada (D09).** O projeto precisa de margem para explicação científica.
 Decisão com alternativa real vai para `docs/decisoes.md` com as alternativas recusadas e por quê,

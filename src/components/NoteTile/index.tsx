@@ -66,31 +66,32 @@ function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
 
   return (
     <div
-      className="flex flex-col w-full h-full rounded-xl overflow-hidden"
+      className="flex flex-col w-full h-full rounded-xl overflow-hidden transition-shadow duration-150"
       style={{
-        background: "#1e1a0e",
+        // Sticky note: warm paper (the one tinted surface — a metaphor everyone reads)
+        background: "color-mix(in srgb, var(--queue) 6%, var(--surface))",
+        border: "1px solid rgb(var(--queue-rgb) / 0.16)",
         boxShadow: isLive
-          ? "0 0 0 1.5px #fbbf24, 0 8px 32px rgba(251,191,36,0.15)"
+          ? "0 0 0 1.5px rgb(var(--queue-rgb) / 0.8), 0 0 0 5px rgb(var(--queue-rgb) / 0.15), var(--shadow-tile)"
           : selected
-          ? "0 0 0 1px #fbbf24, 0 8px 32px rgba(0,0,0,0.5)"
-          : "0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(251,191,36,0.15)",
-        transition: "box-shadow 0.15s ease",
+          ? "var(--ring-accent), var(--shadow-tile)"
+          : "var(--shadow-tile)",
       }}
     >
       <NodeResizer
         minWidth={180}
         minHeight={120}
         isVisible={selected}
-        lineStyle={{ borderColor: "#fbbf24" }}
-        handleStyle={{ borderColor: "#fbbf24", background: "#1e1a0e" }}
+lineStyle={{ borderColor: "transparent" }}
+        handleStyle={{ width: 8, height: 8, borderRadius: 2, border: "1.5px solid var(--accent)", background: "var(--surface)" }}
       />
 
       {/* Header */}
       <div
         className="flex items-center gap-2 px-3 py-2 shrink-0 cursor-grab select-none"
-        style={{ background: "#231e0e", borderBottom: "1px solid #2e2810" }}
+        style={{ borderBottom: "1px solid rgb(var(--queue-rgb) / 0.12)" }}
       >
-        <StickyNote size={12} className="text-[#fbbf24] shrink-0" />
+        <StickyNote size={12} className="text-queue shrink-0" />
         {editingTitle ? (
           <input
             autoFocus
@@ -102,12 +103,12 @@ function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
               if (e.key === "Escape") { setTitleValue(data.label ?? "Note"); setEditingTitle(false); }
             }}
             onMouseDown={(e) => e.stopPropagation()}
-            className="flex-1 min-w-0 bg-transparent text-[#fbbf24] text-xs outline-none border-b border-[#fbbf2450] nodrag"
+            className="flex-1 min-w-0 bg-transparent text-queue text-xs outline-none border-b border-queue/30 nodrag"
             aria-label="Note title"
           />
         ) : (
           <span
-            className="text-[#fbbf24] text-xs flex-1 truncate"
+            className="text-queue text-xs flex-1 truncate"
             title="Double-click to rename"
             onDoubleClick={(e) => { e.stopPropagation(); setEditingTitle(true); }}
           >
@@ -117,7 +118,7 @@ function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
 
         {/* Live indicator — pulsing when agent is writing */}
         {isLive && (
-          <span className="flex items-center gap-1 text-[9px] text-[#fbbf24] animate-pulse">
+          <span className="flex items-center gap-1 text-[9px] text-queue animate-pulse">
             <Radio size={9} /> live
           </span>
         )}
@@ -127,9 +128,9 @@ function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
           onClick={(e) => { e.stopPropagation(); handleCopy(); }}
           title="Copy content"
           aria-label="Copy content"
-          className="text-[#666] hover:text-[#fbbf24] transition-colors p-0.5 rounded nodrag"
+          className="text-ink-muted hover:text-queue transition-colors p-0.5 rounded nodrag"
         >
-          {copied ? <Check size={12} className="text-[#4ade80]" /> : <Copy size={12} />}
+          {copied ? <Check size={12} className="text-ok" /> : <Copy size={12} />}
         </button>
 
         <button
@@ -137,7 +138,7 @@ function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
           onClick={handleClose}
           title="Close note"
           aria-label="Close note"
-          className="text-[#666] hover:text-[#f87171] transition-colors p-0.5 rounded nodrag"
+          className="text-ink-muted hover:text-danger-text transition-colors p-0.5 rounded nodrag"
         >
           <X size={12} />
         </button>
@@ -149,14 +150,14 @@ function NoteTile({ id, data, selected }: NodeProps<NoteNode>) {
         value={content}
         onChange={(e) => handleChange(e.target.value)}
         placeholder="Write here..."
-        className="flex-1 resize-none bg-transparent text-[#d4c899] text-sm p-3 outline-none
-          placeholder-[#4a4020] nodrag nowheel"
+        className="flex-1 resize-none bg-transparent text-ink-2 text-sm p-3 outline-none
+          placeholder-ink-faint nodrag nowheel"
         style={{ fontFamily: "inherit", lineHeight: 1.6 }}
         onMouseDown={(e) => e.stopPropagation()}
       />
 
-      <Handle type="target" position={Position.Left} style={{ background: "#fbbf24", border: "none", width: 8, height: 8 }} />
-      <Handle type="source" position={Position.Right} style={{ background: "#fbbf24", border: "none", width: 8, height: 8 }} />
+      <Handle type="target" position={Position.Left} className="narrater-handle" />
+      <Handle type="source" position={Position.Right} className="narrater-handle" />
     </div>
   );
 }

@@ -28,7 +28,7 @@ interface SketchStore {
 export const useSketchStore = create<SketchStore>((set, get) => ({
   currentStroke: [],
   isDrawing: false,
-  color: "#8b5cf6",
+  color: "#8f7cff",
   size: 4,
 
   addPoint: (point) =>

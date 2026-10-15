@@ -74,28 +74,30 @@ function openInDom(mt: ManagedTerminal): void {
   }
 }
 
+// Terminal palette of the "Palco" profile (docs/design.md): Apple's dark system
+// colours, background = --term so the body sits inset in the tile.
 const XTERM_THEME = {
-  background: "#0e0e0e",
-  foreground: "#e5e7eb",
-  cursor: "#8b5cf6",
-  cursorAccent: "#0e0e0e",
-  selection: "rgba(139,92,246,0.3)",
-  black: "#1a1a2e",
-  red: "#f87171",
-  green: "#4ade80",
-  yellow: "#fbbf24",
-  blue: "#60a5fa",
-  magenta: "#c084fc",
-  cyan: "#22d3ee",
-  white: "#e5e7eb",
-  brightBlack: "#374151",
-  brightRed: "#fca5a5",
-  brightGreen: "#86efac",
-  brightYellow: "#fde68a",
-  brightBlue: "#93c5fd",
-  brightMagenta: "#d8b4fe",
-  brightCyan: "#67e8f9",
-  brightWhite: "#f9fafb",
+  background: "#121214",
+  foreground: "#e8e8ed",
+  cursor: "#8f7cff",
+  cursorAccent: "#121214",
+  selectionBackground: "rgba(143,124,255,0.28)",
+  black: "#1c1c1e",
+  red: "#ff6961",
+  green: "#30d158",
+  yellow: "#ffd60a",
+  blue: "#409cff",
+  magenta: "#da8fff",
+  cyan: "#64d2ff",
+  white: "#d1d1d6",
+  brightBlack: "#636366",
+  brightRed: "#ff8a80",
+  brightGreen: "#5ee07c",
+  brightYellow: "#ffe066",
+  brightBlue: "#70b5ff",
+  brightMagenta: "#e6b0ff",
+  brightCyan: "#8fdcff",
+  brightWhite: "#f5f5f7",
 };
 
 const terminals = new Map<string, ManagedTerminal>();

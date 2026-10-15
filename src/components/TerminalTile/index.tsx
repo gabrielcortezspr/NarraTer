@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useCallback, useState } from "react";
 import { Handle, Position, NodeResizer, useStore } from "@xyflow/react";
-import { X, GripVertical, FolderOpen, Clock, Plug, RotateCcw, Crown, MessageSquare, SquarePen } from "lucide-react";
+import { X, FolderOpen, Clock, Plug, RotateCcw, Crown, MessageSquare, SquarePen } from "lucide-react";
 import { useComposerStore } from "@/stores/composer";
 import { useChatStore } from "@/stores/chat";
 import { attachTerminal, detachTerminal, ensureTerminal, fitTerminal, respawnTerminal, spawnOptsFor } from "@/lib/terminalManager";
@@ -11,7 +11,6 @@ import { useRoutinesStore } from "@/stores/routines";
 import type { SessionStatus } from "@/stores/terminals";
 import { openInEditor, ptyQueueCancel } from "@/lib/tauri";
 import type { QueueItem } from "@/lib/tauri";
-import Badge from "@/components/ui/Badge";
 import IconButton from "@/components/ui/IconButton";
 import { toast } from "@/stores/toasts";
 import { EDITORS } from "@/lib/editors";
@@ -21,7 +20,7 @@ import "@xterm/xterm/css/xterm.css";
 
 type TerminalNode = Node<TerminalNodeData, "terminal">;
 
-const TERMINAL_BG = "#0e0e0e";
+const TERMINAL_BG = "var(--term)";
 
 // Below this zoom the terminal content is unreadable — swap for a card (LOD)
 const LOD_ZOOM = 0.35;
@@ -29,13 +28,31 @@ const LOD_ZOOM = 0.35;
 // Stable reference for the queue selector (avoids identity re-renders)
 const NO_QUEUE: QueueItem[] = [];
 
+// State colours (docs/design.md): working = the narrator's accent, ready = ok,
+// needs you = warn, starting = muted, exited = danger.
 const STATUS_DOT: Record<SessionStatus, { color: string; label: string }> = {
-  spawning: { color: "#fbbf24", label: "Starting…" },
-  running: { color: "#4ade80", label: "Running" },
-  idle: { color: "#6b7280", label: "Idle" },
-  attention: { color: "#f59e0b", label: "Waiting for input" },
-  exited: { color: "#f87171", label: "Exited" },
+  spawning: { color: "var(--text-3)", label: "Starting…" },
+  running: { color: "var(--accent)", label: "Working" },
+  idle: { color: "var(--ok)", label: "Ready" },
+  attention: { color: "var(--warn)", label: "Needs you — waiting for input" },
+  exited: { color: "var(--danger)", label: "Exited" },
 };
+
+/** Small state light; breathes while the agent works, rings when it needs you. */
+function StatusDot({ status }: { status: SessionStatus }) {
+  const { color, label } = STATUS_DOT[status];
+  return (
+    <span title={label} className="relative shrink-0 flex items-center justify-center w-2.5 h-2.5">
+      {status === "attention" && (
+        <span className="absolute inset-0 rounded-full animate-ping" style={{ background: color, opacity: 0.35 }} />
+      )}
+      <span
+        className={`relative rounded-full ${status === "running" ? "narrater-breathe" : ""}`}
+        style={{ width: 7, height: 7, background: color, boxShadow: status === "running" ? `0 0 8px ${color}` : "none" }}
+      />
+    </span>
+  );
+}
 
 function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
   const termDivRef = useRef<HTMLDivElement>(null);
@@ -107,54 +124,44 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
 
   return (
     <div
-      className="relative flex flex-col w-full h-full rounded-xl overflow-hidden"
-      style={{
-        background: "#1a1a1a",
-        boxShadow: selected
-          ? `0 0 0 1px ${accentColor}, 0 8px 32px rgba(0,0,0,0.5)`
-          : "0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.06)",
-        transition: "box-shadow 0.15s ease",
-      }}
+      className="group relative flex flex-col w-full h-full rounded-xl overflow-hidden bg-surface border border-line transition-shadow duration-150"
+      style={{ boxShadow: selected ? "var(--ring-accent), var(--shadow-tile)" : "var(--shadow-tile)" }}
     >
       <NodeResizer
         minWidth={360}
         minHeight={220}
         isVisible={selected}
-        lineStyle={{ borderColor: accentColor }}
-        handleStyle={{ borderColor: accentColor, background: "#1a1a1a" }}
+        lineStyle={{ borderColor: "transparent" }}
+        handleStyle={{ width: 8, height: 8, borderRadius: 2, border: "1.5px solid var(--accent)", background: "var(--surface)" }}
       />
 
-      {/* Identity thread: 1px in the agent color for scanning the canvas */}
+      {/* Identity thread: 1px in the agent's colour, to scan the canvas */}
       <div
-        className="h-px shrink-0"
-        style={{ background: `linear-gradient(90deg, transparent, ${accentColor}, transparent)` }}
+        className="h-px shrink-0 opacity-80"
+        style={{ background: `linear-gradient(90deg, transparent 4%, ${accentColor} 50%, transparent 96%)` }}
       />
 
-      {/* Header */}
-      <div
-        className="flex items-center gap-2 px-3 py-2 shrink-0 cursor-grab active:cursor-grabbing select-none"
-        style={{ background: "#222", borderBottom: "1px solid #2a2a2a" }}
-      >
-        <GripVertical size={12} className="text-[#444] shrink-0" />
+      {/* Header — integrated with the tile; state always visible, actions on hover */}
+      <div className="flex items-center gap-2 h-[34px] pl-3 pr-2 shrink-0 cursor-grab active:cursor-grabbing select-none border-b border-line">
+        <StatusDot status={sessionStatus} />
 
-        <span
-          title={statusDot.label}
-          className={`shrink-0 rounded-full ${sessionStatus === "running" ? "animate-pulse" : ""}`}
-          style={{
-            width: 7,
-            height: 7,
-            background: statusDot.color,
-            boxShadow: sessionStatus === "running" ? `0 0 6px ${statusDot.color}` : "none",
-          }}
-        />
+        <span title={preset.label} className="shrink-0 flex" style={{ color: accentColor }}>
+          <preset.Icon size={13} />
+        </span>
 
-        <Badge color={accentColor} rounded="md" className="text-[10px]">
-          <preset.Icon size={12} />
-          {preset.label}
-        </Badge>
+        <span className="text-[12px] font-medium text-ink truncate min-w-0" title={`${data.label} · ${preset.label}`}>
+          {data.label}
+        </span>
 
-        {/* Role badge */}
-        {data.roleName && <Badge color={data.roleColor ?? "#888"}>{data.roleName}</Badge>}
+        {/* Role: neutral chip with the role's colour as a dot */}
+        {data.roleName && (
+          <span className="shrink-0 flex items-center gap-1 h-[18px] px-1.5 rounded-full bg-hover text-2xs text-ink-2">
+            <span className="w-1.5 h-1.5 rounded-full" style={{ background: data.roleColor ?? "var(--text-3)" }} />
+            {data.roleName}
+          </span>
+        )}
+
+        <span className="flex-1" />
 
         {/* Maestro mode: this agent may recruit/dismiss teammates and manage roles */}
         {agentType !== "shell" && (
@@ -164,54 +171,52 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
             title={data.maestro
               ? "Maestro — can recruit and dismiss teammates and manage roles (click to turn off)"
               : "Turn on Maestro mode (lets this agent recruit teammates)"}
-            className="nodrag shrink-0 flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full transition-colors"
-            style={data.maestro
-              ? { color: "#fbbf24", background: "#fbbf2418", border: "1px solid #fbbf2440" }
-              : { color: "#555", border: "1px solid transparent" }}
+            className={`nodrag shrink-0 flex items-center gap-1 h-[18px] px-1.5 rounded-full text-2xs font-medium transition-all duration-150 ${
+              data.maestro
+                ? "text-queue bg-queue/10 border border-queue/25"
+                : "text-ink-muted hover:text-ink border border-transparent opacity-0 group-hover:opacity-100"
+            }`}
           >
-            <Crown size={9} />
+            <Crown size={10} />
             {data.maestro && "Maestro"}
           </button>
         )}
 
-        <span className="text-[#555] text-xs truncate flex-1">{data.label}</span>
-
-        {/* Queued messages badge — click shows the queue and allows cancelling */}
+        {/* Queued messages — click shows the queue and allows cancelling */}
         {queuePending > 0 && (
           <div className="relative nodrag shrink-0">
             <button
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); setShowQueueMenu((v) => !v); }}
               title={`${queuePending} message${queuePending > 1 ? "s" : ""} awaiting delivery — click to view`}
-              className="flex items-center gap-0.5 text-[9px] font-medium px-1.5 py-0.5 rounded-full"
-              style={{ color: "#fbbf24", background: "#fbbf2418", border: "1px solid #fbbf2430" }}
+              className="flex items-center gap-1 h-[18px] px-1.5 rounded-full text-2xs font-medium tabular-nums text-queue bg-queue/10 border border-queue/25"
             >
-              <Clock size={8} />
+              <Clock size={10} />
               {queuePending}
             </button>
             {showQueueMenu && (
               <div
-                className="absolute top-6 right-0 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl py-1 z-50 w-[260px]"
+                className="absolute top-7 right-0 bg-raised border border-line rounded-lg shadow-float py-1 z-50 w-[280px]"
                 onMouseDown={(e) => e.stopPropagation()}
               >
-                <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-[#666] select-none">
+                <div className="px-3 pt-1 pb-1.5 text-2xs uppercase tracking-[0.06em] text-ink-muted select-none">
                   Message queue
                 </div>
                 {queueItems.map((item, i) => (
                   <div
                     key={`${i}-${item.msg.slice(0, 12)}`}
-                    className="flex items-start gap-2 px-3 py-1.5 text-[10px] hover:bg-[#222]"
+                    className="flex items-start gap-2 px-3 py-1.5 text-[12px] hover:bg-hover"
                   >
                     <div className="flex-1 min-w-0">
-                      <span className="text-[#fbbf24] font-medium">{item.from_label}</span>
-                      <div className="truncate text-[#999]" title={item.msg}>{item.msg}</div>
+                      <span className="text-ink font-medium">{item.from_label}</span>
+                      <div className="truncate text-ink-2" title={item.msg}>{item.msg}</div>
                     </div>
                     <button
                       onClick={() => ptyQueueCancel(id, i).catch(console.error)}
                       title="Cancel message"
-                      className="text-[#555] hover:text-[#f87171] transition-colors shrink-0 mt-0.5"
+                      className="text-ink-muted hover:text-danger-text transition-colors shrink-0 mt-0.5"
                     >
-                      <X size={10} />
+                      <X size={12} />
                     </button>
                   </div>
                 ))}
@@ -220,26 +225,18 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
           </div>
         )}
 
-        {/* Agent pipe badge */}
-        {pipeCount > 0 && (
-          <Badge color="#a78bfa" title={`Connected to ${pipeCount} agent${pipeCount > 1 ? "s" : ""} via pipe`}>
-            <Plug size={8} />
-            {pipeCount}
-          </Badge>
-        )}
-
         {/* Routines firing into this terminal (Routines panel in the sidebar) */}
         {myRoutines.length > 0 && (
           <span
             title={myRoutines.map((r) => `${r.name} — ${r.schedule}${r.next_fire ? ` · next ${r.next_fire}` : ""}`).join("\n")}
-            className="flex items-center gap-0.5 text-[9px] text-[#fbbf24] opacity-70 shrink-0"
+            className="flex items-center gap-0.5 text-2xs tabular-nums text-ink-muted shrink-0"
           >
-            <Clock size={9} />
+            <Clock size={11} />
             {myRoutines.length}
           </span>
         )}
 
-        {/* NarraTer Chat (agents answer with `narrater say`) */}
+        {/* NarraTer Chat (agents answer with `narrater say`) — unread stays visible */}
         {agentType !== "shell" && (
           <button
             onMouseDown={(e) => e.stopPropagation()}
@@ -250,52 +247,59 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
               else chat.open(id);
             }}
             title={chatUnread ? `${chatUnread} new chat repl${chatUnread === 1 ? "y" : "ies"}` : "Chat with this agent"}
-            className="relative nodrag shrink-0 p-0.5 rounded transition-colors"
-            style={{ color: chatOpen ? "#8b5cf6" : chatUnread ? "#c4b5fd" : "#555" }}
+            className={`relative nodrag shrink-0 p-1 rounded-md transition-all duration-150 hover:bg-hover ${
+              chatOpen ? "text-accent-text" : chatUnread ? "text-ink" : "text-ink-muted hover:text-ink opacity-0 group-hover:opacity-100"
+            }`}
           >
-            <MessageSquare size={12} />
+            <MessageSquare size={13} />
             {chatUnread > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[12px] h-3 px-0.5 rounded-full bg-[#8b5cf6] text-[8px] leading-3 text-white text-center">
+              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-1 rounded-full bg-accent text-[10px] leading-[14px] font-medium text-white text-center tabular-nums">
                 {chatUnread}
               </span>
             )}
           </button>
         )}
 
-        {/* Open in editor */}
-        <div className="relative nodrag">
+        {/* Actions — quiet until the tile is hovered */}
+        <div className="relative nodrag flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+          {pipeCount > 0 && (
+            <span
+              title={`Connected to ${pipeCount} agent${pipeCount > 1 ? "s" : ""}`}
+              className="flex items-center gap-0.5 px-1 text-2xs tabular-nums text-ink-muted"
+            >
+              <Plug size={11} />
+              {pipeCount}
+            </span>
+          )}
           <IconButton
             title="Write a prompt (Ctrl+Shift+P) — @ mentions, pasted screenshots, a draft per terminal"
-            intent="info"
             onClick={() => useComposerStore.getState().open(id)}
           >
-            <SquarePen size={12} />
+            <SquarePen size={13} />
           </IconButton>
-          <IconButton title="Open in editor" intent="info" onClick={() => setShowEditorMenu((v) => !v)}>
-            <FolderOpen size={12} />
+          <IconButton title="Open in editor" onClick={() => setShowEditorMenu((v) => !v)}>
+            <FolderOpen size={13} />
           </IconButton>
           {showEditorMenu && (
             <div
-              className="absolute top-6 right-0 bg-[#1a1a1a] border border-[#2a2a2a] rounded-lg shadow-xl py-1 z-50 min-w-[110px]"
+              className="absolute top-7 right-0 bg-raised border border-line rounded-lg shadow-float py-1 z-50 min-w-[130px]"
               onMouseDown={(e) => e.stopPropagation()}
             >
               {EDITORS.map((ed) => (
                 <button
                   key={ed.cmd}
                   onClick={() => handleOpenEditor(ed.cmd)}
-                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-[#ccc] hover:bg-[#2a2a2a] hover:text-white transition-colors whitespace-nowrap"
+                  className="flex items-center gap-2 w-full px-3 py-1.5 text-[13px] text-ink-2 hover:bg-hover hover:text-ink transition-colors whitespace-nowrap"
                 >
                   {ed.label}
                 </button>
               ))}
             </div>
           )}
+          <IconButton title="Close terminal" intent="danger" onClick={handleClose}>
+            <X size={13} />
+          </IconButton>
         </div>
-
-        {/* Close */}
-        <IconButton title="Close terminal" intent="danger" onClick={handleClose}>
-          <X size={12} />
-        </IconButton>
       </div>
 
       {/* Terminal body (hidden at low zoom — LOD) */}
@@ -303,7 +307,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
         ref={termDivRef}
         className="flex-1 min-h-0 nodrag nowheel"
         style={{
-          padding: "4px 2px 2px 4px",
+          padding: "8px 4px 4px 10px",
           background: TERMINAL_BG,
           display: lod ? "none" : undefined,
         }}
@@ -319,7 +323,7 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
           <span style={{ color: accentColor }}>
             <preset.Icon size={56} />
           </span>
-          <span className="text-3xl font-medium text-ink truncate max-w-[90%]">{data.label}</span>
+          <span className="text-3xl font-semibold tracking-tight text-ink truncate max-w-[90%]">{data.label}</span>
           <span className="flex items-center gap-2 text-xl" style={{ color: statusDot.color }}>
             <span className="w-3 h-3 rounded-full" style={{ background: statusDot.color }} />
             {statusDot.label}
@@ -329,22 +333,23 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
 
       {/* Process exited: elegant overlay with in-place restart */}
       {sessionStatus === "exited" && (
-        <div className="absolute inset-x-0 top-9 bottom-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/60 nodrag">
+        <div className="absolute inset-x-0 top-[35px] bottom-0 z-10 flex flex-col items-center justify-center gap-3 bg-bg/70 backdrop-blur-sm nodrag">
           <span className="text-xs text-ink-muted">
             Process exited{typeof exitCode === "number" ? ` · code ${exitCode}` : ""}
           </span>
           <button
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); respawnTerminal(id); }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-canvas-tile border border-canvas-border text-ink hover:border-accent hover:text-accent transition-colors"
+            className="flex items-center gap-1.5 h-8 px-3.5 rounded-lg text-[13px] font-medium bg-surface-2 border border-line text-ink hover:bg-raised hover:border-line-strong transition-colors"
           >
             <RotateCcw size={12} /> Restart
           </button>
         </div>
       )}
 
-      <Handle type="target" position={Position.Left} style={{ background: accentColor, border: "none", width: 8, height: 8 }} />
-      <Handle type="source" position={Position.Right} style={{ background: accentColor, border: "none", width: 8, height: 8 }} />
+      {/* Connection handles: hidden until the tile is hovered (index.css) */}
+      <Handle type="target" position={Position.Left} className="narrater-handle" />
+      <Handle type="source" position={Position.Right} className="narrater-handle" />
     </div>
   );
 }

@@ -257,3 +257,22 @@ The probe spawns the program in a PTY, waits for idle, delivers the prompt
 with the app's delivery plan and prints each turn-state transition plus the
 final screen. Run it when adding a new agent preset or after an agent CLI
 changes its TUI.
+
+### Measuring the reader
+
+`turn_probe` shows one run. To *measure*, `turn_eval` runs scenarios against an
+independent oracle (the command's own end timestamp; Claude Code's `Stop` and
+`PermissionRequest` hooks, used only by the evaluator) and reports, per run,
+the state an ask would return and its latency (negative = premature):
+
+```sh
+cd src-tauri
+cargo run --release --example turn_eval -- --reps 5 --tmux-fg pane          # shells, direct and in tmux
+cargo run --release --example turn_eval -- --reps 5 --claude --only claude  # needs a logged-in `claude`
+cargo run --example turn_replay -- target/turn-eval/claude-short-1.cast     # replay a recording
+```
+
+Each run is recorded as an asciicast plus a timeline; recordings copied to
+`tests/transcripts/` (with their `.meta.json`) become regression tests
+(`cargo test --test turn_transcripts`). Method and results:
+`docs/pesquisa/leitor-de-estado.md`.

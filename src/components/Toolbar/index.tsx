@@ -8,7 +8,8 @@ import { useSketchStore } from "@/stores/sketch";
 import { usePersistenceStore } from "@/stores/persistence";
 import { saveNow } from "@/hooks/useAutoSave";
 
-const SKETCH_COLORS = ["#8b5cf6", "#f87171", "#4ade80", "#fbbf24", "#60a5fa", "#f472b6", "#ffffff"];
+// Apple's dark system colours (docs/design.md) + white
+const SKETCH_COLORS = ["#8f7cff", "#ff453a", "#30d158", "#ffd60a", "#0a84ff", "#ff7eb6", "#f5f5f7"];
 
 interface ToolButton {
   tool: Tool;
@@ -51,9 +52,7 @@ export default function Toolbar({ onTerminal, onAttachment }: Props) {
   return (
     <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30">
       <div
-        className="flex items-center gap-1 px-2 py-1.5 rounded-full border border-[#2a2a2a]
-          bg-[#161616]/95 backdrop-blur"
-        style={{ boxShadow: "0 8px 32px rgba(0,0,0,0.5)" }}
+        className="glass flex items-center gap-0.5 p-1 rounded-full border border-line shadow-float"
       >
         {TOOL_BUTTONS.map(({ tool, icon: Icon, label, shortcut }) => {
           const isActive = active === tool;
@@ -66,17 +65,17 @@ export default function Toolbar({ onTerminal, onAttachment }: Props) {
               title={disabled ? `${label} — coming soon` : `${label} (${shortcut})`}
               className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors
                 ${isActive
-                  ? "bg-[#8b5cf6]/20 text-[#8b5cf6]"
+                  ? "bg-accent/20 text-accent-text"
                   : disabled
-                  ? "text-[#3a3a3a] cursor-not-allowed"
-                  : "text-[#8a8a8a] hover:text-white hover:bg-[#222]"}`}
+                  ? "text-ink-faint cursor-not-allowed"
+                  : "text-ink-2 hover:text-ink hover:bg-hover"}`}
             >
               <Icon size={15} />
             </motion.button>
           );
         })}
 
-        <div className="w-px h-5 bg-[#2a2a2a] mx-0.5" />
+        <div className="w-px h-5 bg-line mx-0.5" />
 
         {/* Draw + expandable sub-controls */}
         <motion.button
@@ -85,8 +84,8 @@ export default function Toolbar({ onTerminal, onAttachment }: Props) {
           title="Draw (D)"
           className={`w-8 h-8 flex items-center justify-center rounded-full transition-colors
             ${active === "draw"
-              ? "bg-[#8b5cf6]/20 text-[#8b5cf6]"
-              : "text-[#8a8a8a] hover:text-white hover:bg-[#222]"}`}
+              ? "bg-accent/20 text-accent-text"
+              : "text-ink-2 hover:text-ink hover:bg-hover"}`}
         >
           <Pencil size={15} />
         </motion.button>
@@ -104,34 +103,34 @@ export default function Toolbar({ onTerminal, onAttachment }: Props) {
                   key={c}
                   onClick={() => setColor(c)}
                   className="w-4 h-4 rounded-full border-2 transition-transform hover:scale-110 shrink-0"
-                  style={{ background: c, borderColor: c === color ? "#fff" : "transparent" }}
+                  style={{ background: c, borderColor: c === color ? "var(--text)" : "transparent" }}
                   title="Color"
                 />
               ))}
               <button
                 onClick={() => setSize(Math.max(2, size - 2))}
-                className="w-6 h-6 flex items-center justify-center rounded-full text-[#888] hover:text-white text-xs shrink-0"
+                className="w-6 h-6 flex items-center justify-center rounded-full text-ink-2 hover:text-ink text-xs shrink-0"
               >
                 −
               </button>
-              <span className="text-[10px] text-[#666] w-3 text-center shrink-0">{size}</span>
+              <span className="text-2xs tabular-nums text-ink-muted w-4 text-center shrink-0">{size}</span>
               <button
                 onClick={() => setSize(Math.min(20, size + 2))}
-                className="w-6 h-6 flex items-center justify-center rounded-full text-[#888] hover:text-white text-xs shrink-0"
+                className="w-6 h-6 flex items-center justify-center rounded-full text-ink-2 hover:text-ink text-xs shrink-0"
               >
                 +
               </button>
               <button
                 onClick={undoSketch}
                 title="Undo (Ctrl+Z)"
-                className="w-6 h-6 flex items-center justify-center rounded-full text-[#888] hover:text-white shrink-0"
+                className="w-6 h-6 flex items-center justify-center rounded-full text-ink-2 hover:text-ink shrink-0"
               >
                 <Undo2 size={12} />
               </button>
               <button
                 onClick={clearSketch}
                 title="Clear sketch"
-                className="w-6 h-6 flex items-center justify-center rounded-full text-[#f87171] hover:text-white shrink-0"
+                className="w-6 h-6 flex items-center justify-center rounded-full text-danger-text hover:text-ink shrink-0"
               >
                 <Eraser size={12} />
               </button>
@@ -139,14 +138,15 @@ export default function Toolbar({ onTerminal, onAttachment }: Props) {
           )}
         </AnimatePresence>
 
-        <div className="w-px h-5 bg-[#2a2a2a] mx-0.5" />
+        <div className="w-px h-5 bg-line mx-0.5" />
 
         {/* Auto-save indicator (Ctrl+S forces) */}
         <button
           onClick={() => saveNow().catch(console.error)}
           title="Auto-save on — Ctrl+S saves now"
-          className="flex items-center gap-1 px-2 h-8 rounded-full text-[10px] transition-colors hover:bg-[#222]"
-          style={{ color: saveState === "saved" ? "#4ade80" : saveState === "saving" ? "#8b5cf6" : "#6b7280" }}
+          className={`flex items-center gap-1 px-2.5 h-8 rounded-full text-2xs font-medium transition-colors hover:bg-hover ${
+            saveState === "saving" ? "text-accent-text" : saveState === "saved" ? "text-ink-muted" : "text-ink-2"
+          }`}
         >
           {saveState === "saving" ? (
             <Loader2 size={11} className="animate-spin" />
