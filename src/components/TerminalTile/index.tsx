@@ -129,9 +129,12 @@ function TerminalTile({ id, data, selected }: NodeProps<TerminalNode>) {
           <preset.Icon size={13} />
         </span>
 
-        <span className="text-[12px] font-medium text-ink truncate min-w-0" title={`${data.label} · ${preset.label}`}>
+        <span className="text-[12px] font-medium text-ink truncate min-w-0" title={`${data.label} · ${preset.label}${data.model ? ` · ${data.model}` : ""}`}>
           {data.label}
         </span>
+
+        {/* Model (an id: mono, neutral — not a state) */}
+        {data.model && <span className="shrink-0 font-mono text-2xs text-ink-muted">{data.model}</span>}
 
         {/* Role: neutral chip with the role's colour as a dot */}
         {data.roleName && (

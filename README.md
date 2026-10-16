@@ -60,6 +60,16 @@ concept to Linux.
   assemble a team by itself — `narrater recruit` spawns teammates next to it
   (any preset, any role), `--replace` swaps a teammate's agent in place,
   `dismiss` removes one, and `narrater role …` manages role presets.
+- **Team generator**: `narrater team create --template dev-reviewer --task "…"
+  --reason "…"` builds a whole team at once — terminals with agent, model and
+  role, the wiring and a task note with its acceptance check. Shapes: solo,
+  dev-reviewer, dev-qa, readers, parallel-devs. Turn on **Automatic teams**
+  (team button in the toolbar) to let agents build one when a task is worth it;
+  one agent stays the default, because in our benchmark a single agent beat
+  every team on time with the same result.
+- **Acceptance checks**: `narrater ask "Dev" "…" --check "make test"` — NarraTer
+  runs the check after the agent's turn and reports `failed` with the output
+  instead of trusting the agent's "done".
 - **Routines**: scheduled prompts or commands fired into a terminal (or
   desktop reminders) — `--every 30m`, `--daily 09:00`, `--weekly
   mon,fri@09:00`, `--once …`, with an optional pre-run script whose output

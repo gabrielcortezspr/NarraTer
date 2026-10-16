@@ -320,3 +320,32 @@ O que os números mostram:
   - cada parte precisa valer bem mais que ~1 min de coordenação;
   - equipes paralelas com modelos de mesma velocidade;
   - revisor só quando quem escreve erra. O próximo teste é "Sonnet + revisor" contra o Opus sozinho.
+
+## 8. O que foi feito a partir deste estudo (2026-10-16)
+
+As falhas do §3 e o gerador do §4, implementados sem mudar as equipes montadas à mão nem o benchmark:
+
+| Falha (§3) | O que mudou | Onde |
+|---|---|---|
+| F1, F2: equipe sem portão; sem linha de base | Braço "sozinho" medido (§6, §7); D22; portão nas skills e no `--reason` do gerador | `bench/orquestracao`, `SKILL*.md` |
+| F3: "pronto" = fim do turno | `ask --check "CMD"`: o backend roda o aceite; falha vira `failed` (D24) | `ipc.rs` (`run_check`) |
+| F4: tarefa como conversa | Skill ensina delegação como especificação; o gerador cria a nota de tarefa com o aceite | `SKILL.md`, `teamCommands.ts` |
+| F5: escritores no mesmo diretório | Regra "dois membros nunca escrevem os mesmos arquivos" nos papéis; `--isolate` dá um worktree (andar) a cada escritor | `teamTemplates.ts` |
+| F7: pedido repetido | `repeat_of` marca o pedido e avisa na resposta e no Activity | `asks.rs`, `ipc.rs` |
+| F8: sem escolha de modelo | `recruit --model`, campo Model no seletor, modelo salvo na cena e mostrado no terminal | `agents.ts`, `managerCommands.ts` |
+| Gerador (§4) | `narrater team create/templates`, chave Automatic teams (D23) | `teamCommands.ts`, `preferences.rs` |
+
+Ficou de fora: F6 (o líder entre as fases, O8) e desmontar equipes.
+
+`[observado]` Verificação de ponta a ponta no app real, com `bench/e2e/gerador-equipes.sh` (Xvfb, build de release,
+terminais shell e um `claude` falso, sem gastar cota). O que aconteceu:
+- sem `--reason`, a criação foi recusada;
+- `dev-reviewer` criou Dev e Reviewer ligados como you ↔ Dev ↔ Reviewer, com as notas de tarefa e de porquê
+  (`img/gerador-equipe.png`);
+- o `claude` recebeu `--model sonnet`, e o modelo e a equipe ficaram salvos na cena;
+- `solo` só registrou a decisão, e um membro foi impedido de gerar equipe;
+- `--check false` voltou `failed`, e `--check "python3 -m unittest -q"` voltou "passed";
+- o pedido repetido veio com o aviso.
+
+Falta medir no benchmark a montagem "gerada": o Narrador com Automatic teams ligado decide sozinho, e a pergunta é
+se ele escolhe "solo" quando deve.

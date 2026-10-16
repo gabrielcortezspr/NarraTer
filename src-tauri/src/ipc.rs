@@ -487,7 +487,8 @@ pub async fn run_check(cmd: &str, dir: &std::path::Path) -> (bool, String) {
                 format!(
                     "[narrater] Acceptance check FAILED: `{}` exited with {} after {:.1} s, in {}. The agent ended its turn, \
                      but the check says the task is not done.\n--- check output{} ---\n{}",
-                    cmd, code, secs(), dir.display(), if n > CHECK_OUTPUT_CAP { " (tail)" } else { "" }, tail.trim_end()
+                    cmd, code, secs(), dir.display(), if n > CHECK_OUTPUT_CAP { " (tail)" } else { "" },
+                    if tail.trim().is_empty() { "(no output)" } else { tail.trim_end() }
                 ),
             )
         }
