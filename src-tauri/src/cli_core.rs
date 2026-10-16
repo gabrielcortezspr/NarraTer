@@ -415,6 +415,45 @@ impl Cli<'_, '_> {
         }
     }
 
+    /// `team templates` | `team create …` (the team generator, docs/pesquisa/orquestracao.md §4)
+    fn team(&mut self, mut a: Args) -> Parsed {
+        if a.len() == 0 {
+            return Err(help_of("team"));
+        }
+        let sub = a.0.remove(0);
+        match sub.as_str() {
+            "templates" if a.len() == 0 => self.canvas("team_templates", json!({})),
+            "create" => {
+                let mut p = json!({});
+                for flag in ["template", "task", "check", "reason", "name", "preset", "model", "count"] {
+                    if let Some(v) = a.value(&format!("--{}", flag))? {
+                        p[flag] = v.into();
+                    }
+                }
+                if a.flag("--isolate") {
+                    p["isolate"] = true.into();
+                }
+                if let Some(spec) = a.value("--spec")? {
+                    let raw = if spec == "-" { (self.env.stdin)().unwrap_or_default() } else { spec };
+                    let v: Value = serde_json::from_str(&raw)
+                        .map_err(|e| format!("Error: --spec is not valid JSON ({}); see `narrater help team`", e))?;
+                    if !v.is_object() {
+                        return Err("Error: --spec takes a JSON object; see `narrater help team`".into());
+                    }
+                    p["spec"] = v;
+                }
+                if a.len() != 0 {
+                    return Err(format!("Error: unexpected '{}'; see `narrater help team`", a.get(0)));
+                }
+                if p.get("template").is_none() && p.get("spec").is_none() {
+                    return Err("Error: team create needs --template T (see `narrater team templates`) or --spec JSON".into());
+                }
+                self.canvas("team_create", p)
+            }
+            _ => Err(help_of("team")),
+        }
+    }
+
     fn say(&mut self, mut a: Args) -> Parsed {
         let mut params = json!({ "verb": "say" });
         let mut attach = Vec::new();
@@ -689,6 +728,7 @@ pub fn parse(argv: &[String], env: &mut Env) -> Parsed {
         }
         "portal" => cli.portal(a),
         "recruit" => cli.recruit(a),
+        "team" => cli.team(a),
         "dismiss" => {
             if a.len() != 1 {
                 return Err(r#"Usage: narrater dismiss "Name""#.into());
@@ -751,6 +791,22 @@ mod tests {
         assert_eq!(decode(r"2\n", true), "2\r");
         assert_eq!(decode(r"\e[A\x03\0", true), "\x1b[A\x03\0");
         assert_eq!(decode(r"\xZZ", true), r"\xZZ");
+    }
+
+    #[test]
+    fn team_templates_and_create() {
+        let v = request(&["team", "templates"]);
+        assert_eq!((v["mode"].as_str(), v["action"].as_str()), (Some("canvas"), Some("team_templates")));
+        let v = request(&["team", "create", "--template", "dev-reviewer", "--task", "do X", "--check", "make test",
+            "--reason", "risky change", "--model", "sonnet", "--isolate"]);
+        assert_eq!(v["action"], "team_create");
+        assert_eq!(v["params"]["template"], "dev-reviewer");
+        assert_eq!((v["params"]["check"].as_str(), v["params"]["isolate"].as_bool()), (Some("make test"), Some(true)));
+        let v = request(&["team", "create", "--spec", r#"{"members": [{"name": "A"}]}"#]);
+        assert_eq!(v["params"]["spec"]["members"][0]["name"], "A");
+        assert!(run(&["team", "create"]).unwrap_err().contains("--template"));
+        assert!(run(&["team", "create", "--spec", "[1]"]).unwrap_err().contains("JSON object"));
+        assert!(run(&["team", "create", "--template", "x", "stray"]).unwrap_err().contains("stray"));
     }
 
     #[test]
@@ -819,7 +875,7 @@ mod tests {
     #[test]
     fn every_command_has_help() {
         for t in ["ask", "wait", "asks", "check", "note", "list", "connect", "say", "recall", "portal", "recruit", "dismiss", "role",
-                  "preset", "notify", "workspace", "floor", "routine", "debug"] {
+                  "preset", "notify", "workspace", "floor", "routine", "team", "debug"] {
             assert!(help::topic(t).is_some(), "{}", t);
         }
     }

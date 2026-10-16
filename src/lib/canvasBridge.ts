@@ -5,6 +5,8 @@ import { canvasRespond, linksList, portalOpen } from "@/lib/tauri";
 import { presetOf } from "@/lib/agents";
 import { findByName, freeSpot, labelOf, reachOf, str, uniqueName, type CanvasRequest } from "@/lib/canvasReach";
 import { handleManager, MANAGER_ACTIONS } from "@/lib/managerCommands";
+import { handleTeam, TEAM_ACTIONS } from "@/lib/teamCommands";
+import { currentPreferences } from "@/stores/preferences";
 import type { AppEdge, AppNode, NoteNodeData, PortalNodeData, TerminalNodeData } from "@/stores/canvas";
 
 // Agent → canvas bridge for the `narrater` CLI: the backend emits
@@ -70,13 +72,16 @@ async function listFor(sl: SceneSlice, from: string): Promise<string> {
   const me = nodes.find((n) => n.id === from);
   const remote = await remoteAgentLines(from);
   const maestro = (me?.data as TerminalNodeData | undefined)?.maestro === true;
+  const team = (me?.data as TerminalNodeData | undefined)?.team;
+  const autoTeams = !team && (await currentPreferences().catch(() => null))?.auto_teams === true;
   const { agents, notes, portals } = reachOf(nodes, edges, from);
   const out: string[] = [];
   if (me) {
     const d = me.data as TerminalNodeData;
     out.push(
       `You: ${labelOf(me)} (${presetOf(d.agentType).label})` +
-        `${d.roleName ? ` · role: ${d.roleName}` : ""}${maestro ? " · Maestro" : ""}`
+        `${d.roleName ? ` · role: ${d.roleName}` : ""}${maestro ? " · Maestro" : ""}` +
+        `${team ? ` · team '${team}'` : ""}${autoTeams && !maestro ? " · Automatic teams on (`narrater help team`)" : ""}`
     );
   }
   out.push("", "Agents:");
@@ -192,6 +197,7 @@ function edgeTypeFor(a: AppNode, b: AppNode): string {
 }
 
 function handleRequest(req: CanvasRequest): string | Promise<string> {
+  if (TEAM_ACTIONS.has(req.action)) return handleTeam(req);
   if (MANAGER_ACTIONS.has(req.action)) return handleManager(req);
   const store = useCanvasStore.getState();
   // The caller's own scene — on screen or running in the background

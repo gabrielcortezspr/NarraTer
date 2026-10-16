@@ -55,6 +55,19 @@ For a long spec, write it in a note, connect the note to the agent and point to 
 Don't repeat a prompt you already sent: if the answer looked incomplete, ask a precise follow-up about what
 is missing. If NarraTer warns that a prompt repeats an earlier one, read that earlier answer first.
 
+## Teams: one agent is the default
+
+If `narrater list` shows `Automatic teams on` next to your name (or you are the Maestro), you may build a
+whole team for a task with `narrater team create` (see `narrater help team`). Measured in NarraTer, one
+agent did two coding tasks faster than any team with the same result, so work solo unless one of these holds:
+- the task has 2+ independent parts, in separate files, each worth several minutes of work;
+- an independent reviewer or tester with a clean context pays off (a cheaper model writes, or the change is risky);
+- the work doesn't fit in one context (a wide investigation across many areas).
+
+When one holds, pick the closest shape from `narrater team templates` and pass the reason with `--reason`.
+Who decides: as the Maestro, build a team when the user asks for one; with Automatic teams on, you may also
+decide on your own, by the rule above. Otherwise never build a team on your own.
+
 ## When a prompt arrives from another agent
 
 A prompt starting with `[narrater from X]:` comes from agent X, which is waiting for you to finish. Do the task; your final screen is X's answer, so end your turn with a clear, concise result. For long results, or questions about the task, message X with `narrater ask "X" "..."` — doubts about a delegated task go to X, never to the user.

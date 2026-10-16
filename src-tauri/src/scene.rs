@@ -29,6 +29,9 @@ pub struct SceneNode {
     /// Model the agent runs (`--model`); None = the CLI's default
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Team it was generated into (`narrater team create`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
     /// Terminal working directory (the project the agent works on)
     #[serde(default)]
     pub cwd: Option<String>,

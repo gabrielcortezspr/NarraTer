@@ -23,6 +23,8 @@ export interface TerminalNodeData extends Record<string, unknown> {
   skipPermissions?: boolean;
   /** Model the agent runs (`--model`); absent = the CLI's default. */
   model?: string;
+  /** Team it was generated into (`narrater team create`); such members can't generate teams. */
+  team?: string;
   /** Project directory the terminal works on. */
   cwd?: string;
   /** Maestro mode: may recruit/dismiss teammates and manage roles. */
@@ -78,6 +80,7 @@ export interface AddTerminalOpts {
   roleColor?: string;
   skipPermissions?: boolean;
   model?: string;
+  team?: string;
   cwd?: string;
   maestro?: boolean;
   /** Terminal name; defaults to the role or agent type. */
@@ -217,6 +220,7 @@ function toNode(n: SceneNode, base: NodeBase): AppNode {
       roleColor: n.role_color,
       skipPermissions: n.skip_permissions,
       model: n.model,
+      team: n.team,
       cwd: n.cwd,
       maestro: n.maestro,
     },
@@ -380,6 +384,7 @@ function serialize(sl: SceneSlice): SceneData {
         role_color: tdata?.roleColor,
         skip_permissions: tdata?.skipPermissions,
         model: tdata?.model,
+        team: tdata?.team,
         cwd: tdata?.cwd,
         maestro: tdata?.maestro,
         floor: floorOf(n) === GROUND ? undefined : floorOf(n),
