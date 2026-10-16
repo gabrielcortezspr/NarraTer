@@ -1,0 +1,243 @@
+% Relatório: quando orquestrar vários agentes compensa (e quando não), com a literatura e o braço
+% "sozinho" do benchmark do NarraTer.
+% Compilar: cd docs/relatorios && pdflatex quando-orquestrar.tex && pdflatex quando-orquestrar.tex
+% Fontes: docs/pesquisa/orquestracao.md (estudo) e bench/orquestracao/resultados/ (medições).
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{lmodern}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage[hidelinks]{hyperref}
+\setlist{itemsep=2pt,topsep=4pt}
+\captionsetup{font=small,labelfont=bf}
+
+\newcommand{\rot}[1]{\textsf{\footnotesize[#1]}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\title{Quando orquestrar agentes não compensa:\\[2pt]
+\large o que a pesquisa mostra e o que medimos no NarraTer}
+\author{Gabriel Cortez \and Claude Code}
+\date{16 de outubro de 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+O NarraTer existe para pôr vários agentes de IA para trabalhar juntos. Este documento faz a
+pergunta incômoda: na maior parte das tarefas de programação, isso compensa? Reunimos o que
+artigos e equipes de produção mediram em 2025 e 2026 e o comparamos com o nosso próprio benchmark.
+A resposta da literatura é consistente. Quando um agente sozinho já resolve bem a tarefa, uma equipe
+custa de 1,8 a 5,1 vezes mais e quase nunca melhora o resultado de forma significativa. Em tarefas
+sequenciais, ela piora. A equipe compensa em casos estreitos: trabalho realmente paralelo, contexto
+que não cabe num agente só e verificação independente. Medimos isso no NarraTer com o mesmo pedido
+dado a um terminal sozinho e à equipe de três agentes (seção~\ref{sec:medido}).
+\end{abstract}
+
+\noindent\textbf{Rótulos.} \rot{citado}: afirmado pela fonte indicada. \rot{medido}: medido por nós,
+com método reproduzível. \rot{inferido}: nossa leitura, sem medição direta.
+
+\section{A pergunta}
+
+Montar uma equipe de agentes parece óbvio: um líder divide a tarefa, especialistas executam em paralelo
+e o resultado sai mais rápido e melhor. Nosso benchmark de versões (relatório
+\emph{orquestracao-versoes.pdf}) mediu o \emph{custo} de orquestrar: tokens, tempo e falhas do
+protocolo. Ele não mediu se orquestrar \emph{vale a pena}. Todas as rodadas usaram a equipe, e
+nenhuma o agente sozinho. Este documento responde a essa segunda pergunta, primeiro com a literatura
+e depois com uma medição nossa.
+
+\section{O que a pesquisa mediu}
+
+\subsection{Com o mesmo orçamento, um agente sozinho empata ou ganha}
+
+A comparação justa é a de mesmo orçamento: a equipe gasta mais tokens, então precisa ser comparada
+com um agente sozinho que também pode gastar mais (pensar mais, tentar de novo).
+
+\begin{itemize}
+  \item \rot{citado} Kim et al.~\cite{kim2025} avaliaram 180 configurações de sistemas de agentes.
+    A coordenação dá ``retorno decrescente ou negativo quando o agente sozinho passa de ${\sim}$45\%''
+    de acerto. Em tarefas paralelizáveis, a coordenação centralizada ganha 80,8\%. Em raciocínio
+    sequencial, as variantes multiagente perdem de 39\% a 70\%.
+  \item \rot{citado} Tran e Kiela~\cite{tran2026} mostram que, com o mesmo orçamento de tokens de
+    raciocínio, um agente sozinho empata ou supera sistemas multiagente em raciocínio de vários passos.
+  \item \rot{citado} Wang et al.~\cite{rethinking2024} chegam ao mesmo resultado: um agente sozinho
+    bem instruído chega perto da melhor discussão entre agentes. A discussão só vence quando não há
+    exemplos no prompt.
+  \item \rot{citado} Zhang et al.~\cite{mad2025} (5 métodos de debate, 9 benchmarks) concluem que o debate entre agentes raramente supera
+    o raciocínio encadeado ou a autoconsistência de um agente só. A exceção é usar modelos diferentes
+    entre si.
+\end{itemize}
+
+\subsection{Em programação, equipes custam mais e quase não melhoram}
+
+A Vals.ai publicou em 9 de outubro de 2026 o estudo mais próximo do nosso caso~\cite{vals2026}.
+A tarefa era construir aplicações web inteiras, com nota dada por testes de interface. Cada modelo
+rodou sozinho e como equipe (um líder e até cinco subagentes), em dois níveis de esforço.
+
+\begin{table}[H]
+\centering\small
+\caption{Agente sozinho contra equipe na Vibe Code Bench \rot{citado}~\cite{vals2026}.}
+\begin{tabular}{lrrrr}
+\toprule
+Modelo (esforço) & Sozinho & Equipe & Custo da equipe & Tempo mediano (min) \\
+\midrule
+GPT 6 Sol (médio)   & 77,6\% & 84,9\% (+7,3*) & 2,5$\times$ & 12,4 $\to$ 11,9 \\
+GPT 6 Sol (máximo)  & 89,0\% & 90,4\% (+1,4)  & 1,8$\times$ & 38,4 $\to$ 27,6 \\
+Opus 5.5 (médio)    & 91,5\% & 91,2\% ($-$0,3) & 2,2$\times$ & 20,3 $\to$ 26,6 \\
+Opus 5.5 (máximo)   & 89,8\% & 93,2\% (+3,4)  & 5,1$\times$ & 74,7 $\to$ 174,1 \\
+\bottomrule
+\multicolumn{5}{l}{\footnotesize * a única diferença estatisticamente significativa ($p = 0{,}005$).}
+\end{tabular}
+\end{table}
+
+Das quatro comparações, só uma teve ganho significativo, e foi justamente no modelo com a nota mais
+baixa sozinho. Com o Opus 5.5 no esforço médio, a configuração mais parecida com o nosso Narrador, a
+equipe ficou 0,3 ponto abaixo, custando 2,2 vezes mais e levando 6 minutos a mais. No esforço máximo,
+a equipe do Opus custou US\$~122 por aplicação, contra US\$~23,77 sozinho, e levou 174 minutos
+contra 75.
+
+Outras medições em código apontam na mesma direção:
+\begin{itemize}
+  \item \rot{citado} O Agentless~\cite{agentless2024} é um pipeline fixo (localizar, corrigir,
+    validar), sem nenhum agente planejando. Resolveu 32\% do SWE-bench Lite a US\$~0,70 por problema,
+    competitivo com sistemas de agentes muito mais caros na época.
+  \item \rot{citado} A Anthropic, descrevendo o próprio sistema multiagente de pesquisa~\cite{anthropic2025},
+    diz que programação tem ``menos tarefas realmente paralelizáveis que pesquisa'' e que
+    multiagente encaixa mal onde todos precisam do mesmo contexto.
+  \item \rot{citado} Um estudo de 2026 sobre topologias em código do zero~\cite{topologia2026}
+    mostra que só mudar a topologia move a nota em mais de 30 pontos e dobra o tempo. Pipelines
+    estruturados convergem mais rápido e com mais qualidade, e ``supervisão gerencial pesada piora o
+    desempenho''.
+\end{itemize}
+
+\subsection{Por que a equipe custa tanto}
+
+O sistema de pesquisa da Anthropic gasta cerca de 15 vezes os tokens de uma conversa, contra cerca de
+4 vezes de um agente sozinho~\cite{anthropic2025} \rot{citado}. Lá, a variação de tokens sozinha explica 80\% da variação
+de desempenho. Isso significa que boa parte do ganho de uma equipe é simplesmente gastar mais. Os
+mecanismos que a literatura descreve:
+
+\begin{enumerate}
+  \item \textbf{Tradução entre agentes.} Cada delegação reescreve a tarefa, e cada resposta é lida e
+    resumida de novo pelo líder. No benchmark da LangChain~\cite{langchain2025}, a maior parte dos
+    erros do supervisor vinha desse ``telefone sem fio''. Repassar a resposta palavra por palavra
+    melhorou o resultado em quase 50\% \rot{citado}.
+  \item \textbf{Decisões implícitas em conflito.} A Cognition~\cite{cognition2025} mostra
+    subagentes paralelos produzindo peças incompatíveis: ``ações carregam decisões implícitas, e
+    decisões em conflito geram resultados ruins''. Em 2026~\cite{cognition2026}, a mesma equipe
+    conclui que o multiagente funciona quando ``a escrita fica em uma linha só'' e os outros agentes
+    contribuem inteligência, não ações \rot{citado}.
+  \item \textbf{Amplificação de erro.} Agentes independentes amplificam erros 17,2 vezes; a
+    coordenação centralizada contém isso em 4,4 vezes~\cite{kim2025} \rot{citado}.
+  \item \textbf{Verificação fraca.} Na taxonomia MAST~\cite{mast2025}, tirada de 150 traços
+    anotados de 7 frameworks, cerca de 44\% das falhas são de projeto do sistema (repetir passos
+    15,7\%, não saber quando parar 12,4\%), cerca de 32\% de desalinhamento entre agentes e cerca de
+    23,5\% de verificação (verificação errada 9,1\%, ausente 8,2\%, término prematuro 6,2\%). Em
+    trajetórias de código, 75,8\% das falhas com declaração de status eram um ``pronto'' falso, e
+    juízes LLM não passaram de AUROC 0,65 para detectá-lo~\cite{falsosucesso2026} \rot{citado}.
+\end{enumerate}
+
+\subsection{Quando a equipe compensa}
+
+A mesma literatura aponta os casos em que vale montar uma equipe:
+\begin{itemize}
+  \item \textbf{Trabalho realmente paralelo.} Subtarefas independentes, de preferência de leitura
+    (pesquisar, comparar, auditar), com coordenação centralizada: +80,8\%~\cite{kim2025}. A pesquisa
+    da Anthropic venceu o Opus sozinho por 90,2\% numa avaliação interna~\cite{anthropic2025} \rot{citado}.
+  \item \textbf{Contexto que não cabe num agente.} Com muitas ferramentas ou domínios misturados, um
+    agente sozinho ``cai bruscamente'' a partir de dois domínios de distração~\cite{langchain2025} \rot{citado}.
+  \item \textbf{Verificação independente.} Um revisor com contexto limpo, que vê só o diff, acha em
+    média 2 bugs por PR, cerca de 58\% deles graves~\cite{cognition2026}. Rodar os testes como retorno
+    rendeu de 4 a 5 pontos no MetaGPT~\cite{metagpt2023} \rot{citado}.
+  \item \textbf{Modelo base fraco na tarefa.} O único ganho significativo da Vals.ai foi no modelo com a
+    menor nota sozinho~\cite{vals2026}, coerente com o limiar de ${\sim}$45\% de Kim et al. \rot{inferido}
+\end{itemize}
+
+\section{O que medimos no NarraTer}\label{sec:medido}
+
+\subsection{O que o estudo de versões já dizia}
+
+No estudo de versões (A a G, 3 rodadas cada), \textbf{todas} as rodadas tiraram 31 de 31 nos testes
+escondidos \rot{medido}. Pelo critério de Kim et al., a tarefa está muito acima do limiar de 45\%: só
+custo e tempo podem diferir. O custo cresceu com o número de pedidos que o Narrador fazia aos devs, e a
+latência do protocolo em si ficou em segundos. Na melhor versão (G), a equipe gastou 3,9~min e
+US\$~0,74 por rodada, em média \rot{medido}.
+
+\input{solo-resultados.tex}
+
+\section{O que isso muda no NarraTer}
+
+\rot{inferido} A conclusão não é ``o NarraTer não deve orquestrar''. O transporte do NarraTer
+(o terminal como API universal, a aresta como permissão, a resposta inteira lida do transcript, o
+histórico gravado pelo backend) é exatamente o que a literatura pede de um orquestrador. A conclusão é
+sobre a \emph{política}:
+
+\begin{enumerate}
+  \item \textbf{O padrão deve ser um agente só.} Montar uma equipe passa a exigir um motivo: duas ou
+    mais subtarefas independentes com arquivos separados, um verificador com contexto limpo ou um
+    contexto que não cabe num agente.
+  \item \textbf{A equipe que mais vale em código é ``um escritor + um revisor''}, de preferência de
+    fornecedores diferentes. É onde o NarraTer tem vantagem única: pôr um Codex revisando um Claude
+    não depende de nenhum fornecedor.
+  \item \textbf{``Pronto'' tem que ser verificado no ambiente}, rodando os testes ou o comando de
+    aceite, e não declarado pelo agente.
+  \item \textbf{O gerador de orquestração escolhe entre modelos prontos}, entre eles ``sozinho'', e
+    registra por que montou ou não a equipe.
+\end{enumerate}
+
+\section{Limites deste documento}
+
+\begin{itemize}
+  \item A literatura foi lida, não reproduzida. Conferimos na fonte os números de Kim et al., da
+    Vals.ai, da Cognition (2026) e do estudo de topologia; os demais estão citados com o link para
+    conferir.
+  \item Nossa medição usa uma tarefa só, já no teto de qualidade, e 3 rodadas por braço. Ela mede custo
+    e tempo, não ganho de qualidade.
+  \item A equipe usa Opus, Sonnet e Haiku; o agente sozinho usa só o Opus. Esta é a comparação que
+    importa (``dou a tarefa ao Opus ou ao Opus com uma equipe?''), mas não isola o efeito de cada
+    modelo.
+  \item O braço da equipe é da versão G, e o braço sozinho é da versão atual (H). As duas diferem só
+    no painel Activity, que não muda o protocolo.
+\end{itemize}
+
+\begin{thebibliography}{99}\small
+\bibitem{kim2025} Y.~Kim et al. \emph{Towards a Science of Scaling Agent Systems}. arXiv:2512.08296, 2025.
+  \url{https://arxiv.org/abs/2512.08296}
+\bibitem{tran2026} D.~Tran e D.~Kiela. \emph{Single-Agent LLMs Outperform Multi-Agent Systems on Multi-Hop
+  Reasoning Under Equal Thinking Token Budgets}. arXiv:2604.02460, 2026. \url{https://arxiv.org/abs/2604.02460}
+\bibitem{rethinking2024} Q.~Wang et al. \emph{Rethinking the Bounds of LLM Reasoning: Are Multi-Agent
+  Discussions the Key?} arXiv:2402.18272, 2024. \url{https://arxiv.org/abs/2402.18272}
+\bibitem{mad2025} H.~Zhang et al. \emph{Stop Overvaluing Multi-Agent Debate: We Must Rethink Evaluation and
+  Embrace Model Heterogeneity}. arXiv:2502.08788, 2025.
+  \url{https://arxiv.org/abs/2502.08788}
+\bibitem{vals2026} Vals.ai. \emph{Do Agent Teams Pay Off? A Case Study on Vibe Code Bench}, 2026-10-09.
+  \url{https://www.vals.ai/blogs/multi-agent-vibe-code-bench}
+\bibitem{agentless2024} C.~S.~Xia et al. \emph{Agentless: Demystifying LLM-based Software Engineering
+  Agents}. arXiv:2407.01489, 2024. \url{https://arxiv.org/abs/2407.01489}
+\bibitem{anthropic2025} Anthropic. \emph{How we built our multi-agent research system}, 2025.
+  \url{https://www.anthropic.com/engineering/multi-agent-research-system}
+\bibitem{topologia2026} \emph{An Empirical Study of Coordination Mode as the First-Class Citizen in
+  From-Scratch Multi-Agent Coding}. arXiv:2607.27877, 2026. \url{https://arxiv.org/abs/2607.27877}
+\bibitem{langchain2025} LangChain. \emph{Benchmarking Multi-Agent Architectures}, 2025.
+  \url{https://www.langchain.com/blog/benchmarking-multi-agent-architectures}
+\bibitem{cognition2025} W.~Yan (Cognition). \emph{Don't Build Multi-Agents}, 2025.
+  \url{https://cognition.com/blog/dont-build-multi-agents}
+\bibitem{cognition2026} W.~Yan (Cognition). \emph{Multi-Agents: What's Actually Working}, 2026-04-22.
+  \url{https://cognition.com/blog/multi-agents-working}
+\bibitem{mast2025} M.~Cemri et al. \emph{Why Do Multi-Agent LLM Systems Fail?} arXiv:2503.13657, 2025.
+  \url{https://arxiv.org/abs/2503.13657}
+\bibitem{falsosucesso2026} L.~Advani. \emph{From Confident Closing to Silent Failure: Characterizing False
+  Success in LLM Agents}. arXiv:2606.09863, 2026. \url{https://arxiv.org/abs/2606.09863}
+\bibitem{metagpt2023} S.~Hong et al. \emph{MetaGPT: Meta Programming for a Multi-Agent Collaborative
+  Framework}. arXiv:2308.00352, 2023. \url{https://arxiv.org/abs/2308.00352}
+\end{thebibliography}
+
+\end{document}

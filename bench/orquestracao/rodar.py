@@ -40,6 +40,19 @@ PEDIDO = (
     "confirmado os testes, escreva uma última mensagem com um resumo curto e a linha " + FIM + "."
 )
 
+# Braço "sozinho" (BENCH_VARIANTE=solo): o mesmo pedido a um terminal só, sem equipe, para medir se
+# montar a equipe compensa (docs/pesquisa/orquestracao.md §4.3). Muda só a primeira frase e o
+# "distribua"; projeto, tarefa, critério de pronto e linha de fim são os mesmos.
+PEDIDO_SOLO = (
+    "Você trabalha sozinho neste terminal do NarraTer, sem equipe. "
+    "Projeto: o repositório Python em {work}. Tarefa: (1) implementar docs/PEDIDO-MULTIMOEDA.md; "
+    "(2) investigar e corrigir as duas reclamações de docs/RECLAMACOES.md, seguindo REGRAS.md. "
+    "Critério de pronto: todos os "
+    "testes passam (cd {work} && python3 -m unittest discover -s tests -t .) e a funcionalidade nova tem testes. "
+    "Ninguém vai responder perguntas durante o trabalho: decida com base nos documentos. Quando terminar e tiver "
+    "confirmado os testes, escreva uma última mensagem com um resumo curto e a linha " + FIM + "."
+)
+
 ENV_PASSA = [
     "ANTHROPIC_BASE_URL", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy",
     "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "LANG",
@@ -90,6 +103,10 @@ def cena(versao: str, work: Path) -> dict:
         if versao != "A":
             n["cwd"] = str(work)
         return n
+    if VARIANTE == "solo":
+        # Um terminal só, com o papel de desenvolvedor: o de líder proíbe editar (orquestrador puro).
+        # O rótulo continua "Narrador" para o wrapper dar o mesmo modelo e o mesmo pedido inicial.
+        return {"nodes": [no("terminal-narrador", "Narrador", "coder", "Developer", "#3b82f6", 0, 0)], "edges": []}
     nodes = [
         no("terminal-narrador", "Narrador", "leader", "Leader", "#8b5cf6", 0, 0),
         no("terminal-deva", "DevA", "coder", "Developer", "#3b82f6", 640, -220),
@@ -124,7 +141,7 @@ def prepara(versao: str, rep: int) -> Path:
 
     (run / "versao").write_text(versao)
     (run / "work_path").write_text(str(work))
-    (run / "pedido.txt").write_text(PEDIDO.format(work=work))
+    (run / "pedido.txt").write_text((PEDIDO_SOLO if VARIANTE == "solo" else PEDIDO).format(work=work))
     w = (WRAPPER.replace("__M_NARRADOR__", MODELOS["Narrador"]).replace("__M_DEVA__", MODELOS["DevA"])
          .replace("__M_DEVB__", MODELOS["DevB"]).replace("__ATRASO__", str(ATRASO_LIDER_S))
          .replace("__CLAUDE__", CLAUDE_REAL))
