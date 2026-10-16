@@ -34,6 +34,7 @@ const ANSWER_COLOR: Record<string, string> = {
   attention: "var(--warn)",
   timeout: "var(--danger)",
   cancelled: "var(--danger)",
+  failed: "var(--danger)",
   exited: "var(--danger)",
 };
 

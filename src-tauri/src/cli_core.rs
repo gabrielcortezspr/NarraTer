@@ -186,7 +186,11 @@ impl Cli<'_, '_> {
         let batch = a.value("--batch")?;
         let raw = a.value("--raw")?;
         let timeout = a.value("--timeout")?;
+        let check = a.value("--check")?;
         let no_wait = a.flag("--no-wait");
+        if check.is_some() && raw.is_some() {
+            return Err("Error: --check doesn't apply to --raw (there is no turn to accept)".into());
+        }
         if no_wait && raw.is_some() {
             return Err("Error: --no-wait doesn't apply to --raw (it returns once the screen reacts)".into());
         }
@@ -216,6 +220,9 @@ impl Cli<'_, '_> {
         }
         if no_wait {
             p.insert("no_wait".into(), true.into());
+        }
+        if let Some(check) = check.filter(|c| !c.trim().is_empty()) {
+            p.insert("check".into(), check.into());
         }
         insert_timeout(&mut p, timeout)?;
         self.send(p)
@@ -744,6 +751,16 @@ mod tests {
         assert_eq!(decode(r"2\n", true), "2\r");
         assert_eq!(decode(r"\e[A\x03\0", true), "\x1b[A\x03\0");
         assert_eq!(decode(r"\xZZ", true), r"\xZZ");
+    }
+
+    #[test]
+    fn ask_check_is_sent_and_refused_with_raw() {
+        let v = request(&["ask", "Dev", "do it", "--check", "python3 -m unittest"]);
+        assert_eq!((v["mode"].as_str(), v["check"].as_str()), (Some("ask"), Some("python3 -m unittest")));
+        let v = request(&["ask", "--batch", r#"{"A": "x"}"#, "--check", "make test", "--no-wait"]);
+        assert_eq!((v["mode"].as_str(), v["check"].as_str()), (Some("batch"), Some("make test")));
+        assert!(request(&["ask", "Dev", "do it"]).get("check").is_none());
+        assert!(run(&["ask", "Dev", "--raw", "1", "--check", "true"]).unwrap_err().contains("--check"));
     }
 
     #[test]

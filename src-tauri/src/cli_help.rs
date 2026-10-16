@@ -12,6 +12,7 @@ Usage:
   narrater ask --batch '{"A": "prompt", "B": "prompt"}'
                                                    Ask several agents in parallel; JSON array once all finish
   narrater ask "Agent" "prompt" --no-wait          Send without blocking; prints an ask id (also works with --batch)
+  narrater ask "Agent" "prompt" --check "CMD"      Done only if CMD passes in the agent's project (e.g. the tests)
   narrater wait [id…] [--all] [--timeout S]        The first of your asks to finish, with its answer (--all: every one)
   narrater asks [--all]                            Your recent asks, their ids and states
   narrater ask "Agent" --raw "2\n"                 Type raw input into the agent's terminal (menus, keys, shell input).
@@ -81,8 +82,8 @@ backslash to send them literally (\\n delivers \n)."#;
 pub fn topic(name: &str) -> Option<&'static str> {
     Some(match name {
         "ask" => r#"Usage:
-  narrater ask "Agent" "prompt" [--timeout SECONDS] [--no-wait]
-  narrater ask --batch '{"A": "prompt", "B": "prompt"}' [--no-wait]
+  narrater ask "Agent" "prompt" [--timeout SECONDS] [--no-wait] [--check "CMD"]
+  narrater ask --batch '{"A": "prompt", "B": "prompt"}' [--no-wait] [--check "CMD"]
   narrater ask "Agent" --raw "2\n"
 
 `ask` types your prompt into the agent's terminal when it is idle and blocks
@@ -101,6 +102,14 @@ The ask back pattern: tell the agent to report with
 `You:` in `narrater list`). Its message resolves your waiting `ask` and
 arrives in your terminal in full as a new prompt, instead of being clipped to
 one screen.
+
+--check "CMD" is the acceptance criterion. When the agent's turn ends,
+NarraTer runs CMD with `sh -c` in the agent's project directory (not in its
+terminal; the agent doesn't have to do anything). Exit 0: the answer comes
+back with "Acceptance check passed". Anything else: the ask ends as "failed",
+with the check's output first and the agent's answer after it — send the
+failure back to the agent instead of trusting its "done". Example:
+  narrater ask "Dev" "implement X" --check "python3 -m unittest discover -s tests"
 
 --batch takes a JSON map of agent name to prompt, runs every target in
 parallel and returns a JSON array of {name, output} (or {name, error}) once

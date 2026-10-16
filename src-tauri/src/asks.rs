@@ -33,6 +33,8 @@ pub enum AskState {
     Done,
     /// The target stopped at a permission menu or y/n prompt.
     Attention,
+    /// The turn ended but the acceptance check (`ask --check`) failed.
+    Failed,
     /// The target messaged the asker back instead (ask-back).
     Answered,
     /// Never delivered, or the turn outlasted the timeout.
@@ -56,6 +58,7 @@ impl AskState {
             AskState::Delivered => "delivered",
             AskState::Done => "done",
             AskState::Attention => "attention",
+            AskState::Failed => "failed",
             AskState::Answered => "answered",
             AskState::Timeout => "timeout",
             AskState::Exited => "exited",

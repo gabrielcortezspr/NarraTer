@@ -15,6 +15,7 @@ Agents connected to you on the canvas can exchange prompts and answers through t
 - `narrater ask "Agent" "your prompt"` — send a prompt and get the answer when the agent finishes
 - `narrater ask --batch '{"Agent A": "prompt", "Agent B": "prompt"}'` — ask several agents in parallel
 - `narrater ask "Agent" "prompt" --no-wait` (or `--batch … --no-wait`) — send without blocking; prints an ask id
+- `narrater ask "Agent" "prompt" --check "CMD"` — the ask only counts as done if `CMD` passes (exit 0) in the agent's project after its turn; otherwise it ends `failed` with the command's output
 - `narrater wait [ask-id…] [--all]` — the first of your asks to finish, with its answer; `narrater asks` lists yours
 - `narrater ask "Agent" --raw "2\n"` — type raw input (menus, permission prompts, shell input). Escapes: `\n` Enter, `\t` Tab, `\e` ESC, `\xNN` byte (`\x03` Ctrl-C); special keys are ESC sequences, e.g. `\e[A` up arrow
 - `narrater check "Agent"` — read the agent's current screen without sending anything
@@ -36,6 +37,23 @@ Always run `narrater list` first to get exact names. Run `narrater help <command
 - Never interrupt an agent that is still working, and don't edit files another agent is actively modifying.
 - If `ask` reports the agent is waiting for input (a permission menu), answer with `--raw` or tell the user.
 - **Ask back** — for results longer than one screen (reviews, plans, reports): tell the agent to report with `narrater ask "Your Name" "<result>"` when done. That message resolves your waiting `ask` and arrives in full in your terminal as a new prompt.
+
+## Delegating well
+
+An agent's "done" is its own word; check it. When the task has a verifiable criterion (tests, a build, a
+linter), pass it as `--check "CMD"`: NarraTer runs it after the turn, without the agent's help, and a
+failure comes back as `failed` with the output — send that back to the agent instead of trusting it.
+
+Write each delegation as a small spec, not a chat line:
+- **Goal:** what must be true at the end.
+- **Acceptance:** the command or the observable result that proves it (the same as `--check`).
+- **Scope:** the files or modules it may change; two agents never write the same files.
+- **Answer:** what to report back (e.g. "files changed and test result, in 5 lines").
+
+For a long spec, write it in a note, connect the note to the agent and point to it in the prompt.
+
+Don't repeat a prompt you already sent: if the answer looked incomplete, ask a precise follow-up about what
+is missing. If NarraTer warns that a prompt repeats an earlier one, read that earlier answer first.
 
 ## When a prompt arrives from another agent
 

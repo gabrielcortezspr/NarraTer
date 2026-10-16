@@ -78,6 +78,10 @@ struct IpcRequest {
     /// mode "ask" / "batch": return the ask id(s) at once (`--no-wait`).
     #[serde(default)]
     no_wait: bool,
+    /// mode "ask" / "batch": acceptance check (`--check "CMD"`), run in the
+    /// target's project once its turn ends; failing turns the ask "failed".
+    #[serde(default)]
+    check: Option<String>,
     /// mode "wait": the ask ids (none: the caller's uncollected `--no-wait` asks).
     #[serde(default)]
     ids: Vec<String>,
@@ -185,7 +189,7 @@ pub async fn dispatch(ctx: &IpcCtx, buf: &[u8]) -> String {
             Some("ask") if req.no_wait => {
                 let timeout = req.timeout_secs.map(Duration::from_secs).unwrap_or(ASK_DEFAULT_TIMEOUT);
                 let (to, msg) = (req.to.as_deref().unwrap_or(""), req.msg.as_deref().unwrap_or(""));
-                match start_ask(state, app, &req.from, to, msg, timeout, true) {
+                match start_ask(state, app, &req.from, to, msg, timeout, true, req.check.as_deref()) {
                     Ok(id) => format!(
                         "{} sent to '{}'. Collect it with `narrater wait` (or `narrater wait {}`); do NOT re-send.\n",
                         id, to.trim(), id
@@ -195,7 +199,7 @@ pub async fn dispatch(ctx: &IpcCtx, buf: &[u8]) -> String {
             }
             Some("ask") => {
                 let timeout = req.timeout_secs.map(Duration::from_secs).unwrap_or(ASK_DEFAULT_TIMEOUT);
-                match ask_one(state, app, &req.from, req.to.as_deref().unwrap_or(""), req.msg.as_deref().unwrap_or(""), timeout).await {
+                match ask_one(state, app, &req.from, req.to.as_deref().unwrap_or(""), req.msg.as_deref().unwrap_or(""), timeout, req.check.as_deref()).await {
                     Ok(text) => with_newline(text),
                     Err(e) => with_newline(e),
                 }
@@ -334,7 +338,9 @@ pub fn start_ask(
     msg: &str,
     timeout: Duration,
     detached: bool,
+    check: Option<&str>,
 ) -> Result<String, String> {
+    let check = check.map(str::trim).filter(|c| !c.is_empty()).map(str::to_string);
     if msg.trim().is_empty() {
         return Err("Error: empty prompt".into());
     }
@@ -381,9 +387,11 @@ pub fn start_ask(
     let (state, app, from, to, msg, ask_id) =
         (Arc::clone(state), app.clone(), from.to_string(), to.to_string(), msg.to_string(), id.clone());
     let (target, target_label) = (asks.get(&id).map(|r| r.to).unwrap_or_default(), asks.get(&id).map(|r| r.to_label).unwrap_or_default());
+    // Where the acceptance check runs: the project the target works on
+    let project = check.as_ref().and_then(|_| state.lock().unwrap().sessions.get(&target).map(|s| s.project_dir.clone()));
     tokio::spawn(async move {
         let started = Instant::now();
-        let (outcome, text) = match run_ask(&state, &app, &ask_id, &from, &to, &msg, timeout).await {
+        let (mut outcome, mut text) = match run_ask(&state, &app, &ask_id, &from, &to, &msg, timeout).await {
             Ok(r) => r,
             Err(e) => (AskState::Exited, e),
         };
@@ -391,6 +399,18 @@ pub fn start_ask(
         let mut detail = format!("{:.1} s", started.elapsed().as_secs_f64());
         if let Some(src) = crate::activity::take_source(&ask_id) {
             detail = format!("{} · {}", detail, src);
+        }
+        // "Done" is the agent's word; the acceptance check is the environment's (MAST: false success)
+        if let (AskState::Done, Some(cmd)) = (outcome, check.as_deref()) {
+            let dir = project.clone().unwrap_or_else(|| std::env::temp_dir());
+            let (passed, report) = run_check(cmd, &dir).await;
+            detail = format!("{} · check {}", detail, if passed { "passed" } else { "failed" });
+            if passed {
+                text = format!("{}\n\n{}", text.trim_end(), report);
+            } else {
+                outcome = AskState::Failed;
+                text = format!("{}\n\n--- the agent's answer ---\n{}", report, text.trim_end());
+            }
         }
         crate::activity::record(
             crate::activity::ActivityEvent::new("answer", &target, &target_label)
@@ -405,6 +425,49 @@ pub fn start_ask(
     Ok(id)
 }
 
+/// The acceptance check outlives slow test suites, but not forever.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(600);
+/// Tail of the check's output kept in the answer.
+const CHECK_OUTPUT_CAP: usize = 3000;
+
+/// Runs an acceptance check (`ask --check "CMD"`) with `sh -c` in `dir`.
+/// Returns whether it passed (exit 0 within CHECK_TIMEOUT) and the report
+/// line(s) for the answer. The agent never sees or runs it: the NarraTer does,
+/// after the turn ends — no cooperation needed (D01).
+pub async fn run_check(cmd: &str, dir: &std::path::Path) -> (bool, String) {
+    let started = Instant::now();
+    let child = tokio::process::Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .current_dir(dir)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    let secs = || started.elapsed().as_secs_f64();
+    match tokio::time::timeout(CHECK_TIMEOUT, child).await {
+        Err(_) => (false, format!("[narrater] Acceptance check FAILED: `{}` did not finish in {} s.", cmd, CHECK_TIMEOUT.as_secs())),
+        Ok(Err(e)) => (false, format!("[narrater] Acceptance check FAILED: could not run `{}` in {} ({}).", cmd, dir.display(), e)),
+        Ok(Ok(out)) if out.status.success() => {
+            (true, format!("[narrater] Acceptance check passed: `{}` (exit 0, {:.1} s).", cmd, secs()))
+        }
+        Ok(Ok(out)) => {
+            let mut all = String::from_utf8_lossy(&out.stdout).into_owned();
+            all.push_str(&String::from_utf8_lossy(&out.stderr));
+            let n = all.chars().count();
+            let tail: String = all.chars().skip(n.saturating_sub(CHECK_OUTPUT_CAP)).collect();
+            let code = out.status.code().map(|c| c.to_string()).unwrap_or_else(|| "a signal".into());
+            (
+                false,
+                format!(
+                    "[narrater] Acceptance check FAILED: `{}` exited with {} after {:.1} s, in {}. The agent ended its turn, \
+                     but the check says the task is not done.\n--- check output{} ---\n{}",
+                    cmd, code, secs(), dir.display(), if n > CHECK_OUTPUT_CAP { " (tail)" } else { "" }, tail.trim_end()
+                ),
+            )
+        }
+    }
+}
+
 /// `ask` without `--no-wait`: starts it and blocks until its outcome, then
 /// prints it as it always did (the screen, or the error/notice).
 pub async fn ask_one(
@@ -414,8 +477,9 @@ pub async fn ask_one(
     to: &str,
     msg: &str,
     timeout: Duration,
+    check: Option<&str>,
 ) -> Result<String, String> {
-    let id = start_ask(state, app, from, to, msg, timeout, false)?;
+    let id = start_ask(state, app, from, to, msg, timeout, false, check)?;
     let asks = Arc::clone(&state.lock().unwrap().asks);
     // run_ask always finishes by `timeout` (plus the boot wait); the margin
     // only guards against a record that never settles
@@ -425,7 +489,7 @@ pub async fn ask_one(
             let r = v.remove(0);
             let text = r.result.unwrap_or_default();
             match r.state {
-                AskState::Done | AskState::Attention | AskState::Answered => Ok(text),
+                AskState::Done | AskState::Attention | AskState::Answered | AskState::Failed => Ok(text),
                 _ => Err(text),
             }
         }
@@ -697,7 +761,7 @@ async fn handle_batch(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtySt
             .into_iter()
             .map(|(name, prompt)| {
                 let started = match prompt.as_str() {
-                    Some(p) => start_ask(state, app, &req.from, &name, p, timeout, true),
+                    Some(p) => start_ask(state, app, &req.from, &name, p, timeout, true, req.check.as_deref()),
                     None => Err("Error: the prompt must be a JSON string".into()),
                 };
                 match started {
@@ -710,10 +774,10 @@ async fn handle_batch(req: &IpcRequest, app: &AppHandle, state: &Arc<Mutex<PtySt
     }
     let mut set = tokio::task::JoinSet::new();
     for (i, (name, prompt)) in batch.into_iter().enumerate() {
-        let (state, app, from) = (Arc::clone(state), app.clone(), req.from.clone());
+        let (state, app, from, check) = (Arc::clone(state), app.clone(), req.from.clone(), req.check.clone());
         set.spawn(async move {
             let res = match prompt.as_str() {
-                Some(p) => ask_one(&state, &app, &from, &name, p, timeout).await,
+                Some(p) => ask_one(&state, &app, &from, &name, p, timeout, check.as_deref()).await,
                 None => Err("Error: the prompt must be a JSON string".into()),
             };
             (i, name, res)
@@ -1020,6 +1084,26 @@ mod tests {
             inner.names.set(id, scene, label);
         }
         inner
+    }
+
+    #[tokio::test]
+    async fn acceptance_check_passes_on_exit_zero_and_reports_failures() {
+        let dir = std::env::temp_dir();
+        let (ok, report) = run_check("true", &dir).await;
+        assert!(ok, "{report}");
+        assert!(report.contains("passed"));
+
+        let (ok, report) = run_check("echo boom; echo err >&2; exit 3", &dir).await;
+        assert!(!ok);
+        assert!(report.contains("exited with 3"), "{report}");
+        assert!(report.contains("boom") && report.contains("err"), "{report}");
+
+        // Runs in the given directory, like the agent's project
+        let (ok, report) = run_check("test \"$(pwd)\" = \"$PWD\" && test -d .", &dir).await;
+        assert!(ok, "{report}");
+
+        let (ok, report) = run_check("true", std::path::Path::new("/no/such/dir")).await;
+        assert!(!ok && report.contains("could not run"), "{report}");
     }
 
     #[test]
