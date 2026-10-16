@@ -35,6 +35,7 @@ Cada entrada tem seis campos:
 | CLI e distribuição | D03 |
 | Escopo do produto | D04, D05 |
 | Processo | D09, D19 |
+| Orquestração | D22 |
 | Design | D13, D14, D15, D16, D18 |
 
 ---
@@ -780,3 +781,61 @@ O arquivo fica intacto.
 
 **Revisar se:** o arquivo crescer mais rápido que a rotação aguenta; ou o painel precisar de eventos
 de outros agentes (Codex, Gemini) que hoje só chegam pela tela, sem nada novo a registrar.
+
+## D22 · O padrão é um agente só; montar equipe precisa de motivo
+
+`2026-10-16` · orquestração · `docs/relatorios/quando-orquestrar.pdf`, `docs/pesquisa/orquestracao.md`, `bench/orquestracao/solo.py`
+
+**Contexto.** O estudo de versões (D19) só comparou equipe contra equipe. Nunca perguntamos se montar a
+equipe compensa. A literatura de 2025 e 2026 diz que, em código e em tarefas que um agente sozinho já
+resolve, normalmente não compensa. O próximo passo do produto é um gerador automático de equipes, que
+precisa de um padrão.
+
+**Decisão.** Quando alguém (o usuário, o Narrador ou o futuro gerador) decide como atacar uma tarefa, a
+resposta padrão é **um agente só**. Montar equipe exige pelo menos um motivo explícito:
+- duas ou mais subtarefas independentes, com arquivos separados;
+- um verificador com contexto limpo (revisor ou QA), de preferência de outro fornecedor;
+- um contexto que não cabe num agente.
+
+O motivo fica registrado (nota no canvas). A equipe de código preferida é "um escritor + um revisor".
+
+**Alternativas consideradas.**
+- *Equipe por padrão, como hoje no pedido do benchmark e no modo Maestro*: medimos que custa mais e
+  demora mais pela mesma qualidade.
+- *Deixar a decisão inteiramente ao líder, sem regra*: a Anthropic relata líderes criando 50 subagentes
+  para perguntas simples, e o MAST mostra que a especificação fraca do sistema é a maior família de
+  falhas (~44%).
+- *Nunca orquestrar*: a literatura mostra ganhos reais em trabalho paralelo de leitura (+80,8%, Kim et
+  al.) e com revisor de contexto limpo (Cognition, ~2 bugs por PR). O produto existe para esses casos.
+
+**Evidência.**
+- `[medido]` Braço "sozinho" do benchmark (`BENCH_VARIANTE=solo`, 3 rodadas, versão H `73fab8b`) contra a
+  equipe G (3 rodadas):
+  - 31/31 nos dois;
+  - 1,6 contra 3,9 min;
+  - 0,36 contra 2,50 milhões de tokens processados;
+  - 8 contra 49 chamadas à API;
+  - US$ 0,55 contra 0,74.
+
+  Nenhuma dessas métricas se sobrepõe (Mann–Whitney U = 0, p = 0,10, o mínimo com n = 3). Contra a
+  equipe F, o tempo também não se sobrepõe; o custo sim (p = 0,70). Só o Narrador da G, coordenando,
+  custou US$ 0,32–0,41, de 60% a 75% do Opus sozinho fazendo tudo. Dados em
+  `bench/orquestracao/resultados/2026-10-16/`.
+- `[citado]` Fontes externas:
+  - Kim et al. 2025: coordenar não paga acima de ~45% de acerto do agente sozinho; −39% a −70% em
+    tarefas sequenciais.
+  - Vals.ai 2026-10-09: equipes custam de 1,8× a 5,1×, com 1 ganho significativo em 4. Opus 5.5 médio:
+    −0,3 ponto a 2,2× o custo.
+  - Tran e Kiela 2026: com o mesmo orçamento, o agente sozinho empata ou ganha.
+
+  Todas em `docs/relatorios/quando-orquestrar.pdf`.
+
+**Consequência.**
+- O pedido do benchmark, o modo Maestro e a skill `narrater-manager` precisam da regra do portão.
+- O gerador de equipes (backlog O11) tem "sozinho" como primeiro modelo.
+- O benchmark precisa de uma tarefa que o agente sozinho não sature e de uma paralelizável. Sem elas,
+  não há como medir o caso em que a equipe deveria ganhar.
+
+**Revisar se:** numa tarefa sem teto (agente sozinho abaixo de ~70%) ou paralelizável, a equipe ganhar em
+qualidade ou em custo por teste aprovado; ou se os modelos mudarem a relação de preço entre o líder e os
+devs a ponto de a coordenação ficar barata.

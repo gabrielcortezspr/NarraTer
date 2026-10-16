@@ -273,3 +273,23 @@ Se o braço sozinho ganhar na tarefa atual, o portão do §4.2 está justificado
 - **Juiz LLM decidindo o "pronto":** AUROC ≤ 0,65.
 - **Gerador que inventa topologia livre:** sem evidência a favor em código.
 - **Um agente gerador permanente.**
+
+## 6. Resultado do braço "sozinho" (2026-10-16)
+
+Medido como descrito em §4.3. Relatório completo em `../relatorios/quando-orquestrar.pdf`, decisão D22.
+
+| | Sozinho (H, 1 terminal, Opus) | Equipe G | Equipe F |
+|---|---|---|---|
+| Testes escondidos | 31/31 nas 3 | 31/31 | 31/31 |
+| Duração (min) | 1,6 (1,4–1,8) | 3,9 (2,8–5,2) | 2,8 (2,3–3,7) |
+| Tokens processados (milhões) | 0,36 | 2,50 | 1,73 |
+| Custo (US$) | 0,55 (0,52–0,58) | 0,74 (0,63–0,88) | 0,65 (0,50–0,82) |
+| Chamadas à API | 8 | 49 | 38 |
+
+O que os números mostram:
+- `[medido]` O agente sozinho vence a G em tempo, tokens, chamadas e custo, sem sobreposição (p = 0,10, o
+  mínimo com n = 3). Contra a F, vence em tempo; o custo se sobrepõe (p = 0,70).
+- `[medido]` Só o Narrador da G, coordenando, custou US$ 0,32–0,41: de 60% a 75% do Opus sozinho fazendo
+  tudo. O custo cai menos que os tokens porque, na equipe, o grosso dos tokens é do Haiku, que é barato.
+- `[inferido]` Confirma F1: nesta tarefa, a equipe só acrescenta custo. Falta a tarefa em que ela deveria
+  ganhar (sem teto, ou paralelizável), que continua na O9.

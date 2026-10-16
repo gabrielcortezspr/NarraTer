@@ -39,7 +39,9 @@ A resposta da literatura é consistente. Quando um agente sozinho já resolve be
 custa de 1,8 a 5,1 vezes mais e quase nunca melhora o resultado de forma significativa. Em tarefas
 sequenciais, ela piora. A equipe compensa em casos estreitos: trabalho realmente paralelo, contexto
 que não cabe num agente só e verificação independente. Medimos isso no NarraTer com o mesmo pedido
-dado a um terminal sozinho e à equipe de três agentes (seção~\ref{sec:medido}).
+dado a um terminal sozinho e à equipe de três agentes (seção~\ref{sec:medido}). Os dois tiraram
+31 de 31 nos testes escondidos. O terminal sozinho foi 2,5 vezes mais rápido (1,6 contra 3,9~min),
+usou 7 vezes menos tokens e custou 26\% menos que a versão atual da equipe (G).
 \end{abstract}
 
 \noindent\textbf{Rótulos.} \rot{citado}: afirmado pela fonte indicada. \rot{medido}: medido por nós,
@@ -171,7 +173,50 @@ custo e tempo podem diferir. O custo cresceu com o número de pedidos que o Narr
 latência do protocolo em si ficou em segundos. Na melhor versão (G), a equipe gastou 3,9~min e
 US\$~0,74 por rodada, em média \rot{medido}.
 
-\input{solo-resultados.tex}
+\subsection{O braço ``sozinho''}
+
+\paragraph{Método.} Usamos o mesmo benchmark, a mesma tarefa (o repositório \texttt{pedidos}, com uma
+funcionalidade de várias moedas e dois defeitos plantados) e os mesmos 31 testes escondidos. Cada
+rodada começa do zero: HOME, tmux e sessão próprios. Há uma diferença só: o canvas tem \textbf{um
+terminal}, com o mesmo Opus 5.5 do Narrador e o papel de desenvolvedor, porque o papel de líder proíbe
+editar. O pedido é o mesmo, trocando ``distribua o trabalho entre DevA e DevB'' por ``você trabalha
+sozinho''. O critério de pronto e a linha de fim não mudam. Foram 3 rodadas, na versão atual (H,
+\texttt{73fab8b}), em 16/10/2026 (\texttt{BENCH\_VARIANTE=solo python3 rodar.py H N}; comparação em
+\texttt{bench/orquestracao/solo.py}). Para a equipe, usamos as rodadas F e G do estudo de versões, as
+duas melhores. A H só acrescenta o painel Activity à G, sem mudar o protocolo.
+
+\begin{table}[H]
+\centering\small
+\caption{Um terminal sozinho contra a equipe de três agentes, na mesma tarefa \rot{medido}. Média e,
+entre parênteses, o mínimo e o máximo das 3 rodadas. A equipe F tem o mesmo protocolo de leitura do
+transcript da G, sem o ajuste de pedidos em lote.}
+\input{dados/solo.tex}
+\end{table}
+
+\paragraph{Resultado.} \rot{medido}
+\begin{itemize}
+  \item \textbf{Mesma qualidade.} As seis rodadas da equipe e as três rodadas sozinho tiraram 31 de 31.
+    Os testes do próprio agente também passaram todos (40 a 47).
+  \item \textbf{2,5 vezes mais rápido que a equipe G}: 1,6~min contra 3,9~min, sem sobreposição
+    (Mann--Whitney $U = 0$, $p = 0{,}10$, o menor $p$ possível com 3 contra 3). Contra a F, a melhor
+    equipe em tempo, o agente sozinho também vence sem sobreposição (1,6 contra 2,8~min, $p = 0{,}10$).
+  \item \textbf{7 vezes menos tokens} (0,36 contra 2,50 milhões) e \textbf{6 vezes menos chamadas à
+    API} (8 contra 49), também sem sobreposição. As três rodadas sozinho fizeram exatamente 8 chamadas.
+  \item \textbf{26\% mais barato que a G} (US\$~0,55 contra 0,74, sem sobreposição, $p = 0{,}10$).
+    Contra a F, o custo se sobrepõe (US\$~0,50 a 0,82; $p = 0{,}70$): não dá para afirmar diferença.
+\end{itemize}
+
+\paragraph{Por que o custo cai menos que os tokens.} Na equipe, quem processa mais tokens é o DevB,
+o Haiku: de 1,3 a 1,7 milhão de tokens por rodada na G, a menos de US\$~0,04. O agente sozinho é o
+Opus, o modelo mais caro. Mesmo assim, \textbf{só o Narrador da equipe G, apenas coordenando, custou
+de US\$~0,32 a 0,41 por rodada}: de 60\% a 75\% do que o Opus sozinho gastou para fazer a tarefa
+inteira \rot{medido}. Coordenar sai quase tão caro quanto fazer.
+
+\paragraph{Leitura.} \rot{inferido} É o que Kim et al.~\cite{kim2025} e a Vals.ai~\cite{vals2026}
+preveem para uma tarefa que o agente sozinho já resolve: a equipe só acrescenta custo e tempo. A tarefa
+do benchmark é pequena e sequencial (uma funcionalidade e duas correções no mesmo módulo). Ela não
+mostra o que acontece numa tarefa que o agente sozinho não dá conta ou que se divide em partes
+independentes. Esse é o caso que falta medir.
 
 \section{O que isso muda no NarraTer}
 

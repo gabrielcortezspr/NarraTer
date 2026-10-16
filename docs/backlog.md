@@ -57,9 +57,10 @@ O5, o que sobra de custo são as voltas ao Narrador entre fases.
 - Statusline ligada contra desligada com mais rodadas: na E, as rodadas sem statusline foram mais
   baratas, mas p = 0,2.
 - Uma tarefa mais difícil, sem teto de qualidade.
-- **Braço "sozinho"** (só o Narrador) e braço "dev + revisor" contra a equipe G, com métrica de custo por teste
-  escondido aprovado. É a pergunta que o estudo A–G não fez: vale montar equipe? (`pesquisa/orquestracao.md` §3 F1–F2, §4.3).
-  Primeiro da fila, porque decide o padrão do gerador (O11).
+- ✅ 2026-10-16 **Braço "sozinho"**: 1 terminal venceu a equipe G em tempo, tokens e custo, com a mesma nota
+  (D22, `relatorios/quando-orquestrar.pdf`).
+- Braço "dev + revisor" e uma tarefa sem teto e paralelizável, com métrica de custo por teste escondido
+  aprovado: é onde a equipe deveria ganhar, e ainda não medimos (`pesquisa/orquestracao.md` §4.3, §6).
 
 **O10 · Comando de aceite.** `narrater ask … --check "CMD"` (e o mesmo campo na tarefa da O8): no fim do turno o
 backend roda o comando no cwd do alvo; se falhar, o ask termina em `attention` com a saída, em vez de `done`. Não exige

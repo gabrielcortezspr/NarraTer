@@ -20,17 +20,19 @@ a partir dele, o `ask` lendo o transcript do Claude (D20): versões E, F e G med
 - Painel Activity (Ctrl+J, D21): histórico de estados, asks e mensagens gravado pelo backend em
   `~/.config/narrater/activity.jsonl`; verificado no app real (`docs/pesquisa/img/painel-atividade*.png`).
 
+- 2026-10-16: pesquisa de orquestração (`pesquisa/orquestracao.md`) e relatório `relatorios/quando-orquestrar.pdf`.
+  Um terminal sozinho venceu a equipe G na mesma tarefa: 31/31 nos dois, 1,6 contra 3,9 min, 7× menos tokens,
+  US$ 0,55 contra 0,74 (D22: o padrão é um agente só).
+
 ## Próximo passo
 
-O8: tarefas com dependências e pega automática (inspirada no Agent Teams), medida no benchmark. Depois:
-leitor de transcript do Codex; variantes O9 (dev ↔ dev, statusline, tarefa sem teto).
+Corrigir as falhas do método (`pesquisa/orquestracao.md` §3): portão na skill e no pedido (D22), comando de
+aceite (O10), escolha de modelo no `recruit`. Depois, o gerador de equipes (O11) com a chave liga/desliga.
 
 ## Decisões pendentes
 
 - O3: quando a tela ociosa e o `narrater done` chegarem juntos, qual vale.
 - Tela alternativa do Claude: manter (decidido por ora); desligar seria preferência opcional.
-- Gerador de equipes (`pesquisa/orquestracao.md` §4, backlog O11): formato proposto, aguardando o Gabriel. Antes,
-  o braço "sozinho" do benchmark (O9) decide se equipe vale; precisa de cota para rodar.
 
 ## Lembrar
 

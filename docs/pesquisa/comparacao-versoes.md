@@ -93,3 +93,9 @@ versão, e o relatório tem a seção 7 com tabelas e testes.
 4. `[inferido]` **Statusline: suspeita não confirmada** (E contra E sem statusline, p = 0,20, com a E2 inflada pela
    falha 1). Fica para a O9.
 
+
+## Equipe contra agente sozinho (2026-10-16)
+
+O mesmo pedido a um terminal só (Opus 5.5, 3 rodadas) tirou 31/31 em 1,6 min, com 0,36 milhão de tokens e
+US$ 0,55. A equipe G levou 3,9 min, com 2,50 milhões e US$ 0,74. `[medido]` Nenhuma das métricas se sobrepõe.
+Detalhes em `orquestracao.md` §6 e `../relatorios/quando-orquestrar.pdf`; decisão D22.
