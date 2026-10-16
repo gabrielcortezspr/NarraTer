@@ -2,6 +2,7 @@
 """Uma rodada do benchmark de orquestração (docs/pesquisa/comparacao-versoes.md).
 
 Uso: rodar.py VERSAO REP   (VERSAO em A B C D; binários em $BENCH/bin/vX, fontes em $BENCH/vX)
+     BENCH_TAREFA=armazem BENCH_VARIANTE=solo|equipe|revisor rodar.py H REP   (equipe contra sozinho)
 
 Cada rodada começa zerada: HOME próprio (config do Claude, skills, sessões, ~/.config/narrater),
 servidor tmux próprio, pasta de trabalho copiada do fixture, ambiente mínimo (só login e proxy).
@@ -27,7 +28,8 @@ DISPLAY = os.environ.get("BENCH_DISPLAY", ":77")
 LIMITE_S = int(os.environ.get("BENCH_LIMITE_S", 40 * 60))
 ATRASO_LIDER_S = 25
 
-MODELOS = {"Narrador": "claude-opus-5-5", "DevA": "claude-sonnet-5-5", "DevB": "claude-haiku-5-5"}
+MODELOS = {"Narrador": "claude-opus-5-5", "DevA": "claude-sonnet-5-5", "DevB": "claude-haiku-5-5",
+           "Revisor": "claude-sonnet-5-5"}
 FIM = "TAREFA CONCLUIDA"
 
 PEDIDO = (
@@ -53,6 +55,37 @@ PEDIDO_SOLO = (
     "confirmado os testes, escreva uma última mensagem com um resumo curto e a linha " + FIM + "."
 )
 
+# Tarefa `armazem` (docs/relatorios/equipe-ou-sozinho.tex): quatro módulos independentes, para o caso em
+# que a pesquisa diz que a equipe ganha (trabalho paralelo e revisão com contexto limpo). Os três braços
+# recebem a mesma tarefa, os mesmos documentos e o mesmo critério de pronto; muda só quem faz.
+TAREFA_ARMAZEM = (
+    "Projeto: o repositório Python em {work}. Tarefa: (1) implementar os quatro pedidos de docs/PEDIDOS.md; "
+    "(2) investigar e corrigir as quatro reclamações de docs/RECLAMACOES.md, seguindo REGRAS.md. "
+    "Critério de pronto: todos os testes passam (cd {work} && python3 -m unittest discover -s tests -t .) e cada "
+    "funcionalidade nova e cada correção tem testes. "
+    "Ninguém vai responder perguntas durante o trabalho: decida com base nos documentos. Quando terminar e tiver "
+    "confirmado os testes, escreva uma última mensagem com um resumo curto e a linha " + FIM + "."
+)
+ABERTURA_ARMAZEM = {
+    "solo": "Você trabalha sozinho neste terminal do NarraTer, sem equipe. ",
+    "equipe": "Você é o Narrador, líder de uma equipe com DevA e DevB (terminais conectados a você no NarraTer). "
+              "Os quatro módulos são independentes e cada um fica em arquivos próprios: divida os módulos entre "
+              "DevA e DevB para trabalharem em paralelo, sem os dois mexerem no mesmo arquivo. Você coordena, "
+              "revisa e integra. ",
+    "revisor": "Você escreve o código; o Revisor (terminal conectado a você no NarraTer) revisa. Quando achar que "
+               "terminou, peça a revisão com narrater ask \"Revisor\" \"...\", dizendo só onde está o repositório "
+               "(ele lê o diff com git diff e os documentos por conta própria, sem o seu histórico). Corrija o que "
+               "for procedente e só então conclua. ",
+}
+REVISOR_INSTRUCOES = (
+    "You are a code reviewer. You never edit files. When asked for a review, read the repository's rules and "
+    "requests (REGRAS.md, docs/), the diff (git diff) and the tests, run the tests, and answer with a short, "
+    "concrete list of defects: file, the rule it breaks and an input that fails. If you find nothing, say it is "
+    "approved. Chain of command: the agent who asked is your only point of contact; never ask the user."
+)
+TAREFA = os.environ.get("BENCH_TAREFA", "pedidos")
+SUITE = {"pedidos": "test_oculto", "armazem": "test_armazem"}[TAREFA]
+
 ENV_PASSA = [
     "ANTHROPIC_BASE_URL", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy",
     "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "LANG",
@@ -65,6 +98,7 @@ case "$NARRATER_LABEL" in
   Narrador) M=__M_NARRADOR__ ;;
   DevA) M=__M_DEVA__ ;;
   DevB) M=__M_DEVB__ ;;
+  Revisor) M=__M_REVISOR__ ;;
   *) M=__M_NARRADOR__ ;;
 esac
 SID=$(cat /proc/sys/kernel/random/uuid)
@@ -103,6 +137,13 @@ def cena(versao: str, work: Path) -> dict:
         if versao != "A":
             n["cwd"] = str(work)
         return n
+    if TAREFA == "armazem" and VARIANTE == "revisor":
+        # Quem escreve é o mesmo Opus, com papel de desenvolvedor; o Revisor só lê (instruções próprias)
+        escritor = no("terminal-narrador", "Narrador", "coder", "Developer", "#3b82f6", 0, 0)
+        revisor = no("terminal-revisor", "Revisor", "coder", "Reviewer", "#3b82f6", 640, 0)
+        revisor.update(role_id="reviewer", instructions=REVISOR_INSTRUCOES)
+        return {"nodes": [escritor, revisor],
+                "edges": [{"id": "edge-0", "source": "terminal-narrador", "target": "terminal-revisor", "edge_type": "agent-pipe"}]}
     if VARIANTE == "solo":
         # Um terminal só, com o papel de desenvolvedor: o de líder proíbe editar (orquestrador puro).
         # O rótulo continua "Narrador" para o wrapper dar o mesmo modelo e o mesmo pedido inicial.
@@ -125,15 +166,16 @@ VARIANTE = os.environ.get("BENCH_VARIANTE", "")
 
 
 def prepara(versao: str, rep: int) -> Path:
-    nome = f"v{versao}-{VARIANTE}-r{rep}" if VARIANTE else f"v{versao}-r{rep}"
+    sufixo = "-".join(x for x in (TAREFA if TAREFA != "pedidos" else "", VARIANTE) if x)
+    nome = f"v{versao}-{sufixo}-r{rep}" if sufixo else f"v{versao}-r{rep}"
     run = BENCH / "runs" / nome
     if run.exists():
         shutil.rmtree(run)
-    home, work = run / "home", run / "work" / "pedidos"
+    home, work = run / "home", run / "work" / TAREFA
     (home / ".local/bin").mkdir(parents=True)
     (home / ".config/narrater/scenes").mkdir(parents=True)
     (run / "tmux").mkdir()
-    shutil.copytree(AQUI / "fixture/pedidos", work, ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(AQUI / "fixture" / TAREFA, work, ignore=shutil.ignore_patterns("__pycache__"))
     git = ["git", "-c", "user.name=bench", "-c", "user.email=bench@local"]
     subprocess.run(git + ["init", "-q"], cwd=work, check=True)
     subprocess.run(git + ["add", "-A"], cwd=work, check=True)
@@ -141,9 +183,13 @@ def prepara(versao: str, rep: int) -> Path:
 
     (run / "versao").write_text(versao)
     (run / "work_path").write_text(str(work))
-    (run / "pedido.txt").write_text((PEDIDO_SOLO if VARIANTE == "solo" else PEDIDO).format(work=work))
+    if TAREFA == "armazem":
+        pedido = ABERTURA_ARMAZEM[VARIANTE] + TAREFA_ARMAZEM
+    else:
+        pedido = PEDIDO_SOLO if VARIANTE == "solo" else PEDIDO
+    (run / "pedido.txt").write_text(pedido.format(work=work))
     w = (WRAPPER.replace("__M_NARRADOR__", MODELOS["Narrador"]).replace("__M_DEVA__", MODELOS["DevA"])
-         .replace("__M_DEVB__", MODELOS["DevB"]).replace("__ATRASO__", str(ATRASO_LIDER_S))
+         .replace("__M_DEVB__", MODELOS["DevB"]).replace("__M_REVISOR__", MODELOS["Revisor"]).replace("__ATRASO__", str(ATRASO_LIDER_S))
          .replace("__CLAUDE__", CLAUDE_REAL))
     (home / ".local/bin/claude").write_text(w)
     (home / ".local/bin/claude").chmod(0o755)
@@ -204,7 +250,7 @@ def terminou(jsonl: Path) -> float | None:
 def encerra(run: Path, app: subprocess.Popen, env: dict):
     subprocess.run(["import", "-window", "root", str(run / "final.png")], env={"DISPLAY": DISPLAY}, check=False)
     if (run / "versao").read_text() != "A":
-        for alvo in ("narrater-terminal_narrador", "narrater-terminal_deva", "narrater-terminal_devb"):
+        for alvo in ("narrater-terminal_narrador", "narrater-terminal_deva", "narrater-terminal_devb", "narrater-terminal_revisor"):
             with open(run / f"tela-{alvo.split('_')[-1]}.txt", "w") as f:
                 subprocess.run(["tmux", "-L", "narrater-local", "capture-pane", "-p", "-S", "-", "-t", alvo],
                                env=env, stdout=f, stderr=subprocess.DEVNULL, check=False)
@@ -254,12 +300,12 @@ def main():
             break
     encerra(run, app, env)
     inicio = float((run / "inicio").read_text()) if (run / "inicio").exists() else None
-    placar = subprocess.run([sys.executable, str(AQUI / "oculto/placar.py"), str(work)], capture_output=True, text=True)
+    placar = subprocess.run([sys.executable, str(AQUI / "oculto/placar.py"), str(work), SUITE], capture_output=True, text=True)
     (run / "placar.json").write_text(placar.stdout)
     subprocess.run(["git", "add", "-A"], cwd=work, check=False)
     with open(run / "diff.patch", "w") as f:
         subprocess.run(["git", "diff", "--cached", "HEAD", "--", ".", ":(exclude).narrater"], cwd=work, stdout=f, check=False)
-    resumo = {"versao": versao, "rep": rep, "variante": VARIANTE, "motivo": motivo, "inicio": inicio, "fim": fim,
+    resumo = {"versao": versao, "rep": rep, "tarefa": TAREFA, "variante": VARIANTE, "motivo": motivo, "inicio": inicio, "fim": fim,
               "duracao_s": (fim - inicio) if (fim and inicio) else None}
     (run / "rodada.json").write_text(json.dumps(resumo, indent=1))
     print(f"[bench] {json.dumps(resumo)}", flush=True)

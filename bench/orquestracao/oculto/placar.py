@@ -1,6 +1,6 @@
 """Placar de uma pasta de trabalho: testes escondidos por nível + testes da própria pasta.
 
-Uso: python3 placar.py PASTA  → JSON na saída padrão.
+Uso: python3 placar.py PASTA [SUITE]  → JSON na saída padrão (SUITE: test_oculto, padrão, ou test_armazem).
 Cada suíte roda num processo próprio, com PYTHONPATH apontando para a pasta.
 """
 
@@ -29,10 +29,10 @@ def contar(saida):
     return por_classe
 
 
-def main(pasta):
+def main(pasta, suite="test_oculto"):
     pasta = os.path.abspath(pasta)
     env = dict(os.environ, PYTHONPATH=pasta, PEDIDOS_RAIZ=pasta, PYTHONDONTWRITEBYTECODE="1")
-    oculto = contar(rodar([sys.executable, "-m", "unittest", "-v", "test_oculto"], AQUI, env))
+    oculto = contar(rodar([sys.executable, "-m", "unittest", "-v", suite], AQUI, env))
     proprio_saida = rodar([sys.executable, "-m", "unittest", "discover", "-v", "-s", "tests", "-t", "."], pasta, env)
     proprio = contar(proprio_saida)
     ok = sum(o for o, _ in oculto.values())
@@ -47,4 +47,4 @@ def main(pasta):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    main(*sys.argv[1:3])

@@ -1,0 +1,177 @@
+% Relatório: a equipe ganha onde a pesquisa diz que ganha? Teste novo (tarefa `armazem`) com três montagens.
+% Compilar: cd docs/relatorios && pdflatex equipe-ou-sozinho.tex && pdflatex equipe-ou-sozinho.tex
+% Fontes: docs/relatorios/quando-orquestrar.tex (literatura), bench/orquestracao/ (tarefa e medições).
+\documentclass[11pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{lmodern}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage[hidelinks]{hyperref}
+\setlist{itemsep=2pt,topsep=4pt}
+\captionsetup{font=small,labelfont=bf}
+
+\newcommand{\rot}[1]{\textsf{\footnotesize[#1]}}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\title{Equipe ou agente sozinho:\\[2pt]
+\large um teste desenhado para o caso em que a pesquisa diz que a equipe ganha}
+\author{Gabriel Cortez \and Claude Code}
+\date{16 de outubro de 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent
+%RESUMO%
+\end{abstract}
+
+\noindent\textbf{Rótulos.} \rot{citado}: afirmado pela fonte indicada. \rot{medido}: medido por nós,
+com método reproduzível. \rot{inferido}: nossa leitura, sem medição direta.
+
+\section{Por que um teste novo}
+
+No primeiro teste (relatório \emph{quando-orquestrar.pdf}), um terminal sozinho venceu a equipe de três
+agentes: mesma nota (31 de 31), 2,5 vezes mais rápido e 7 vezes menos tokens \rot{medido}. Isso bate
+com a literatura, mas a tarefa daquele teste é justamente a que a literatura diz que não favorece
+equipes:
+\begin{itemize}
+  \item é \textbf{sequencial e acoplada}: uma funcionalidade e duas correções no mesmo módulo, com a
+    mesma regra de preço atravessando tudo;
+  \item está \textbf{no teto}: o agente sozinho tira 31 de 31, muito acima do limiar de ${\sim}$45\% a
+    partir do qual coordenar deixa de pagar (Kim et al.~\cite{kim2025}) \rot{citado};
+  \item é \textbf{pequena}: o Opus sozinho termina em 1,6~min, e não sobra trabalho para dividir.
+\end{itemize}
+
+Com isso, aquele teste só podia mostrar o custo da equipe, nunca o ganho. Para saber se o \emph{nosso
+método} de orquestração funciona, precisamos de uma tarefa em que a equipe \emph{deveria} ganhar, e ver
+se ela ganha. Se não ganhar nem aí, a falha é do NarraTer (protocolo, divisão do trabalho, papéis), e
+não da ideia de orquestrar. É essa resposta que a próxima etapa precisa: corrigir as falhas do método e
+construir o gerador automático de equipes, que vai decidir quando montar uma.
+
+\section{Onde a pesquisa diz que a equipe ganha}
+
+\begin{table}[H]
+\centering\small
+\caption{Casos em que a orquestração ganhou na literatura \rot{citado}, e como o teste novo cobre cada
+um.}
+\begin{tabularx}{\linewidth}{p{3.3cm}YY}
+\toprule
+Caso & O que foi medido & No teste novo \\
+\midrule
+Trabalho paralelizável & Coordenação centralizada: +80,8\% em tarefas paralelizáveis~\cite{kim2025}. Pesquisa
+multiagente da Anthropic: +90,2\% sobre o Opus sozinho~\cite{anthropic2025} &
+Quatro módulos independentes, em arquivos separados; a equipe divide os módulos \\
+Revisor com contexto limpo & Revisor que só vê o diff: ${\sim}$2 bugs por PR, 58\% graves~\cite{cognition2026};
+testes como retorno: +4 a 5 pontos~\cite{metagpt2023} &
+Montagem ``dev + revisor'': o revisor não vê o histórico de quem escreveu \\
+Tarefa difícil para o modelo & Único ganho significativo da Vals.ai: +7,3 pontos no modelo com menor nota
+sozinho~\cite{vals2026} &
+Doze regras sutis, escritas mas fáceis de deixar passar (nível \emph{Sutil}) \\
+Modelos diferentes & Debate com modelos diferentes melhora de forma consistente~\cite{mad2025} &
+Revisor Sonnet revisando o Opus; equipe com Opus, Sonnet e Haiku \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Ficou de fora o caso do contexto grande demais para um agente (LangChain~\cite{langchain2025}): ele
+pede uma tarefa muito maior que o orçamento de uma rodada.
+
+\section{O teste}
+
+\subsection{A tarefa \texttt{armazem}}
+
+Um repositório Python com quatro módulos de uma loja online, cada um num arquivo próprio e sem
+importar os outros:
+\begin{itemize}
+  \item \textbf{frete}: peso cúbico, com arredondamento para o próximo meio quilo, mais uma tarifa cobrada a mais nos pesos exatos de 1, 5 e 10~kg;
+  \item \textbf{cupons}: cupom ``leve N, pague M'', mais um cupom recusado no último dia de validade;
+  \item \textbf{estoque}: depósitos e transferência entre eles, mantendo o custo PEPS dos lotes, mais um custo errado quando a saída passa de um lote para outro;
+  \item \textbf{parcelas}: juros pela tabela Price acima de 3 parcelas, mais um erro com a primeira parcela num dia 31.
+\end{itemize}
+Cada módulo tem um pedido de funcionalidade (\texttt{docs/PEDIDOS.md}), uma reclamação de cliente com
+um defeito plantado (\texttt{docs/RECLAMACOES.md}) e regras em \texttt{REGRAS.md}. Algumas regras são
+fáceis de deixar passar, por exemplo:
+\begin{itemize}
+  \item o frete grátis é negado quando o peso \emph{cúbico} passa de 30~kg;
+  \item no ``leve N, pague M'', linhas do mesmo produto contam juntas e valem pelo menor preço;
+  \item um lote transferido mantém a antiguidade da entrada original no depósito de destino;
+  \item o vencimento das parcelas é sempre calculado a partir da primeira, mesmo quando uma parcela
+    caiu num fim de semana.
+\end{itemize}
+
+A nota vem de \textbf{46 testes escondidos} em cinco níveis: um por módulo (funcionalidade, defeito e
+regressão, de 8 a 10 cada) e \emph{Sutil} (12). A solução de referência passa nos 46; o repositório
+sem as correções passa em 12.
+
+\subsection{Três montagens}
+
+\begin{table}[H]
+\centering\small
+\caption{As três montagens. O pedido é o mesmo; muda só a primeira frase, que diz quem faz o quê.}
+\begin{tabularx}{\linewidth}{lYY}
+\toprule
+Montagem & Agentes & Instrução \\
+\midrule
+Sozinho & Opus 5.5 (papel de desenvolvedor) & ``Você trabalha sozinho'' \\
+Equipe paralela & Narrador Opus 5.5 (líder), DevA Sonnet 5.5, DevB Haiku 5.5 & Dividir os módulos entre DevA e
+DevB, sem os dois mexerem no mesmo arquivo; o Narrador coordena, revisa e integra \\
+Dev + revisor & Opus 5.5 escreve; Revisor Sonnet 5.5 só lê & Ao terminar, pedir a revisão dizendo só onde está o
+repositório; corrigir o que for procedente \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+O método é o do benchmark de versões (D19):
+\begin{itemize}
+  \item cada rodada começa do zero, com HOME, tmux e sessões próprios;
+  \item são 3 rodadas por montagem, em ordem contrabalançada, na versão atual do NarraTer (H, \texttt{73fab8b});
+  \item a tarefa termina quando o agente que recebeu o pedido escreve a linha de fim, ou após 40~min.
+\end{itemize}
+Comando: \texttt{BENCH\_TAREFA=armazem BENCH\_VARIANTE=solo|equipe|revisor python3 rodar.py H N}.
+
+\subsection{Previsões, registradas antes de rodar}
+
+Escritas a partir da literatura, antes da primeira rodada válida:
+\begin{enumerate}
+  \item[P1] \textbf{Tempo:} a equipe paralela termina antes do agente sozinho, porque os módulos são
+    independentes (Kim et al.: +80,8\% em tarefas paralelizáveis).
+  \item[P2] \textbf{Custo:} a equipe paralela gasta mais tokens e mais dinheiro que o agente sozinho
+    (Vals.ai: de 1,8 a 5,1 vezes; Anthropic: ${\sim}$15 vezes os tokens de uma conversa).
+  \item[P3] \textbf{Qualidade com revisor:} a montagem ``dev + revisor'' passa em pelo menos tantos testes
+    escondidos quanto o agente sozinho, com o ganho no nível \emph{Sutil}, a um custo de 1,3 a 2
+    vezes (Cognition, MetaGPT).
+  \item[P4] \textbf{Teto:} se o agente sozinho passar em quase todos os 46, nenhuma montagem melhora a
+    nota (Kim et al.: acima de ${\sim}$45\%, coordenar não paga em qualidade).
+  \item[P5] \textbf{Amplificação de erro:} se a equipe paralela errar mais que o agente sozinho, o erro
+    estará nos módulos do DevB (Haiku), e o Narrador não o terá pegado na revisão (MAST: verificação
+    fraca).
+\end{enumerate}
+
+%RESULTADOS%
+
+\begin{thebibliography}{99}\small
+\bibitem{kim2025} Y.~Kim et al. \emph{Towards a Science of Scaling Agent Systems}. arXiv:2512.08296, 2025.
+  \url{https://arxiv.org/abs/2512.08296}
+\bibitem{anthropic2025} Anthropic. \emph{How we built our multi-agent research system}, 2025.
+  \url{https://www.anthropic.com/engineering/multi-agent-research-system}
+\bibitem{cognition2026} W.~Yan (Cognition). \emph{Multi-Agents: What's Actually Working}, 2026-04-22.
+  \url{https://cognition.com/blog/multi-agents-working}
+\bibitem{metagpt2023} S.~Hong et al. \emph{MetaGPT: Meta Programming for a Multi-Agent Collaborative
+  Framework}. arXiv:2308.00352, 2023. \url{https://arxiv.org/abs/2308.00352}
+\bibitem{vals2026} Vals.ai. \emph{Do Agent Teams Pay Off? A Case Study on Vibe Code Bench}, 2026-10-09.
+  \url{https://www.vals.ai/blogs/multi-agent-vibe-code-bench}
+\bibitem{mad2025} H.~Zhang et al. \emph{Stop Overvaluing Multi-Agent Debate: We Must Rethink Evaluation and
+  Embrace Model Heterogeneity}. arXiv:2502.08788, 2025. \url{https://arxiv.org/abs/2502.08788}
+\bibitem{langchain2025} LangChain. \emph{Benchmarking Multi-Agent Architectures}, 2025.
+  \url{https://www.langchain.com/blog/benchmarking-multi-agent-architectures}
+\end{thebibliography}
+
+\end{document}
