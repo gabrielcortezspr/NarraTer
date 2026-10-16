@@ -17,6 +17,8 @@ export interface AgentPreset {
   command?: string;
   /** Flag that bypasses the agent's permission prompts, when it has one. */
   skipPermissionsArgs?: string[];
+  /** Flag that picks the model (`--model sonnet`), when the CLI has one. */
+  modelFlag?: string;
 }
 
 export const AGENT_PRESETS: Record<AgentType, AgentPreset> = {
@@ -33,6 +35,7 @@ export const AGENT_PRESETS: Record<AgentType, AgentPreset> = {
     Icon: Bot,
     command: "claude",
     skipPermissionsArgs: ["--dangerously-skip-permissions"],
+    modelFlag: "--model",
   },
   codex: {
     label: "Codex",
@@ -41,6 +44,7 @@ export const AGENT_PRESETS: Record<AgentType, AgentPreset> = {
     Icon: Code2,
     command: "codex",
     skipPermissionsArgs: ["--dangerously-bypass-approvals-and-sandbox"],
+    modelFlag: "--model",
   },
   gemini: {
     label: "Gemini CLI",
@@ -49,6 +53,7 @@ export const AGENT_PRESETS: Record<AgentType, AgentPreset> = {
     Icon: Sparkles,
     command: "gemini",
     skipPermissionsArgs: ["--yolo"],
+    modelFlag: "--model",
   },
   opencode: {
     label: "OpenCode",
@@ -56,6 +61,7 @@ export const AGENT_PRESETS: Record<AgentType, AgentPreset> = {
     color: "#63e6be",
     Icon: Braces,
     command: "opencode",
+    modelFlag: "--model",
   },
   custom: {
     label: "Custom",
@@ -87,6 +93,7 @@ export function getSpawnSpec(
   customCommand?: string,
   skipPermissions?: boolean,
   orchestrator?: boolean,
+  model?: string,
 ): SpawnSpec {
   if (agentType === "shell") return { command: "/bin/bash" };
   if (agentType === "custom") return { command: customCommand?.trim() || "/bin/bash" };
@@ -101,5 +108,7 @@ export function getSpawnSpec(
     if (orchestrator) args.push("--disallowedTools", "Edit", "Write", "NotebookEdit");
   }
   if (skipPermissions && preset.skipPermissionsArgs) args.push(...preset.skipPermissionsArgs);
+  // The model is launch configuration, like the permission flag — not protocol (D01)
+  if (model?.trim() && preset.modelFlag) args.push(preset.modelFlag, model.trim());
   return { command: preset.command ?? agentType, args };
 }

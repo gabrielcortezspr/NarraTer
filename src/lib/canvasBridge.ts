@@ -61,7 +61,7 @@ async function remoteAgentLines(from: string): Promise<string[]> {
 function agentLine(n: AppNode): string {
   const d = n.data as TerminalNodeData;
   const status = STATUS_TEXT[useTerminalsStore.getState().sessions[n.id]?.status ?? "spawning"];
-  const kind = d.agentType === "custom" && d.command ? d.command : presetOf(d.agentType).label;
+  const kind = (d.agentType === "custom" && d.command ? d.command : presetOf(d.agentType).label) + (d.model ? `, ${d.model}` : "");
   return `${labelOf(n)} (${kind}) · ${status}${d.roleName ? ` · role: ${d.roleName}` : ""}`;
 }
 

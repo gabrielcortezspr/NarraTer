@@ -53,6 +53,17 @@ function findPreset(ref: string): AgentType | undefined {
  * the matching preset when it is exactly that program, Custom otherwise), or
  * — with neither — a copy of the caller.
  */
+/** `--model`, checked against the agent: only presets whose CLI has a model flag take one. */
+function resolveModel(ctx: Ctx, agentType: AgentType): { model?: string } | string {
+  const model = str(ctx.params.model).trim();
+  if (!model) return {};
+  if (!AGENT_PRESETS[agentType].modelFlag) {
+    return `Error: --model needs an agent whose CLI picks a model (${AGENT_ORDER.filter((t) => AGENT_PRESETS[t].modelFlag).join(", ")}); ` +
+      `with ${AGENT_PRESETS[agentType].label}, put the model in --command`;
+  }
+  return { model };
+}
+
 function resolveAgent(ctx: Ctx): { agentType: AgentType; command?: string } | string {
   const presetRef = str(ctx.params.preset);
   const command = str(ctx.params.command).trim();
@@ -99,7 +110,7 @@ async function checkDir(dir: string): Promise<string | null> {
 }
 
 function describe(d: TerminalNodeData): string {
-  const kind = d.agentType === "custom" && d.command ? d.command : presetOf(d.agentType).label;
+  const kind = (d.agentType === "custom" && d.command ? d.command : presetOf(d.agentType).label) + (d.model ? ` (${d.model})` : "");
   if (!d.roleName) return kind;
   // Roles are instruction files for agents — a shell has nothing to read them
   return d.agentType === "shell" ? `${kind} · role '${d.roleName}' not applied to shells` : `${kind} · role: ${d.roleName}`;
@@ -110,6 +121,11 @@ async function recruit(ctx: Ctx): Promise<string> {
   const sl = ctx.sl;
   const agent = resolveAgent(ctx);
   if (typeof agent === "string") return agent;
+  const model = resolveModel(ctx, agent.agentType);
+  if (typeof model === "string") return model;
+  // With no --preset/--command the recruit copies the caller — model included
+  const copied = !str(ctx.params.preset) && !str(ctx.params.command);
+  const modelPatch = model.model ? model : copied && ctx.meData.model ? { model: ctx.meData.model } : {};
   const roleRef = str(ctx.params.role);
   const role = roleRef ? await findRole(roleRef) : null;
   if (typeof role === "string") return role;
@@ -133,6 +149,8 @@ async function recruit(ctx: Ctx): Promise<string> {
     const patch: Partial<TerminalNodeData> = {
       agentType: agent.agentType,
       command: agent.command,
+      // A swap resets the model unless --model names one: the old one belongs to the old CLI
+      model: model.model,
       skipPermissions: undefined,
       ...(role ? rolePatch(role) : {}),
       ...(dir ? { cwd: dir } : {}),
@@ -154,7 +172,7 @@ async function recruit(ctx: Ctx): Promise<string> {
     const list = useWorkspacesStore.getState().list;
     const ws = list.find((w) => w === wsRef) ?? list.find((w) => w.toLowerCase() === wsRef.toLowerCase());
     if (!ws) return `Error: no workspace named '${wsRef}' — \`narrater workspace list\` shows them`;
-    if (ws !== ctx.scene) return recruitInWorkspace(ctx, ws, agent, role, dir, name, floorRef);
+    if (ws !== ctx.scene) return recruitInWorkspace(ctx, ws, { ...agent, ...modelPatch }, role, dir, name, floorRef);
   }
 
   // --floor: another level of this scene; on a git-isolated floor the
@@ -172,6 +190,7 @@ async function recruit(ctx: Ctx): Promise<string> {
   const id = store.addTerminalNode(
     {
       ...agent,
+      ...modelPatch,
       label,
       ...(role ? rolePatch(role) : {}),
       cwd,
@@ -198,7 +217,7 @@ async function recruit(ctx: Ctx): Promise<string> {
 async function recruitInWorkspace(
   ctx: Ctx,
   ws: string,
-  agent: { agentType: AgentType; command?: string },
+  agent: { agentType: AgentType; command?: string; model?: string },
   role: Role | null,
   dir: string,
   name: string,
@@ -286,7 +305,7 @@ async function dismiss(ctx: Ctx): Promise<string> {
 function presetList(): string {
   return AGENT_ORDER.map((t) => {
     const p = AGENT_PRESETS[t];
-    return `- ${p.label}${p.command ? ` (${p.command})` : ""} — ${p.description}`;
+    return `- ${p.label}${p.command ? ` (${p.command})` : ""} — ${p.description}${p.modelFlag ? " · takes --model" : ""}`;
   }).join("\n");
 }
 

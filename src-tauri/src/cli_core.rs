@@ -345,6 +345,7 @@ impl Cli<'_, '_> {
         let workspace = a.value("--workspace")?;
         let floor = a.value("--floor")?;
         let preset = a.value("--preset")?;
+        let model = a.value("--model")?;
         let role = a.value("--role")?;
         let command = a.value("--command")?;
         let dir = a.value("--dir")?;
@@ -361,6 +362,7 @@ impl Cli<'_, '_> {
             json!({
                 "name": name,
                 "preset": preset.unwrap_or_default(),
+                "model": model.unwrap_or_default(),
                 "role": role.unwrap_or_default(),
                 "command": command.unwrap_or_default(),
                 "dir": dir.unwrap_or_default(),

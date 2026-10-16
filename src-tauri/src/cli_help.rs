@@ -36,7 +36,7 @@ Usage:
   narrater portal key "Portal" "Enter"             Press a key (ctrl+a, shift+tab…)
   narrater portal navigate "Portal" "url"          Go to a URL (also: info, screenshot, text, html, evaluate…)
                                                    Run `narrater help portal` for every portal command
-  narrater recruit "Name" [--preset P] [--role R] [--floor F] [--workspace W] [--command C] [--dir PATH]
+  narrater recruit "Name" [--preset P] [--model M] [--role R] [--floor F] [--workspace W] [--command C] [--dir PATH]
                                                    (Maestro only) Spawn a teammate, auto-connected to you
   narrater recruit ["New Name"] --preset P --replace "Old"
                                                    (Maestro only) Swap which agent runs on a teammate, in place
@@ -232,8 +232,8 @@ Workflow: snapshot → act with refs → snapshot again to verify (refs go stale
 when the page changes). Prefer snapshot + refs over screenshot + coordinates.
 Only portals connected to you are reachable (`narrater list`)."#,
         "recruit" => r#"Usage:
-  narrater recruit "Name" [--preset P] [--role R] [--floor F] [--workspace W] [--command C] [--dir PATH]
-  narrater recruit ["New Name"] --preset P --replace "Old"
+  narrater recruit "Name" [--preset P] [--model M] [--role R] [--floor F] [--workspace W] [--command C] [--dir PATH]
+  narrater recruit ["New Name"] --preset P [--model M] --replace "Old"
 
 (Maestro only) Spawns a new terminal on the canvas next to you, names it and
 connects it to you. Returns when the terminal exists; the agent may still be
@@ -245,6 +245,9 @@ ask it instead of recruiting a duplicate.
   Name       a short codename you invent (not the role name); the canvas
              appends (2), (3)… on a collision
   --preset   an agent preset (`narrater preset list`); default: a copy of you
+  --model    the model it runs, passed to the agent's own --model flag
+             (e.g. sonnet, opus, gpt-5-codex, gemini-2.5-pro); default: the
+             CLI's own default. Not for Custom or Shell
   --role     an existing role (`narrater role list`); the recruit boots with
              its prompt as CLAUDE.md / AGENTS.md
   --command  override the program; matching a preset's program uses that preset

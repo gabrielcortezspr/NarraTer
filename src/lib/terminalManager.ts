@@ -29,6 +29,8 @@ export interface SpawnOpts {
   instructions?: string;
   /** Spawn the agent with its permission prompts bypassed. */
   skipPermissions?: boolean;
+  /** Model the agent runs (`--model`), when its CLI takes one. */
+  model?: string;
   /** Project directory the terminal works on. */
   cwd?: string;
   /** Workspace (scene) it belongs to. */
@@ -44,6 +46,7 @@ export function spawnOptsFor(data: TerminalNodeData, scene?: string): SpawnOpts 
     roleName: data.roleName,
     instructions: data.instructions,
     skipPermissions: data.skipPermissions,
+    model: data.model,
     cwd: data.cwd,
     scene,
   };
@@ -156,7 +159,7 @@ export function scheduleTerminalZoomSync(zoom: number): void {
 
 async function spawnInto(id: string, mt: ManagedTerminal): Promise<void> {
   const { addSession, setRunning, setExited } = useTerminalsStore.getState();
-  const { agentType, command, label, roleId, roleName, instructions, skipPermissions, cwd, scene } = mt.opts;
+  const { agentType, command, label, roleId, roleName, instructions, skipPermissions, model, cwd, scene } = mt.opts;
   addSession(id);
 
   // Roles must be resolved before the spawn args are built — scenes can
@@ -177,7 +180,7 @@ async function spawnInto(id: string, mt: ManagedTerminal): Promise<void> {
     role = { key: shared ? roleDef.id : id, name: roleName, instructions: text, orchestrator };
   }
 
-  const { command: cmd, args } = getSpawnSpec(agentType, command, skipPermissions, orchestrator);
+  const { command: cmd, args } = getSpawnSpec(agentType, command, skipPermissions, orchestrator, model);
   try {
     const effectiveLabel = await ptySpawn({
       id, command: cmd, args, cols: mt.term.cols, rows: mt.term.rows, label, agentType, cwd, role, scene,

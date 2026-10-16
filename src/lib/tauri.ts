@@ -45,6 +45,7 @@ export interface SceneNode {
   role_name?: string;
   role_color?: string;
   skip_permissions?: boolean;
+  model?: string;
   cwd?: string;
   maestro?: boolean;
   /** Floor id (absent = ground) */

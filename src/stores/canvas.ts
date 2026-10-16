@@ -21,6 +21,8 @@ export interface TerminalNodeData extends Record<string, unknown> {
   roleName?: string;
   roleColor?: string;
   skipPermissions?: boolean;
+  /** Model the agent runs (`--model`); absent = the CLI's default. */
+  model?: string;
   /** Project directory the terminal works on. */
   cwd?: string;
   /** Maestro mode: may recruit/dismiss teammates and manage roles. */
@@ -75,6 +77,7 @@ export interface AddTerminalOpts {
   roleName?: string;
   roleColor?: string;
   skipPermissions?: boolean;
+  model?: string;
   cwd?: string;
   maestro?: boolean;
   /** Terminal name; defaults to the role or agent type. */
@@ -213,6 +216,7 @@ function toNode(n: SceneNode, base: NodeBase): AppNode {
       roleName: n.role_name,
       roleColor: n.role_color,
       skipPermissions: n.skip_permissions,
+      model: n.model,
       cwd: n.cwd,
       maestro: n.maestro,
     },
@@ -375,6 +379,7 @@ function serialize(sl: SceneSlice): SceneData {
         role_name: tdata?.roleName,
         role_color: tdata?.roleColor,
         skip_permissions: tdata?.skipPermissions,
+        model: tdata?.model,
         cwd: tdata?.cwd,
         maestro: tdata?.maestro,
         floor: floorOf(n) === GROUND ? undefined : floorOf(n),
