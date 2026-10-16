@@ -1,0 +1,129 @@
+{
+ "versao": "H",
+ "rep": 3,
+ "tarefa": "armazem",
+ "variante": "solo",
+ "motivo": "concluida",
+ "inicio": 1792154326.2255309,
+ "fim": 1792154440.658,
+ "duracao_s": 114.43246912956238,
+ "placar": {
+  "oculto": {
+   "Cupons": {
+    "ok": 8,
+    "total": 8
+   },
+   "Estoque": {
+    "ok": 8,
+    "total": 8
+   },
+   "Frete": {
+    "ok": 10,
+    "total": 10
+   },
+   "Parcelas": {
+    "ok": 8,
+    "total": 8
+   },
+   "Sutil": {
+    "ok": 12,
+    "total": 12
+   }
+  },
+  "oculto_ok": 46,
+  "oculto_total": 46,
+  "proprios_ok": 54,
+  "proprios_total": 54
+ },
+ "diff": {
+  "linhas_adicionadas": 357,
+  "linhas_removidas": 39,
+  "arquivos": [
+   "armazem/cupons.py",
+   "armazem/estoque.py",
+   "armazem/frete.py",
+   "armazem/parcelas.py",
+   "tests/test_cupons.py",
+   "tests/test_estoque.py",
+   "tests/test_frete.py",
+   "tests/test_parcelas.py"
+  ]
+ },
+ "agentes": {
+  "Narrador": {
+   "tokens": {
+    "entrada": 18,
+    "saida": 12979,
+    "cache_lido": 359984,
+    "cache_criado": 30618,
+    "cache_criado_1h": 30618,
+    "processados": 390620
+   },
+   "chamadas_api": 9,
+   "contexto_inicial": 31326,
+   "contexto_pico": 53087,
+   "contexto_final": 53087,
+   "compactacoes": 0,
+   "prompts_recebidos": 1,
+   "falas_recebidas": {},
+   "ferramentas": {
+    "Bash": 7,
+    "Write": 1
+   },
+   "mensageria": {},
+   "edicoes": 1,
+   "escritas_bash": 2,
+   "atividade": {
+    "coordenacao": 0,
+    "verificacao": 2,
+    "leitura": 1,
+    "edicao": 2,
+    "outros": 3
+   },
+   "pedidos": 0,
+   "repeticoes_tela": 0,
+   "avisos_timeout": 0,
+   "primeiro": 1792154327.281,
+   "ultimo": 1792154440.713,
+   "modelo": "claude-opus-5-5",
+   "sessoes": 1,
+   "custo_usd": 0.5766
+  }
+ },
+ "total": {
+  "tokens": {
+   "entrada": 18,
+   "saida": 12979,
+   "cache_lido": 359984,
+   "cache_criado": 30618,
+   "cache_criado_1h": 30618,
+   "processados": 390620
+  },
+  "custo_usd": 0.5766,
+  "chamadas_api": 9,
+  "mensageria": {},
+  "mensagens_entre_agentes": 0,
+  "compactacoes": 0,
+  "edicoes_lider": 1,
+  "escritas_bash_lider": 2
+ },
+ "latencias": {
+  "ocupado_s": {},
+  "algum_dev_s": 0.0,
+  "paralelo_s": 0.0,
+  "rodadas_dev": {},
+  "deteccao_s": [],
+  "deteccao_mediana_s": null,
+  "volta_s": [],
+  "volta_mediana_s": null,
+  "entrega_s": [],
+  "retorno_s": [],
+  "entrega_mediana_s": null,
+  "retorno_mediana_s": null
+ },
+ "prematuros": {
+  "asks": 0,
+  "prematuros": 0,
+  "adiantamento_s": []
+ }
+}

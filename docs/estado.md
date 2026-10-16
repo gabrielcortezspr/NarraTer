@@ -24,6 +24,10 @@ a partir dele, o `ask` lendo o transcript do Claude (D20): versões E, F e G med
   Um terminal sozinho venceu a equipe G na mesma tarefa: 31/31 nos dois, 1,6 contra 3,9 min, 7× menos tokens,
   US$ 0,55 contra 0,74 (D22: o padrão é um agente só).
 
+- Teste novo `armazem` (4 módulos independentes, `relatorios/equipe-ou-sozinho.pdf`): sozinho 1,8 min,
+  equipe paralela 2,8, dev + revisor 2,3, todos 46/46. A equipe perdeu pelo Haiku lento e pelo tempo fixo
+  do líder; o protocolo não falhou (0 de 15 asks prematuros).
+
 ## Próximo passo
 
 Corrigir as falhas do método (`pesquisa/orquestracao.md` §3): portão na skill e no pedido (D22), comando de

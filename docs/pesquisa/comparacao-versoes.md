@@ -99,3 +99,6 @@ versão, e o relatório tem a seção 7 com tabelas e testes.
 O mesmo pedido a um terminal só (Opus 5.5, 3 rodadas) tirou 31/31 em 1,6 min, com 0,36 milhão de tokens e
 US$ 0,55. A equipe G levou 3,9 min, com 2,50 milhões e US$ 0,74. `[medido]` Nenhuma das métricas se sobrepõe.
 Detalhes em `orquestracao.md` §6 e `../relatorios/quando-orquestrar.pdf`; decisão D22.
+
+Teste seguinte, numa tarefa paralelizável (`armazem`, `../relatorios/equipe-ou-sozinho.pdf`): o agente sozinho
+continuou o mais rápido (1,8 min, contra 2,8 da equipe e 2,3 de dev + revisor), com a mesma nota (46/46).

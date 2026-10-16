@@ -64,7 +64,7 @@ def main():
     saida = Path(sys.argv[2]) if len(sys.argv) > 2 else RAIZ / "docs/relatorios/dados/armazem.tex"
     rods = {k: rodadas(pasta, k) for k in MONTAGENS}
     vals = {k: valores(v) for k, v in rods.items()}
-    linhas = [("Testes escondidos (de 46)", "oculto", "{:.1f}"), ("\\quad dos quais Sutil (de 12)", "sutil", "{:.1f}"),
+    linhas = [("Testes escondidos (de 46)", "oculto", "{:.0f}"), ("\\quad dos quais Sutil (de 12)", "sutil", "{:.0f}"),
               ("Duração (min)", "dur", "{:.1f}"), ("Tokens processados (milhões)", "tok", "{:.2f}"),
               ("Custo de API equivalente (US\\$)", "usd", "{:.2f}"),
               ("Custo por teste aprovado (centavos)", "usd_teste", "{:.1f}"),

@@ -59,8 +59,12 @@ O5, o que sobra de custo são as voltas ao Narrador entre fases.
 - Uma tarefa mais difícil, sem teto de qualidade.
 - ✅ 2026-10-16 **Braço "sozinho"**: 1 terminal venceu a equipe G em tempo, tokens e custo, com a mesma nota
   (D22, `relatorios/quando-orquestrar.pdf`).
-- Braço "dev + revisor" e uma tarefa sem teto e paralelizável, com métrica de custo por teste escondido
-  aprovado: é onde a equipe deveria ganhar, e ainda não medimos (`pesquisa/orquestracao.md` §4.3, §6).
+- ✅ 2026-10-16 Tarefa paralelizável `armazem` com sozinho × equipe paralela × dev + revisor
+  (`relatorios/equipe-ou-sozinho.pdf`): o agente sozinho venceu no tempo e empatou na nota (46/46).
+- **Escritor barato + revisor** (Sonnet ou Haiku escrevendo, Opus revisando) contra o Opus sozinho: é o caso
+  em que a pesquisa prevê ganho (Vals.ai) e o candidato a modelo padrão do gerador (`pesquisa/orquestracao.md` §7).
+- **Equipe paralela com modelos iguais**, para separar o efeito do Haiku lento do efeito da coordenação.
+- **Uma tarefa em que o Opus sozinho erre**: em 18 rodadas de duas tarefas, ele nunca deixou de passar um teste.
 
 **O10 · Comando de aceite.** `narrater ask … --check "CMD"` (e o mesmo campo na tarefa da O8): no fim do turno o
 backend roda o comando no cwd do alvo; se falhar, o ask termina em `attention` com a saída, em vez de `done`. Não exige

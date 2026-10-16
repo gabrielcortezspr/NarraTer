@@ -30,7 +30,17 @@
 
 \begin{abstract}
 \noindent
-%RESUMO%
+No primeiro teste, um terminal sozinho venceu a equipe numa tarefa sequencial. Para saber se o
+nosso método de orquestração funciona onde a pesquisa diz que equipes ganham, criamos uma tarefa nova:
+quatro módulos independentes em arquivos separados, quatro defeitos plantados e doze regras sutis,
+avaliados por 46 testes escondidos. Rodamos três montagens, três vezes cada: o Opus sozinho, uma equipe
+paralela (Narrador Opus com um dev Sonnet e um dev Haiku) e o Opus escrevendo com um revisor Sonnet de
+contexto limpo. As nove rodadas tiraram 46 de 46. O agente sozinho foi o mais rápido (1,8~min, contra
+2,8 da equipe e 2,3 do revisor) e usou 4 vezes menos tokens que a equipe. A equipe custou o mesmo que o
+agente sozinho, porque o trabalho foi para modelos baratos. O revisor custou 36\% a mais e aprovou as
+três entregas sem achar nada. O protocolo do NarraTer não falhou nenhuma vez: 0 de 15 pedidos foram dados
+por prontos antes da hora. A equipe perdeu por três motivos: o dev mais lento (Haiku) ditou o ritmo, o
+líder somou de 40 a 50~s sozinho, e cada módulo era pequeno demais para compensar a coordenação.
 \end{abstract}
 
 \noindent\textbf{Rótulos.} \rot{citado}: afirmado pela fonte indicada. \rot{medido}: medido por nós,
@@ -135,7 +145,7 @@ O método é o do benchmark de versões (D19):
   \item são 3 rodadas por montagem, em ordem contrabalançada, na versão atual do NarraTer (H, \texttt{73fab8b});
   \item a tarefa termina quando o agente que recebeu o pedido escreve a linha de fim, ou após 40~min.
 \end{itemize}
-Comando: \texttt{BENCH\_TAREFA=armazem BENCH\_VARIANTE=solo|equipe|revisor python3 rodar.py H N}.
+Comando:\\ \texttt{BENCH\_TAREFA=armazem BENCH\_VARIANTE=solo|equipe|revisor python3 rodar.py H N}.
 
 \subsection{Previsões, registradas antes de rodar}
 
@@ -155,7 +165,132 @@ Escritas a partir da literatura, antes da primeira rodada válida:
     fraca).
 \end{enumerate}
 
-%RESULTADOS%
+\section{Resultados}
+
+\begin{table}[H]
+\centering\small
+\caption{As três montagens na tarefa \texttt{armazem} \rot{medido}. Média e, entre parênteses, o mínimo e
+o máximo das 3 rodadas. Dados: \texttt{bench/orquestracao/resultados/2026-10-16/},
+tabela gerada por \texttt{armazem.py}.}
+\input{dados/armazem.tex}
+\end{table}
+
+\begin{itemize}
+  \item \textbf{Qualidade igual, no teto.} As nove rodadas passaram nos 46 testes escondidos, inclusive
+    nos 12 sutis. O Opus sozinho não deixou passar nenhuma regra \rot{medido}.
+  \item \textbf{O agente sozinho foi o mais rápido.} Levou 1,8~min, contra 2,8 da equipe paralela e 2,3 da
+    montagem com revisor, sem sobreposição nas duas comparações (Mann--Whitney $U = 0$, $p = 0{,}10$, o
+    menor $p$ possível com 3 contra 3) \rot{medido}.
+  \item \textbf{Tokens:} a equipe processou 4,2 vezes os tokens do agente sozinho (1,51 contra 0,36
+    milhão), e o revisor 1,6 vez, os dois sem sobreposição \rot{medido}.
+  \item \textbf{Custo:}
+    \begin{itemize}
+      \item A equipe custou o mesmo que o agente sozinho (US\$~0,60 contra 0,56; as rodadas se sobrepõem,
+        $p = 1{,}0$). Os tokens a mais foram quase todos do Haiku, a cerca de US\$~0,03 por rodada.
+      \item A montagem com revisor custou 36\% a mais (US\$~0,76), sem sobreposição. O revisor custou de
+        US\$~0,14 a 0,17 por rodada \rot{medido}.
+    \end{itemize}
+  \item \textbf{O protocolo funcionou.} Nenhum dos 15 pedidos entre agentes foi dado por pronto antes da
+    hora, nenhuma resposta veio cortada, e o fim do turno foi detectado em 0,2 a 2,9~s. As falhas que
+    corrigimos nas versões E a G (D20) não voltaram \rot{medido}.
+\end{itemize}
+
+\subsection{Por que a equipe paralela foi mais lenta}
+
+\begin{table}[H]
+\centering\small
+\caption{Onde foi o tempo da equipe paralela \rot{medido}, em segundos. As colunas dos devs são o tempo em que cada um estava trabalhando.}
+\begin{tabular}{lrrrrr}
+\toprule
+Rodada & Duração & Só o Narrador & DevA (Sonnet) & DevB (Haiku) & Os dois juntos \\
+\midrule
+1 & 181 & 49 & 56 & 127 & 51 \\
+2 & 167 & 47 & 59 & 120 & 59 \\
+3 & 157 & 39 & 49 & 109 & 39 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{enumerate}
+  \item \textbf{O dev mais lento dita o ritmo.} Nas três rodadas, o Narrador deu dois módulos a cada dev.
+    O Haiku levou de 109 a 127~s para os dele, o dobro do Sonnet, e os dois trabalharam ao mesmo tempo só
+    de 39 a 59~s \rot{medido}. Numa equipe paralela, a duração é a do membro mais lento, e misturar modelos
+    de velocidades diferentes desperdiça o paralelismo \rot{inferido}.
+  \item \textbf{O líder custa um tempo fixo.} O Narrador ficou sozinho de 39 a 49~s por rodada: lendo os
+    documentos, dividindo o trabalho e conferindo no fim. Isso é quase metade do tempo que o Opus sozinho
+    levou para a tarefa inteira (102 a 114~s) \rot{medido}.
+  \item \textbf{Os pedaços eram pequenos.} O Opus resolve os quatro módulos em menos de 2~min, cerca de
+    25~s por módulo. Dividir só compensa quando cada parte custa bem mais que a coordenação, que aqui
+    passou de 1~min \rot{inferido}.
+\end{enumerate}
+
+\subsection{O revisor}
+
+O revisor foi chamado uma vez por rodada, trabalhou de 26 a 29~s e aprovou as três entregas. Nas três,
+ele confirmou as quatro reclamações e conferiu os quatro pedidos contra as regras \rot{observado}. Não
+havia o que achar: o Opus já entregava 46 de 46. Pela pesquisa, o revisor rende quando quem escreve
+erra; aqui ele só acrescentou 0,5~min e 36\% de custo \rot{inferido}. Numa rodada, ele tentou responder
+com uma ferramenta interna do Claude (\texttt{SendMessage}), que falhou; a resposta chegou mesmo assim,
+porque o NarraTer a lê no transcript (D20) \rot{observado}.
+
+\section{As previsões contra o medido}
+
+\begin{table}[H]
+\centering\small
+\begin{tabularx}{\linewidth}{lYl}
+\toprule
+Previsão & O que aconteceu & Veredito \\
+\midrule
+P1, a equipe paralela é mais rápida & 2,8 contra 1,8~min, sem sobreposição & \textbf{Refutada} \\
+P2, a equipe gasta mais & 4,2 vezes os tokens; custo igual (modelos baratos) & Em parte \\
+P3, o revisor melhora a nota & Nota igual (sem espaço), 36\% mais caro, aprovou tudo & Não testável aqui \\
+P4, no teto, ninguém melhora a nota & 46 de 46 nas nove rodadas & \textbf{Confirmada} \\
+P5, os erros da equipe vêm do Haiku & A equipe não errou; o Haiku foi o gargalo de tempo & Não se aplica \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+A refutação de P1 é o resultado mais importante. A pesquisa (Kim et al.) diz que coordenação centralizada
+ganha em tarefas paralelizáveis, e esta tarefa era paralelizável, mas a equipe do NarraTer perdeu. A causa
+não está no protocolo, que funcionou sem falhas, e sim na forma da equipe e no tamanho das partes. É
+aí que o método precisa de correção \rot{inferido}.
+
+\section{O que isso muda na próxima etapa}
+
+\rot{inferido} Para a correção das falhas e para o gerador de equipes:
+\begin{enumerate}
+  \item \textbf{O portão da D22 se confirma, e fica mais preciso.} Ser paralelizável não basta. Cada parte
+    precisa valer bem mais que o custo fixo de coordenar, que medimos em cerca de 1~min de líder. Para
+    tarefas que o agente sozinho termina em poucos minutos, a resposta é ``sozinho''.
+  \item \textbf{Em equipes paralelas, modelos de mesma velocidade.} Misturar Sonnet e Haiku para escrever
+    em paralelo desperdiça o paralelismo. A mistura de modelos rende mais na revisão que na escrita.
+  \item \textbf{O revisor só vale quando quem escreve erra.} Com o Opus escrevendo, ele só custou. O caso
+    promissor, sugerido pela Vals.ai (o ganho apareceu no modelo mais fraco), é o inverso: um modelo
+    barato escrevendo e um revisor forte. Se ``Sonnet + revisor'' chegar à nota do Opus sozinho por menos,
+    esse vira o modelo de equipe padrão do gerador.
+  \item \textbf{O líder deve sair do caminho.} De 39 a 49~s de cada rodada da equipe foram do Narrador
+    sozinho. A lista de tarefas com pega automática (O8) e o comando de aceite rodado pelo backend (O10)
+    atacam exatamente esse tempo.
+  \item \textbf{O benchmark ainda não tem uma tarefa difícil.} Duas tarefas e 18 rodadas depois, o Opus
+    nunca deixou de passar um teste. Para medir ganho de qualidade, o próximo teste precisa de uma tarefa
+    em que o agente sozinho erre, ou de um modelo que escreva pior.
+\end{enumerate}
+
+\section{Limites}
+
+\begin{itemize}
+  \item São 3 rodadas por montagem, então $p = 0{,}10$ é o máximo de evidência possível; afirmamos
+    diferença só onde as rodadas não se sobrepõem.
+  \item A tarefa voltou a ficar no teto para o Opus, apesar das regras sutis. O teste não mede ganho de
+    qualidade.
+  \item A equipe usa o mesmo trio do estudo de versões (Opus, Sonnet, Haiku), para comparar com ele. Uma
+    equipe com modelos iguais pode se sair melhor no tempo; isso não foi medido.
+  \item Os devs trabalharam na mesma pasta, em arquivos separados (o pedido proíbe mexer no mesmo arquivo),
+    e não em worktrees.
+  \item As rodadas foram feitas em sequência, num só dia, na ordem sozinho, equipe, revisor, equipe,
+    revisor, sozinho, revisor, sozinho, equipe.
+\end{itemize}
+
 
 \begin{thebibliography}{99}\small
 \bibitem{kim2025} Y.~Kim et al. \emph{Towards a Science of Scaling Agent Systems}. arXiv:2512.08296, 2025.

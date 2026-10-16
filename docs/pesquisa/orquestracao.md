@@ -293,3 +293,30 @@ O que os números mostram:
   tudo. O custo cai menos que os tokens porque, na equipe, o grosso dos tokens é do Haiku, que é barato.
 - `[inferido]` Confirma F1: nesta tarefa, a equipe só acrescenta custo. Falta a tarefa em que ela deveria
   ganhar (sem teto, ou paralelizável), que continua na O9.
+
+## 7. Teste onde a equipe deveria ganhar: tarefa `armazem` (2026-10-16)
+
+Relatório: `../relatorios/equipe-ou-sozinho.pdf` (as previsões P1–P5 foram registradas no commit `52688a3`,
+antes das rodadas). A tarefa tem quatro módulos independentes, com 46 testes escondidos, 12 deles de regras
+sutis. Foram 3 rodadas por montagem, na versão H.
+
+| | Sozinho (Opus) | Equipe paralela (Opus + Sonnet + Haiku) | Dev + revisor (Opus + Sonnet) |
+|---|---|---|---|
+| Testes escondidos | 46/46 nas 3 | 46/46 | 46/46 |
+| Duração (min) | **1,8** (1,7–1,9) | 2,8 (2,6–3,0) | 2,3 (2,2–2,4) |
+| Tokens (milhões) | **0,36** | 1,51 | 0,58 |
+| Custo (US$) | 0,56 | 0,60 (0,47–0,78) | 0,76 |
+
+O que os números mostram:
+- `[medido]` O agente sozinho foi o mais rápido nas duas comparações, sem sobreposição (p = 0,10). A equipe custou o
+  mesmo (p = 1,0), porque os tokens a mais foram do Haiku. O revisor custou 36% a mais e aprovou as três entregas.
+- `[medido]` A equipe perdeu no tempo:
+  - o Haiku levou de 109 a 127 s nos seus dois módulos, o dobro do Sonnet;
+  - os dois devs trabalharam ao mesmo tempo só de 39 a 59 s;
+  - o Narrador ficou sozinho de 39 a 49 s.
+- `[medido]` O protocolo não falhou: 0 de 15 asks prematuros e 0 respostas cortadas.
+- `[inferido]` A previsão P1 (a equipe ganha em tarefa paralela) foi refutada pela forma da equipe e pelo tamanho
+  das partes, não pelo protocolo. Isso aponta para o portão do gerador:
+  - cada parte precisa valer bem mais que ~1 min de coordenação;
+  - equipes paralelas com modelos de mesma velocidade;
+  - revisor só quando quem escreve erra. O próximo teste é "Sonnet + revisor" contra o Opus sozinho.
