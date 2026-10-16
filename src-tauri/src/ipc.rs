@@ -190,10 +190,17 @@ pub async fn dispatch(ctx: &IpcCtx, buf: &[u8]) -> String {
                 let timeout = req.timeout_secs.map(Duration::from_secs).unwrap_or(ASK_DEFAULT_TIMEOUT);
                 let (to, msg) = (req.to.as_deref().unwrap_or(""), req.msg.as_deref().unwrap_or(""));
                 match start_ask(state, app, &req.from, to, msg, timeout, true, req.check.as_deref()) {
-                    Ok(id) => format!(
-                        "{} sent to '{}'. Collect it with `narrater wait` (or `narrater wait {}`); do NOT re-send.\n",
-                        id, to.trim(), id
-                    ),
+                    Ok(id) => {
+                        let asks = Arc::clone(&state.lock().unwrap().asks);
+                        let repeat = asks.get(&id).and_then(|r| r.repeat_of).and_then(|p| asks.get(&p));
+                        format!(
+                            "{} sent to '{}'. Collect it with `narrater wait` (or `narrater wait {}`); do NOT re-send.\n{}",
+                            id,
+                            to.trim(),
+                            id,
+                            repeat.map(|r| repeat_notice(&r) + "\n").unwrap_or_default()
+                        )
+                    }
                     Err(e) => with_newline(e),
                 }
             }
@@ -363,12 +370,17 @@ pub fn start_ask(
         (target_id, to_label, Arc::clone(&inner.asks), inner.label_of(from))
     };
     let id = crate::asks::new_id();
+    // The lead re-sending what it already asked: flagged, never blocked (a re-ask can be legitimate)
+    let repeat = asks.repeat_of(from, &target_id, msg, now_ms());
     crate::activity::record(
         crate::activity::ActivityEvent::new("ask", from, &from_label)
             .peer(&target_id, &to_label)
             .ask(&id)
             .text(msg)
-            .detail(if detached { "no-wait" } else { "waits" }),
+            .detail(match &repeat {
+                Some(r) => format!("{} · repeats #{}", if detached { "no-wait" } else { "waits" }, r.id.trim_start_matches("ask-")),
+                None => (if detached { "no-wait" } else { "waits" }).to_string(),
+            }),
     );
     asks.insert(crate::asks::AskRecord {
         id: id.clone(),
@@ -383,6 +395,7 @@ pub fn start_ask(
         finished: None,
         detached,
         reported: false,
+        repeat_of: repeat.as_ref().map(|r| r.id.clone()),
     });
     let (state, app, from, to, msg, ask_id) =
         (Arc::clone(state), app.clone(), from.to_string(), to.to_string(), msg.to_string(), id.clone());
@@ -399,6 +412,9 @@ pub fn start_ask(
         let mut detail = format!("{:.1} s", started.elapsed().as_secs_f64());
         if let Some(src) = crate::activity::take_source(&ask_id) {
             detail = format!("{} · {}", detail, src);
+        }
+        if let Some(r) = &repeat {
+            text = format!("{}\n\n{}", repeat_notice(r), text.trim_start());
         }
         // "Done" is the agent's word; the acceptance check is the environment's (MAST: false success)
         if let (AskState::Done, Some(cmd)) = (outcome, check.as_deref()) {
@@ -423,6 +439,16 @@ pub fn start_ask(
         asks.finish(&ask_id, outcome, text);
     });
     Ok(id)
+}
+
+/// Told to an asker repeating a prompt (see `AskStore::repeat_of`).
+fn repeat_notice(r: &crate::asks::AskRecord) -> String {
+    let mins = now_ms().saturating_sub(r.created) / 60_000;
+    format!(
+        "[narrater] This prompt repeats {} ({} min ago, {}). If its answer looked incomplete, read it again \
+         with `narrater wait {}` and ask a precise follow-up instead of re-sending.",
+        r.id, mins, r.state.as_str(), r.id
+    )
 }
 
 /// The acceptance check outlives slow test suites, but not forever.

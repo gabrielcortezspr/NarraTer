@@ -92,6 +92,33 @@ pub struct AskRecord {
     /// Its outcome was handed to the asker (by `ask` or `wait`).
     #[serde(default)]
     pub reported: bool,
+    /// An earlier ask from the same asker to the same target with (almost) the
+    /// same prompt: the lead is repeating itself (MAST's most common failure).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat_of: Option<String>,
+}
+
+/// How far back a repeated prompt is looked for.
+pub const REPEAT_WINDOW_MS: u64 = 60 * 60 * 1000;
+
+/// Words of a prompt, lowercased, for comparing two prompts.
+fn words(s: &str) -> std::collections::HashSet<String> {
+    s.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(|w| w.to_lowercase()).collect()
+}
+
+/// Two prompts say the same thing: identical once whitespace and case are
+/// ignored, or (from 4 words up) sharing at least 90% of their words.
+pub fn same_prompt(a: &str, b: &str) -> bool {
+    let squash = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    if squash(a) == squash(b) {
+        return true;
+    }
+    let (wa, wb) = (words(a), words(b));
+    if wa.len() < 4 || wb.len() < 4 {
+        return false;
+    }
+    let common = wa.intersection(&wb).count() as f64;
+    common / (wa.union(&wb).count() as f64) >= 0.9
 }
 
 #[derive(Default)]
@@ -240,6 +267,15 @@ impl AskStore {
         self.inner.lock().unwrap().records.get(id).cloned()
     }
 
+    /// The newest earlier ask from `asker` to `target` with the same prompt,
+    /// within REPEAT_WINDOW_MS of `now`.
+    pub fn repeat_of(&self, asker: &str, target: &str, prompt: &str, now: u64) -> Option<AskRecord> {
+        self.of(asker)
+            .into_iter()
+            .filter(|r| r.to == target && now.saturating_sub(r.created) <= REPEAT_WINDOW_MS)
+            .find(|r| same_prompt(&r.prompt, prompt))
+    }
+
     /// The asker's records, newest first.
     pub fn of(&self, asker: &str) -> Vec<AskRecord> {
         let inner = self.inner.lock().unwrap();
@@ -330,7 +366,35 @@ mod tests {
             finished: None,
             detached,
             reported: false,
+            repeat_of: None,
         }
+    }
+
+    #[test]
+    fn same_prompt_ignores_spacing_case_and_small_edits() {
+        assert!(same_prompt("Implement the  cubic weight", "implement the cubic weight"));
+        // One extra word in 17: still the same request
+        assert!(same_prompt(
+            "implement docs/PEDIDOS.md section 1 in armazem/frete.py with tests and run them all",
+            "implement docs/PEDIDOS.md section 1 in armazem/frete.py with tests, and run them all please"
+        ));
+        assert!(!same_prompt("fix frete", "fix cupons"));
+        assert!(!same_prompt("run the tests", "run the tests again now"));
+    }
+
+    #[test]
+    fn repeat_is_same_asker_same_target_recent() {
+        let dir = std::env::temp_dir().join(format!("asks-rep-{}", new_id()));
+        let store = AskStore::load(dir.join("asks.jsonl"));
+        let mut a = rec("ask-1", "lead", false);
+        a.prompt = "Implement the cubic weight in frete.py".into();
+        store.insert(a);
+        let now = crate::pty::now_ms();
+        assert_eq!(store.repeat_of("lead", "t", "implement the cubic  weight in frete.py", now).map(|r| r.id), Some("ask-1".into()));
+        assert!(store.repeat_of("other", "t", "Implement the cubic weight in frete.py", now).is_none());
+        assert!(store.repeat_of("lead", "t2", "Implement the cubic weight in frete.py", now).is_none());
+        assert!(store.repeat_of("lead", "t", "Implement the cubic weight in frete.py", now + REPEAT_WINDOW_MS + 1).is_none());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     fn temp_path(name: &str) -> PathBuf {
