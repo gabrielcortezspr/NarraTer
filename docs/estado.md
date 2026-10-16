@@ -29,6 +29,8 @@ leitor de transcript do Codex; variantes O9 (dev ↔ dev, statusline, tarefa sem
 
 - O3: quando a tela ociosa e o `narrater done` chegarem juntos, qual vale.
 - Tela alternativa do Claude: manter (decidido por ora); desligar seria preferência opcional.
+- Gerador de equipes (`pesquisa/orquestracao.md` §4, backlog O11): formato proposto, aguardando o Gabriel. Antes,
+  o braço "sozinho" do benchmark (O9) decide se equipe vale; precisa de cota para rodar.
 
 ## Lembrar
 

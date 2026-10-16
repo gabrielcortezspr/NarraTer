@@ -30,4 +30,5 @@ Estudos de outros projetos (skill `pesquisa`). Um arquivo por assunto.
 | [`pesquisa/leitor-de-estado.md`](pesquisa/leitor-de-estado.md) | Como saber que um agente terminou: CAO (AWS), Orca, o método de medição (`turn_eval`) e os resultados antes/depois | 2026-10-14 |
 | [`pesquisa/agent-teams.md`](pesquisa/agent-teams.md) | Agent Teams do Claude Code: caixa de correio, lista de tarefas com dependências, resposta final empurrada; o que reaproveitar sem quebrar a D01 | 2026-10-15 |
 | [`pesquisa/comparacao-versoes.md`](pesquisa/comparacao-versoes.md) | Benchmark de orquestração entre versões (A–D): tokens, contexto, tempo e trabalho feito; relatório em `relatorios/orquestracao-versoes.pdf` | 2026-10-15 |
+| [`pesquisa/orquestracao.md`](pesquisa/orquestracao.md) | Estado da arte em orquestração multiagente (MAST, Anthropic, Cognition, Kim et al., Vals.ai), falhas do nosso método e o desenho do gerador de equipes | 2026-10-16 |
 | [`pesquisa/visual.md`](pesquisa/visual.md) | Visual: HIG da Apple, tokens do Orca, Maestri, diagnóstico do NarraTer e de onde vem a porcentagem de uso de cada CLI | 2026-10-14 |
