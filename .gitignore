@@ -36,3 +36,9 @@ __pycache__/
 docs/relatorios/*.aux
 docs/relatorios/*.log
 docs/relatorios/*.out
+docs/apresentacao/*.aux
+docs/apresentacao/*.out
+docs/apresentacao/*.nav
+docs/apresentacao/*.snm
+docs/apresentacao/*.toc
+docs/apresentacao/*.vrb

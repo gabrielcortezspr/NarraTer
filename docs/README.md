@@ -31,3 +31,9 @@ Estudos de outros projetos (skill `pesquisa`). Um arquivo por assunto.
 | [`pesquisa/agent-teams.md`](pesquisa/agent-teams.md) | Agent Teams do Claude Code: caixa de correio, lista de tarefas com dependências, resposta final empurrada; o que reaproveitar sem quebrar a D01 | 2026-10-15 |
 | [`pesquisa/comparacao-versoes.md`](pesquisa/comparacao-versoes.md) | Benchmark de orquestração entre versões (A–D): tokens, contexto, tempo e trabalho feito; relatório em `relatorios/orquestracao-versoes.pdf` | 2026-10-15 |
 | [`pesquisa/visual.md`](pesquisa/visual.md) | Visual: HIG da Apple, tokens do Orca, Maestri, diagnóstico do NarraTer e de onde vem a porcentagem de uso de cada CLI | 2026-10-14 |
+
+## Apresentações
+
+| Arquivo | Leia quando |
+|---|---|
+| [`apresentacao/tcc-andamento.pdf`](apresentacao/tcc-andamento.pdf) | Vai apresentar o andamento do TCC: pergunta de pesquisa, método, os dois estudos (leitor de estado e benchmark), limitações. Fonte `.tex` ao lado; gráficos leem `relatorios/dados/` |
