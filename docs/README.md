@@ -39,4 +39,5 @@ Estudos de outros projetos (skill `pesquisa`). Um arquivo por assunto.
 
 | Arquivo | Leia quando |
 |---|---|
-| [`apresentacao/tcc-andamento.pdf`](apresentacao/tcc-andamento.pdf) | Vai apresentar o andamento do TCC: pergunta de pesquisa, método, os dois estudos (leitor de estado e benchmark), limitações. Fonte `.tex` ao lado; gráficos leem `relatorios/dados/` |
+| [`apresentacao/tcc-andamento.pdf`](apresentacao/tcc-andamento.pdf) | Vai apresentar o TCC: quando a orquestração compensa, literatura, fase exploratória (protocolo e leitor de estado), equipe contra agente sozinho (`pedidos`, `armazem`), D22–D24, limitações. Fonte `.tex` ao lado; gráficos leem `relatorios/dados/` |
+| [`apresentacao/ferramenta-e-testes.pdf`](apresentacao/ferramenta-e-testes.pdf) | Vai explicar como o NarraTer é feito (arquitetura, terminal, `ask`, `recruit`, `team create`), como se usa e como os testes evoluíram |

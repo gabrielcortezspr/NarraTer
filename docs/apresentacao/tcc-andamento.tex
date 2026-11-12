@@ -79,14 +79,13 @@
   milhoes/.style={y filter/.code={\pgfmathparse{##1/1000}}},
 }
 
-\title{NarraTer: orquestração de agentes de IA\\de fornecedores diferentes pelo terminal}
+\title{Quando a orquestração de agentes de IA compensa?\\[2pt]{\Large Um estudo empírico com o NarraTer}}
 \subtitle{Andamento do Trabalho de Conclusão de Curso}
 \author{Gabriel Cortez}
 \date{12 de novembro de 2026}
 
 \begin{document}
 
-% =====================================================================
 \begin{frame}[plain]
 \vfill
 {\color{acento}\rule{3em}{3pt}}\par\vspace{0.8em}
@@ -100,18 +99,18 @@
 
 \begin{frame}{Roteiro}
 \begin{enumerate}
-\setlength\itemsep{0.5em}
-\item O problema: agentes de código não conversam entre si
-\item O NarraTer e a tese central (o terminal como API universal)
-\item Como o projeto produz evidência
-\item Estudo 1: saber quando um agente terminou
-\item Estudo 2: benchmark de orquestração entre sete versões
+\setlength\itemsep{0.45em}
+\item De onde o trabalho partiu, e como a pergunta mudou
+\item O que a literatura diz sobre orquestrar agentes
+\item O instrumento: o NarraTer e como ele produz evidência
+\item Fase exploratória: tornar a orquestração confiável e medível
+\item O experimento central: equipe contra agente sozinho, em duas tarefas
+\item Da evidência à ferramenta: o portão, o gerador de equipes e o aceite
 \item Limitações, próximos passos e perguntas ao orientador
 \end{enumerate}
 \end{frame}
 
-% =====================================================================
-\section{O problema}
+\section{De onde partimos}
 
 \begin{frame}{Agentes de código vivem em terminais isolados}
 \begin{columns}[T]
@@ -142,24 +141,98 @@
 \end{columns}
 \end{frame}
 
-\begin{frame}{Pergunta de pesquisa}
+\begin{frame}{Como a pergunta mudou}
+\centering
+\begin{tikzpicture}[>=Stealth,
+  fase/.style={draw=linha, fill=fundo, rounded corners=3pt, align=left, font=\scriptsize, anchor=north, inner sep=5pt},
+  data/.style={font=\scriptsize\bfseries, color=acento}]
+\draw[->, suave, thick] (-0.3,0) -- (14.4,0);
+\foreach \x/\d in {1.6/{julho}, 5.4/{outubro}, 9.2/{15/10}, 12.8/{16/10}}
+  { \fill[acento] (\x,0) circle (2.2pt); \node[data, above] at (\x,0.08) {\d}; }
+\node[fase] at (1.6,-0.3) {\parbox[t][2.9cm][t]{3.2cm}{\raggedright\textbf{\small Uma ferramenta}\\[3pt]
+  Fazer agentes de fornecedores diferentes (Claude, Gemini, Codex) conversarem num canvas.\\[3pt]
+  \textcolor{ruim}{Modelo cooperativo: só funcionou com o Claude.}}};
+\node[fase] at (5.4,-0.3) {\parbox[t][2.9cm][t]{3.2cm}{\raggedright\textbf{\small Um protocolo}\\[3pt]
+  O terminal como API universal (D01). Para funcionar, foi preciso \textbf{medir}: quando o agente terminou?
+  A resposta chega inteira?}};
+\node[fase] at (9.2,-0.3) {\parbox[t][2.9cm][t]{3.2cm}{\raggedright\textbf{\small Um benchmark}\\[3pt]
+  Sete versões, 24 rodadas. Todas tiraram nota máxima; o que mudava era o \textbf{custo de coordenar}.}};
+\node[fase, draw=acento, line width=1pt] at (12.8,-0.3) {\parbox[t][2.9cm][t]{3.2cm}{\raggedright\textbf{\small Uma pergunta}\\[3pt]
+  Se a nota não muda e só o custo muda: \textbf{um agente sozinho não faria igual?}
+  Quando a orquestração compensa?}};
+\end{tikzpicture}
+\vspace{0.6em}
+
 \begin{block}{}
-\large Como fazer agentes de IA de \textbf{fornecedores diferentes} trabalharem juntos \textbf{sem exigir que eles
-cooperem} com um protocolo próprio, e quanto isso custa?
+\small Construir a ferramenta antes de fechar a teoria foi uma \textbf{fase exploratória}: foi ela que revelou a
+pergunta certa e produziu o instrumento para respondê-la.
 \end{block}
-\vspace{0.8em}
-Desdobrada em três perguntas que dá para medir:
-\begin{description}[Q3]
-\setlength\itemsep{0.4em}
-\item[Q1] Como saber, só olhando o terminal, que um agente \textbf{terminou} o turno?
-\item[Q2] Como obter a \textbf{resposta inteira} do agente, e não um pedaço da tela?
-\item[Q3] Quanto um protocolo agnóstico custa em \textbf{tokens, tempo e trabalho feito},
-  comparado a um protocolo cooperativo preso a um só fornecedor?
-\end{description}
 \end{frame}
 
-% =====================================================================
-\section{O NarraTer}
+\begin{frame}{Pergunta de pesquisa}
+\begin{block}{}
+\large \textbf{Quando} a orquestração de vários agentes de IA compensa, em relação a \textbf{um agente
+sozinho}, em tarefas de programação? E como uma ferramenta pode \textbf{decidir} isso?
+\end{block}
+\vspace{0.6em}
+\begin{description}[Q3]
+\setlength\itemsep{0.35em}
+\item[Q1] Em que tipo de tarefa uma equipe ganha de um agente sozinho, em \textbf{nota, tempo e custo}?
+\item[Q2] \textbf{De onde vem} o custo de coordenar: do protocolo, da forma da equipe ou do tamanho das partes?
+\item[Q3] Que \textbf{regra} uma ferramenta deve seguir para montar, ou não montar, uma equipe?
+\end{description}
+\vspace{0.4em}
+{\small\color{suave} Pré-requisito, já resolvido na fase exploratória: uma orquestração entre agentes de qualquer
+fornecedor que saiba quando o agente terminou e receba a resposta inteira.}
+\end{frame}
+
+\begin{frame}{O que a literatura diz}
+\scriptsize
+\begin{tabularx}{\linewidth}{@{}l X@{}}
+\toprule
+Fonte & Achado \\
+\midrule
+\textbf{MAST} (Cemri et al., 2025) & 14 modos de falha em sistemas multiagente: projeto do sistema $\sim$44\%,
+  desalinhamento entre agentes $\sim$32\%, \textbf{verificação} $\sim$23,5\%. \\
+\textbf{Kim et al.} (Google/MIT, 2025) & 180 configurações: coordenar ganha 80,8\% em tarefas
+  \textbf{paralelizáveis} e perde 39--70\% nas \textbf{sequenciais}; acima de $\sim$45\% de acerto do agente
+  sozinho, coordenar não compensa. \\
+\textbf{Vals.ai} (2026) & Equipes construindo apps: custo de 1,8$\times$ a 5,1$\times$; ganho significativo em
+  1 de 4 configurações. \\
+\textbf{Tran e Kiela} (2026) & Com o mesmo orçamento de tokens, o agente sozinho empata ou ganha. \\
+\textbf{Anthropic} (2025) & Multiagente vale em pesquisa ampla e paralela, a $\sim$15$\times$ os tokens; código
+  é um encaixe ruim. \\
+\textbf{Cognition} (2025--26) & ``Não construa multiagentes'': a escrita deve ficar numa linha só. O que funciona
+  é um \textbf{revisor com contexto limpo}. \\
+\bottomrule
+\end{tabularx}
+\vspace{0.5em}
+
+{\footnotesize\citado{} Números principais conferidos na fonte (\texttt{docs/pesquisa/orquestracao.md}).\\
+\inferido{} Hipótese: em tarefas que um agente forte resolve sozinho, a equipe só acrescenta custo.}
+\end{frame}
+
+\begin{frame}{Ferramentas relacionadas}
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l X X l@{}}
+\toprule
+Projeto & Como sabe que o agente terminou & Como obtém a resposta & Exige cooperação? \\
+\midrule
+Maestri (macOS) & tela & tela & não \\
+Orca & \emph{hooks} em $\sim$25 CLIs + regras de tela em JSON + título da janela & ferramenta \texttt{worker-read}, blocos de 1.200 caracteres & sim \\
+CLI Agent Orchestrator (AWS) & expressões regulares por CLI sobre a tela & tela & não \\
+Agent Teams (Claude Code) & evento interno do programa & mensagem empurrada & só Claude \\
+\midrule
+\textbf{NarraTer} & tela + título + \emph{transcript} quando existe & \emph{transcript}, ou tela & \textbf{não} \\
+\bottomrule
+\end{tabularx}
+\vspace{0.6em}
+
+{\scriptsize\color{suave} Estudos em \texttt{docs/pesquisa/} (código-fonte lido em versões e \emph{commits} registrados).
+A literatura acadêmica está no slide anterior.}
+\end{frame}
+
+\section{O instrumento: NarraTer}
 
 \begin{frame}{O NarraTer: um canvas de terminais}
 \begin{columns}[c]
@@ -251,34 +324,11 @@ continua funcionando pela tela.
 \end{block}
 \end{frame}
 
-\begin{frame}{Trabalhos relacionados estudados}
-\footnotesize
-\begin{tabularx}{\linewidth}{@{}l X X l@{}}
-\toprule
-Projeto & Como sabe que o agente terminou & Como obtém a resposta & Exige cooperação? \\
-\midrule
-Maestri (macOS) & tela & tela & não \\
-Orca & \emph{hooks} em $\sim$25 CLIs + regras de tela em JSON + título da janela & ferramenta \texttt{worker-read}, blocos de 1.200 caracteres & sim \\
-CLI Agent Orchestrator (AWS) & expressões regulares por CLI sobre a tela & tela & não \\
-Agent Teams (Claude Code) & evento interno do programa & mensagem empurrada & só Claude \\
-\midrule
-\textbf{NarraTer} & tela + título + \emph{transcript} quando existe & \emph{transcript}, ou tela & \textbf{não} \\
-\bottomrule
-\end{tabularx}
-\vspace{0.6em}
-
-{\scriptsize\color{suave} Estudos em \texttt{docs/pesquisa/} (código-fonte lido em versões e \emph{commits} registrados).
-Falta a revisão de literatura acadêmica (ver ``Próximos passos'').}
-\end{frame}
-
-% =====================================================================
-\section{Como o projeto produz evidência}
-
 \begin{frame}[fragile]{Registro de decisões com evidência classificada (D09)}
 \begin{columns}[T]
 \begin{column}{0.44\linewidth}
 \small
-Cada decisão com alternativa real vira uma entrada em \texttt{docs/decisoes.md} (21 até agora), com seis campos:
+Cada decisão com alternativa real vira uma entrada em \texttt{docs/decisoes.md} (24 até agora), com seis campos:
 \begin{itemize}\setlength\itemsep{0.2em}
 \item contexto, decisão;
 \item alternativas recusadas e por quê;
@@ -330,8 +380,25 @@ antes da hora ou respostas trocadas.
 \end{itemize}
 \end{frame}
 
-% =====================================================================
-\section{Estudo 1: saber quando um agente terminou (Q1)}
+\begin{frame}{Verificabilidade: o painel Activity (D21)}
+\begin{columns}[c]
+\begin{column}{0.42\linewidth}
+\centering\includegraphics[height=0.8\textheight, trim=1040 280 200 0, clip]{painel-atividade.png}
+\end{column}
+\begin{column}{0.54\linewidth}
+\small
+\begin{itemize}\setlength\itemsep{0.5em}
+\item Cada estado, pedido, entrega e resposta é gravado \textbf{pelo backend}, no momento em que acontece
+  (\texttt{activity.jsonl}).
+\item Nenhum agente escreve nesse registro: é o fato, não a palavra da IA.
+\item Cada resposta mostra a duração e a \textbf{origem} (transcript ou tela).
+\item Serve para auditar uma orquestração depois, e para explicar falhas como o ask antes da hora.
+\end{itemize}
+\end{column}
+\end{columns}
+\end{frame}
+
+\section{Fase exploratória: tornar a orquestração confiável e medível}
 
 \begin{frame}{Método: latência contra o oráculo}
 \centering
@@ -379,40 +446,6 @@ Claude, turnos normais & 9 / 0 (9) & mediana 1,36 s & 15 / 0 (15) & mediana 0,55
 
 {\scriptsize\color{suave} Ressalvas: uma máquina, uma versão do Claude Code (2.1.299, modelo Haiku); Codex e Gemini não medidos.}
 \end{frame}
-
-\begin{frame}{Exemplo de achado: o que estava errado no tmux}
-\begin{columns}[T]
-\begin{column}{0.52\linewidth}
-\small
-\observado{} Dentro do tmux, o processo em primeiro plano do PTY é o \emph{cliente tmux}, não o comando. Durante um
-\cmd{sleep 4}, a tela fica parada e o leitor concluía ``terminou''.
-\vspace{0.6em}
-
-\textbf{Primeira correção}: ler o primeiro plano do painel tmux pelo \texttt{/proc}. Ainda deu 4 de 15
-``prematuros'' de 2--3 ms: a leitura caía entre o fim do comando e o redesenho do \emph{prompt}.
-\vspace{0.6em}
-
-\textbf{Correção final} (D10): tratar ``há um comando em primeiro plano'' como atividade de tela.
-\medido{} 0 prematuros em 20.
-\end{column}
-\begin{column}{0.45\linewidth}
-\small
-\observado{} Outro achado: com o diálogo de permissão aberto, o Claude Code às vezes pisca um indicador a cada
-0,6~s (289 piscadas em 180~s), e a tela nunca fica parada. O leitor ficava preso até o \emph{timeout}.
-\vspace{0.6em}
-
-Correção (D11): o \textbf{título da janela} (que o Claude Code muda conforme o estado) entra no leitor.
-\medido{} detectado em 0,1--0,2~s.
-\vspace{0.6em}
-
-\medido{} O oráculo também foi escolhido por medição: o \emph{hook} \texttt{Notification} chega 6~s atrasado; o
-\texttt{PermissionRequest} chega na hora.
-\end{column}
-\end{columns}
-\end{frame}
-
-% =====================================================================
-\section{Estudo 2: benchmark de orquestração (Q2, Q3)}
 
 \begin{frame}{Desenho experimental (D19)}
 \begin{columns}[T]
@@ -472,27 +505,27 @@ Repositório inicial: 5/31.
 uma falha vista nas rodadas da anterior.}
 \end{frame}
 
-\begin{frame}{Resultado 1: a qualidade bateu no teto}
+\begin{frame}{O resultado que mudou a pergunta: a qualidade bateu no teto}
 \begin{columns}[c]
 \begin{column}{0.5\linewidth}
 \centering
 {\fontsize{44}{48}\selectfont\color{acento}\textbf{24/24}}\par
 \vspace{0.3em}
-{\small rodadas passaram em \textbf{31 de 31} testes escondidos}
+{\small rodadas de equipe passaram em \textbf{31 de 31} testes escondidos}
 \end{column}
 \begin{column}{0.48\linewidth}
 \small
 \begin{itemize}\setlength\itemsep{0.5em}
-\item \medido{} Todas as versões, todas as rodadas, nota máxima. Os testes da própria equipe também passaram (39 a 62 testes).
-\item O líder nunca editou um arquivo: o papel foi respeitado.
-\item \textbf{Consequência para o método}: esta tarefa mede \textbf{custo}, não capacidade. Para comparar qualidade,
-  é preciso uma tarefa mais difícil.
+\item \medido{} Todas as versões, todas as rodadas, nota máxima. O líder nunca editou um arquivo.
+\item O que separava as versões era só o \textbf{custo}: tokens, tempo, quantas vezes o líder voltava aos devs.
+\item A comparação era sempre \textbf{equipe contra equipe}. Faltava o grupo de controle:
+  \textbf{um agente sozinho} na mesma tarefa.
 \end{itemize}
 \end{column}
 \end{columns}
 \end{frame}
 
-\begin{frame}{Resultado 2: custo por versão}
+\begin{frame}{O custo de coordenar mudou entre versões}
 \begin{columns}[T]
 \begin{column}{0.5\linewidth}
 \centering
@@ -553,26 +586,6 @@ Duas falhas fazem o líder pedir de novo:
 \end{columns}
 \end{frame}
 
-\begin{frame}{Por que a tela não basta para o Claude Code}
-\begin{columns}[c]
-\begin{column}{0.58\linewidth}
-\includegraphics[width=\linewidth]{tela-alternativa-parado.png}
-\vspace{0.2em}
-
-{\scriptsize\color{suave} O mesmo agente em tela cheia e normal: o terminal só guarda o que está visível.}
-\end{column}
-\begin{column}{0.40\linewidth}
-\small
-\medido{} O Claude Code desenha numa \textbf{tela alternativa}: não sobra histórico de rolagem no emulador.
-A ideia inicial (ler o \emph{scrollback}) não funcionaria.
-\vspace{0.6em}
-
-\textbf{Solução (D20)}: o próprio Claude Code grava um \emph{transcript} em JSON Lines no disco. O NarraTer
-\textbf{lê} esse arquivo, sem pedir nada ao agente. Se o arquivo não existir, a tela continua valendo.
-\end{column}
-\end{columns}
-\end{frame}
-
 \begin{frame}[fragile]{Exemplo real: o \texttt{end\_turn} que mente}
 \small
 Trecho do \emph{transcript} da rodada E2 (hoje é um teste em \texttt{tests/transcripts/}), resumido:
@@ -593,7 +606,7 @@ Trecho do \emph{transcript} da rodada E2 (hoje é um teste em \texttt{tests/tran
 \end{itemize}
 \end{frame}
 
-\begin{frame}{Resultado 3: as falhas do protocolo foram a zero}
+\begin{frame}{As falhas do protocolo foram a zero}
 \small
 \begin{tabular}{@{}l c c c c c@{}}
 \toprule
@@ -618,47 +631,226 @@ Prende a um fornecedor? & \textcolor{ruim}{sim} & não & não & não & não \\
 \end{itemize}
 \end{frame}
 
-\begin{frame}{Verificabilidade: o painel Activity (D21)}
-\begin{columns}[c]
-\begin{column}{0.42\linewidth}
-\centering\includegraphics[height=0.8\textheight, trim=1040 280 200 0, clip]{painel-atividade.png}
+\section{O experimento central: equipe contra agente sozinho}
+
+\begin{frame}{Desenho: o braço ``sozinho''}
+\setbeamerfont{itemize/enumerate body}{size=\footnotesize}
+\begin{columns}[T]
+\begin{column}{0.56\linewidth}
+\footnotesize
+\textbf{Mesmo benchmark}, mesma tarefa, mesmos testes escondidos, mesmas condições (rodada zerada, 3 por montagem).
+Muda só \textbf{quem trabalha}:
+\begin{itemize}\setlength\itemsep{0.3em}
+\item \textbf{Sozinho}: um terminal, Claude Opus 5.5, o mesmo pedido.
+\item \textbf{Equipe}: Narrador (Opus) + DevA (Sonnet) + DevB (Haiku), versões F e G do protocolo, já sem
+  as falhas da fase exploratória.
+\end{itemize}
+\vspace{0.3em}
+Duas tarefas:
+\begin{itemize}\setlength\itemsep{0.3em}
+\item \texttt{pedidos}: funcionalidade que atravessa 3 módulos + 2 defeitos (31 testes);
+\item \texttt{armazem}: \textbf{4 módulos independentes}, feita para a equipe ganhar (46 testes, 12 de regras sutis).
+\end{itemize}
 \end{column}
-\begin{column}{0.54\linewidth}
+\begin{column}{0.4\linewidth}
+\centering
+\begin{tikzpicture}[>=Stealth, font=\scriptsize,
+  t/.style={draw=linha, fill=fundo, rounded corners=3pt, minimum width=1.5cm, minimum height=0.7cm, align=center}]
+\node[font=\small\bfseries] at (0,2.3) {Sozinho};
+\node[t, draw=acento] at (0,1.4) {Opus};
+\node[font=\small\bfseries] at (3.0,2.3) {Equipe};
+\node[t, draw=acento] (n) at (3.0,1.4) {Narrador\\[-2pt]{\tiny Opus}};
+\node[t] (a) at (2.2,0) {DevA\\[-2pt]{\tiny Sonnet}};
+\node[t] (b) at (3.8,0) {DevB\\[-2pt]{\tiny Haiku}};
+\draw[acento, thick] (n) -- (a); \draw[acento, thick] (n) -- (b);
+\node[font=\small\bfseries, align=center] at (1.5,-0.95) {Dev + revisor {\tiny\mdseries (só no \texttt{armazem})}};
+\node[t, draw=acento] (o) at (0.7,-1.9) {Dev\\[-2pt]{\tiny Opus}};
+\node[t] (rv) at (2.3,-1.9) {Revisor\\[-2pt]{\tiny Sonnet}};
+\draw[acento, thick] (o) -- (rv);
+\end{tikzpicture}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Tarefa \texttt{pedidos}: o agente sozinho venceu}
+\begin{columns}[T]
+\begin{column}{0.52\linewidth}
 \small
-\begin{itemize}\setlength\itemsep{0.5em}
-\item Cada estado, pedido, entrega e resposta é gravado \textbf{pelo backend}, no momento em que acontece
-  (\texttt{activity.jsonl}).
-\item Nenhum agente escreve nesse registro: é o fato, não a palavra da IA.
-\item Cada resposta mostra a duração e a \textbf{origem} (transcript ou tela).
-\item Serve para auditar uma orquestração depois, e para explicar falhas como o ask antes da hora.
+\begin{tabular}{@{}l c c c@{}}
+\toprule
+& \textbf{Sozinho} & Equipe G & Equipe F \\
+\midrule
+Testes escondidos & 31/31 & 31/31 & 31/31 \\
+Duração (min) & \textbf{1,6} & 3,9 & 2,8 \\
+Tokens (milhões) & \textbf{0,36} & 2,50 & 1,73 \\
+Custo (US\$) & \textbf{0,55} & 0,74 & 0,65 \\
+Chamadas à API & \textbf{8} & 49 & 38 \\
+\bottomrule
+\end{tabular}
+\vspace{0.3em}
+
+{\scriptsize Médias de 3 rodadas por montagem.}
+\end{column}
+\begin{column}{0.45\linewidth}
+\small
+\begin{itemize}\setlength\itemsep{0.45em}
+\item \medido{} Contra a G, o sozinho vence em \textbf{tempo, tokens, chamadas e custo}, sem sobreposição
+  (Mann--Whitney, $p = 0{,}10$, o mínimo com 3 contra 3).
+\item \medido{} Só o Narrador da G, \textbf{apenas coordenando}, custou US\$\,0,32--0,41: de 60\% a 75\% do Opus
+  sozinho fazendo tudo.
+\item \inferido{} Nesta tarefa, a equipe só acrescenta custo. Faltava uma tarefa em que ela \emph{deveria}
+  ganhar.
 \end{itemize}
 \end{column}
 \end{columns}
 \end{frame}
 
-% =====================================================================
+\begin{frame}{Tarefa \texttt{armazem}: previsões registradas \emph{antes} de rodar}
+\small
+Escritas a partir da literatura e gravadas num \emph{commit} (\texttt{52688a3}) antes da primeira rodada válida:
+\vspace{0.4em}
+
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l X X l@{}}
+\toprule
+& Previsão (fonte) & O que aconteceu & Veredito \\
+\midrule
+P1 & A equipe paralela termina antes (Kim et al.: +80,8\% em tarefas paralelas) & 2,8 contra 1,8~min, sem sobreposição & \textcolor{ruim}{\textbf{Refutada}} \\
+P2 & A equipe gasta mais (Vals.ai: 1,8--5,1$\times$) & 4,2$\times$ os tokens; custo igual (modelos baratos) & \textcolor{alerta!80!black}{Em parte} \\
+P3 & O revisor melhora a nota nas regras sutis (Cognition) & Nota igual, 36\% mais caro, aprovou tudo & Não testável \\
+P4 & No teto, ninguém melhora a nota (Kim et al.) & 46/46 nas 9 rodadas & \textcolor{ok}{\textbf{Confirmada}} \\
+P5 & Os erros da equipe virão do Haiku (MAST) & A equipe não errou; o Haiku foi o gargalo de \emph{tempo} & Não se aplica \\
+\bottomrule
+\end{tabularx}
+\vspace{0.5em}
+
+{\small Registrar a previsão antes protege contra explicar o resultado depois de vê-lo.}
+\end{frame}
+
+\begin{frame}{Por que a equipe perdeu numa tarefa paralelizável}
+\begin{columns}[T]
+\begin{column}{0.5\linewidth}
+\centering
+\begin{tikzpicture}
+\begin{axis}[width=\linewidth, height=5.0cm, ybar, bar width=9pt, ymin=0, ymax=4.8,
+  symbolic x coords={pedidos,armazem}, xtick=data, enlarge x limits=0.45,
+  ylabel={duração média (min)}, ymajorgrids, grid style={linha},
+  axis line style={suave}, tick style={suave},
+  tick label style={font=\scriptsize}, label style={font=\scriptsize},
+  nodes near coords, every node near coord/.append style={font=\tiny},
+  legend style={font=\tiny, draw=none, fill=none, at={(0.5,1.02)}, anchor=south, legend columns=3}]
+\addplot[fill=acento, draw=none] coordinates {(pedidos,1.6) (armazem,1.8)};
+\addplot[fill=suave!60, draw=none] coordinates {(pedidos,3.9) (armazem,2.8)};
+\addplot[fill=cDevA!60, draw=none] coordinates {(armazem,2.3)};
+\legend{sozinho, equipe, dev + revisor}
+\end{axis}
+\end{tikzpicture}
+\parbox{\linewidth}{\centering\tiny\color{suave} No \texttt{pedidos}, a equipe é a G; não houve braço dev + revisor.}
+\end{column}
+\begin{column}{0.47\linewidth}
+\small
+\medido{} O protocolo \textbf{não falhou}: 0 de 15 \emph{asks} prematuros, 0 respostas cortadas.
+O tempo se perdeu na \textbf{forma da equipe}:
+\begin{itemize}\setlength\itemsep{0.3em}
+\item o Haiku levou 109--127~s nos seus módulos, \textbf{o dobro} do Sonnet;
+\item os dois devs trabalharam juntos só 39--59~s;
+\item o Narrador ficou sozinho 39--49~s, o \textbf{custo fixo de coordenar}.
+\end{itemize}
+\inferido{} Ser paralelizável não basta: cada parte precisa valer bem mais que $\sim$1~min de coordenação,
+e os membros precisam ter a mesma velocidade.
+\end{column}
+\end{columns}
+\end{frame}
+
+\section{Da evidência à ferramenta}
+
+\begin{frame}{O padrão passa a ser um agente só (D22)}
+\begin{columns}[T]
+\begin{column}{0.52\linewidth}
+\small
+Quando alguém decide como atacar uma tarefa (a pessoa, o líder ou o gerador), a resposta padrão é
+\textbf{um agente só}. Montar equipe exige pelo menos \textbf{um motivo explícito}:
+\begin{enumerate}\setlength\itemsep{0.3em}
+\item duas ou mais subtarefas independentes, com arquivos separados e grandes o bastante;
+\item um \textbf{verificador com contexto limpo}, de preferência de outro fornecedor;
+\item um contexto que não cabe num agente.
+\end{enumerate}
+O motivo fica registrado numa nota no canvas.
+\end{column}
+\begin{column}{0.45\linewidth}
+\small
+\textbf{Por que não ``nunca orquestrar''?} A literatura mostra ganho real em leitura paralela (Kim et al.) e
+com revisor de contexto limpo (Cognition). É para esses casos que a ferramenta existe.
+\vspace{0.5em}
+
+\textbf{Revisar se:} um formato medido no benchmark ganhar do agente sozinho. Ele vira o padrão sugerido.
+\vspace{0.5em}
+
+{\scriptsize\color{suave} Este é o principal resultado prático até aqui: uma regra de decisão com evidência
+medida e citada, e com a condição que a derrubaria.}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{O gerador de equipes (D23) e o aceite verificado (D24)}
+\begin{columns}[T]
+\begin{column}{0.53\linewidth}
+\scriptsize
+\textbf{\small Gerador}: escolhe entre \textbf{formatos conhecidos}, não inventa equipes.
+\begin{lstlisting}[basicstyle=\ttfamily\tiny, breaklines=false]
+narrater team create --template dev-reviewer \
+  --task "Implementar a exportação em CSV" \
+  --reason "revisor com contexto limpo" \
+  --check "python3 -m unittest -q"
+\end{lstlisting}
+\begin{itemize}\setlength\itemsep{0.15em}
+\item formatos: \texttt{solo}, \texttt{dev-reviewer}, \texttt{dev-qa}, \texttt{readers}, \texttt{parallel-devs},
+  cada um com ``quando compensa'' e o custo medido;
+\item \textbf{o portão}: sem \texttt{--reason}, é recusado; \texttt{solo} não cria terminal;
+\item cria terminais com modelo e papel, arestas, uma nota com a tarefa e o critério de aceite;
+\item \textbf{Automatic teams}: uma chave do usuário, desligada por padrão.
+\end{itemize}
+{\tiny\color{suave} A literatura que funciona (AFlow, MaAS, MasRouter) escolhe entre peças conhecidas.}
+\end{column}
+\begin{column}{0.44\linewidth}
+\scriptsize
+\textbf{\small Aceite}: ``pronto'' é verificado pelo ambiente, não pela palavra do agente.
+\begin{lstlisting}[basicstyle=\ttfamily\tiny, breaklines=false]
+narrater ask "Dev" "..." --check "make test"
+\end{lstlisting}
+\begin{itemize}\setlength\itemsep{0.15em}
+\item quando o turno termina, o \textbf{backend} roda o comando;
+\item saída 0: ``Acceptance check passed''; senão, o pedido termina como \texttt{failed}, com a saída;
+\item \citado{} verificação é $\sim$23,5\% das falhas (MAST), e juízes LLM não detectam o ``pronto'' falso
+  (AUROC $\le$ 0,65);
+\item não exige cooperação do agente (D01 preservada).
+\end{itemize}
+\observado{} Ambos verificados de ponta a ponta no app real.
+\end{column}
+\end{columns}
+\end{frame}
+
 \section{Limitações e próximos passos}
 
 \begin{frame}{Ameaças à validade}
 \begin{columns}[T]
 \begin{column}{0.49\linewidth}
 \small
-\begin{itemize}\setlength\itemsep{0.5em}
-\item \textbf{Amostra pequena}: 3 rodadas por versão. O menor $p$ possível é 0,10; nenhuma diferença é
-  significativa a 5\%. São indicações fortes, não provas.
-\item \textbf{Teto de qualidade}: 31/31 em tudo. A tarefa só mede custo.
-\item \textbf{Um fornecedor só}: todos os agentes medidos são Claude. A vantagem central da tese (falar com Codex,
-  Gemini\dots) \textbf{ainda não foi medida}.
+\begin{itemize}\setlength\itemsep{0.45em}
+\item \textbf{Amostra pequena}: 3 rodadas por montagem; o menor $p$ possível é 0,10. Nada é significativo a 5\%.
+\item \textbf{Teto}: em 2 tarefas e 18 rodadas, o Opus sozinho nunca errou um teste. Ainda não medimos uma
+  tarefa em que a qualidade varie.
+\item \textbf{Tarefas pequenas} (2--4 min): o custo fixo do líder pesa mais do que pesaria numa tarefa de horas.
 \end{itemize}
 \end{column}
 \begin{column}{0.49\linewidth}
 \small
-\begin{itemize}\setlength\itemsep{0.5em}
-\item \textbf{Correções guiadas pelos dados}: E--G nasceram das falhas de A--D, na mesma tarefa. Rodadas novas
-  confirmam o sumiço das falhas, mas há risco de sobreajuste à tarefa.
-\item \textbf{E--G sem intercalar com A--D}: rodaram depois, na mesma tarde.
-\item \textbf{Ambiente único}: um contêiner, uma versão do Claude Code; as interfaces mudam entre versões.
-\item \textbf{Heurísticas de contagem}: ``resposta cortada'' detectada por palavras e conferida à mão.
+\begin{itemize}\setlength\itemsep{0.45em}
+\item \textbf{Modelos misturados}: a equipe tem Haiku e Sonnet; parte da derrota é da velocidade do Haiku, não
+  da orquestração em si.
+\item \textbf{Um fornecedor só}: todos os agentes medidos são Claude.
+\item \textbf{Correções guiadas pelos dados}: E--G nasceram das falhas de A--D, na mesma tarefa.
+\item \textbf{Ambiente único}: um contêiner, uma versão do Claude Code.
 \end{itemize}
 \end{column}
 \end{columns}
@@ -670,34 +862,41 @@ Prende a um fornecedor? & \textcolor{ruim}{sim} & não & não & não & não \\
 \toprule
 & O que & Responde a \\
 \midrule
-1 & \textbf{Agentes de outros fornecedores} no benchmark (Codex, Gemini CLI) e leitor de \emph{transcript} do Codex & Q1, Q3 e a tese \\
-2 & \textbf{Mais rodadas} ($\geq$ 8 por versão), intercaladas, para separar versões vizinhas com significância & todas \\
-3 & \textbf{Tarefa sem teto}, em que a qualidade varie entre versões & Q3 \\
-4 & \textbf{Revisão de literatura} acadêmica sobre sistemas multiagente com LLMs e \emph{benchmarks} de engenharia de software & enquadramento \\
-5 & Tarefas com dependências e pega automática (O8), medidas no mesmo benchmark & Q3 \\
+1 & \textbf{Tarefa difícil}, em que o agente sozinho fique abaixo de $\sim$70\% & Q1 (qualidade) \\
+2 & \textbf{Sonnet + revisor Opus contra Opus sozinho}: um modelo barato escrevendo e um forte revisando chega à mesma
+  nota por menos? & Q1, Q3 \\
+3 & \textbf{Montagem gerada}: com Automatic teams ligado, o líder escolhe ``solo'' quando deve? & Q3 \\
+4 & \textbf{Revisor de outro fornecedor} (Codex revisando Claude), a vantagem própria da D01 & Q1, tese \\
+5 & \textbf{Mais rodadas} ($\geq$ 8 por montagem) para chegar à significância & todas \\
+6 & Tirar o líder do caminho entre as fases (tarefas com dependências, O8) & Q2 \\
 \bottomrule
 \end{tabularx}
 \end{frame}
 
 \begin{frame}{Contribuições até aqui}
-\begin{enumerate}\setlength\itemsep{0.6em}
-\item Um \textbf{protocolo de orquestração agnóstico}, implementado e usado, em que nenhum agente precisa cooperar.
-\item Um \textbf{método de medição} do leitor de estado contra um oráculo independente, com gravações reais
-  transformadas em testes de regressão.
-\item Um \textbf{benchmark reprodutível} de orquestração (tarefa inventada, testes escondidos, rodadas zeradas,
-  ordem contrabalançada), aplicado a sete versões reais do sistema.
-\item Evidência \medido{} de que o protocolo agnóstico chegou ao \textbf{mesmo custo} do cooperativo (US\$\,0,65--0,74
-  contra 0,69) depois de identificar e corrigir dois mecanismos de falha.
-\item Um registro de 21 decisões com alternativas, evidência classificada e condição de revisão.
+\begin{enumerate}\setlength\itemsep{0.5em}
+\item Um \textbf{benchmark reprodutível} de orquestração (tarefas inventadas, testes escondidos, rodadas zeradas, ordem
+  contrabalançada) com \textbf{grupo de controle de agente sozinho}.
+\item Evidência \medido{} de que, em duas tarefas de programação, um agente forte sozinho foi
+  \textbf{mais rápido e mais barato} que a equipe, com a mesma nota, \textbf{inclusive numa tarefa paralelizável},
+  contra a previsão tirada da literatura.
+\item Uma \textbf{regra de decisão} (D22) e uma ferramenta que a aplica: gerador por formatos conhecidos, com portão e
+  aceite verificado pelo ambiente.
+\item Um \textbf{protocolo de orquestração agnóstico} ao fornecedor, que não exige cooperação do agente, e o método para
+  medi-lo contra um oráculo.
+\item Um registro de 24 decisões com alternativas, evidência classificada e condição de revisão.
 \end{enumerate}
 \end{frame}
 
 \begin{frame}{Perguntas para o orientador}
-\begin{itemize}\setlength\itemsep{0.8em}
-\item O \textbf{recorte} está bom? Ferramenta + método de medição, ou o foco deveria ser só o estudo experimental?
-\item Para o texto final, quantas rodadas por versão e que nível de significância são esperados?
-\item A validação com \textbf{outros fornecedores} é obrigatória para sustentar a tese, ou pode ficar como trabalho futuro?
-\item Que \textbf{literatura} deve servir de base (sistemas multiagente com LLMs, \emph{benchmarks} de agentes de código)?
+\begin{itemize}\setlength\itemsep{0.7em}
+\item O \textbf{recorte} ``quando a orquestração compensa'' está bom, com o NarraTer como instrumento e não como
+  produto final?
+\item A fase exploratória (protocolo, leitor de estado) entra no texto como capítulo próprio ou como apêndice?
+\item Quantas rodadas por montagem e que nível de significância são esperados?
+\item Uma \textbf{tarefa difícil} é obrigatória para sustentar a conclusão, ou o resultado ``no teto'' já basta,
+  bem delimitado?
+\item A base teórica (MAST, Kim et al., Vals.ai, Tran e Kiela) é suficiente, ou falta alguma linha?
 \item Como declarar o uso de um agente de IA no desenvolvimento e na análise?
 \end{itemize}
 \end{frame}
@@ -709,14 +908,15 @@ Prende a um fornecedor? & \textcolor{ruim}{sim} & não & não & não & não \\
 {\usebeamerfont{title}Obrigado}\par
 \vspace{1em}
 {\small\color{suave} Código, dados brutos, relatório completo e como reproduzir:\\
-\texttt{docs/relatorios/orquestracao-versoes.pdf} \quad \texttt{bench/orquestracao/} \quad \texttt{docs/decisoes.md}}
+\texttt{docs/relatorios/} (\texttt{orquestracao-versoes}, \texttt{quando-orquestrar}, \texttt{equipe-ou-sozinho})\\ \texttt{bench/orquestracao/} \quad \texttt{docs/decisoes.md} \quad \texttt{docs/pesquisa/orquestracao.md}}
 \vfill
 \end{frame}
 
-% =====================================================================
 \appendix
+
 \begin{frame}[fragile]{Apêndice: como reproduzir}
-\small
+\footnotesize
+\lstset{basicstyle=\ttfamily\tiny}
 Leitor de estado (Estudo 1):
 \begin{lstlisting}
 cd src-tauri && cargo run --release --example turn_eval -- --reps 5 --claude
@@ -730,6 +930,12 @@ $BENCH/build.sh A B C D E F G                       # compila cada versão
 Xvfb :77 -screen 0 1600x1000x24 &
 cd bench/orquestracao && ./rodar_todas.sh           # rodadas zeradas, ordem contrabalançada
 python3 analisar.py $BENCH/runs/v?-r[1-9] && python3 agregar.py
+\end{lstlisting}
+Equipe contra agente sozinho:
+\begin{lstlisting}
+BENCH_VARIANTE=solo python3 rodar.py H 1                      # tarefa pedidos, sozinho
+BENCH_TAREFA=armazem BENCH_VARIANTE=solo|equipe|revisor python3 rodar.py H 1
+python3 solo.py && python3 armazem.py                          # tabelas dos relatórios
 \end{lstlisting}
 Métricas: tokens processados = entrada + \emph{cache} lido + \emph{cache} criado, por chamada à API, tirados das
 transcrições. Custo = preço de API equivalente (a conta usada é de assinatura).
