@@ -20,6 +20,14 @@ anterior: a comparação só vale se a tarefa, os testes escondidos e o método 
 | `analisar.py RUN...` | Métricas das transcrições (`metricas.json` por rodada) |
 | `agregar.py` | Tabelas e gráficos de todas as rodadas para o relatório |
 
+Há duas tarefas:
+- `pedidos`, a padrão: sequencial, 31 testes escondidos (`oculto/test_oculto.py`);
+- `armazem` (`BENCH_TAREFA=armazem`): quatro módulos independentes, 46 testes (`oculto/test_armazem.py`).
+
+E três montagens (`BENCH_VARIANTE`): vazia, equipe padrão; `solo`, um terminal só; `revisor`, só na `armazem`,
+o Opus escreve e um Sonnet revisa. Na `armazem`, a equipe é `equipe`. As comparações saem de `solo.py` (pedidos)
+e `armazem.py`; relatórios em `docs/relatorios/quando-orquestrar.tex` e `equipe-ou-sozinho.tex`.
+
 ## Preparar as versões
 
 1. Cada versão é uma worktree em `$BENCH/vX` (padrão `BENCH=/home/user/bench`):

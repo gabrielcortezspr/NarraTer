@@ -28,13 +28,14 @@ Cada entrada tem seis campos:
 
 | Área | Decisões |
 |---|---|
-| Comunicação entre agentes | D01, D02, D06, D08, D20, D21 |
+| Comunicação entre agentes | D01, D02, D06, D08, D20, D21, D24 |
 | Leitor de estado | D10, D11, D12 |
 | Persistência | D07 |
 | Uso dos agentes | D17 |
 | CLI e distribuição | D03 |
 | Escopo do produto | D04, D05 |
 | Processo | D09, D19 |
+| Orquestração | D22, D23 |
 | Design | D13, D14, D15, D16, D18 |
 
 ---
@@ -780,3 +781,148 @@ O arquivo fica intacto.
 
 **Revisar se:** o arquivo crescer mais rápido que a rotação aguenta; ou o painel precisar de eventos
 de outros agentes (Codex, Gemini) que hoje só chegam pela tela, sem nada novo a registrar.
+
+## D22 · O padrão é um agente só; montar equipe precisa de motivo
+
+`2026-10-16` · orquestração · `docs/relatorios/quando-orquestrar.pdf`, `docs/pesquisa/orquestracao.md`, `bench/orquestracao/solo.py`
+
+**Contexto.** O estudo de versões (D19) só comparou equipe contra equipe. Nunca perguntamos se montar a
+equipe compensa. A literatura de 2025 e 2026 diz que, em código e em tarefas que um agente sozinho já
+resolve, normalmente não compensa. O próximo passo do produto é um gerador automático de equipes, que
+precisa de um padrão.
+
+**Decisão.** Quando alguém (o usuário, o Narrador ou o futuro gerador) decide como atacar uma tarefa, a
+resposta padrão é **um agente só**. Montar equipe exige pelo menos um motivo explícito:
+- duas ou mais subtarefas independentes, com arquivos separados;
+- um verificador com contexto limpo (revisor ou QA), de preferência de outro fornecedor;
+- um contexto que não cabe num agente.
+
+O motivo fica registrado (nota no canvas). A equipe de código preferida é "um escritor + um revisor".
+
+**Alternativas consideradas.**
+- *Equipe por padrão, como hoje no pedido do benchmark e no modo Maestro*: medimos que custa mais e
+  demora mais pela mesma qualidade.
+- *Deixar a decisão inteiramente ao líder, sem regra*: a Anthropic relata líderes criando 50 subagentes
+  para perguntas simples, e o MAST mostra que a especificação fraca do sistema é a maior família de
+  falhas (~44%).
+- *Nunca orquestrar*: a literatura mostra ganhos reais em trabalho paralelo de leitura (+80,8%, Kim et
+  al.) e com revisor de contexto limpo (Cognition, ~2 bugs por PR). O produto existe para esses casos.
+
+**Evidência.**
+- `[medido]` Braço "sozinho" do benchmark (`BENCH_VARIANTE=solo`, 3 rodadas, versão H `73fab8b`) contra a
+  equipe G (3 rodadas):
+  - 31/31 nos dois;
+  - 1,6 contra 3,9 min;
+  - 0,36 contra 2,50 milhões de tokens processados;
+  - 8 contra 49 chamadas à API;
+  - US$ 0,55 contra 0,74.
+
+  Nenhuma dessas métricas se sobrepõe (Mann–Whitney U = 0, p = 0,10, o mínimo com n = 3). Contra a
+  equipe F, o tempo também não se sobrepõe; o custo sim (p = 0,70). Só o Narrador da G, coordenando,
+  custou US$ 0,32–0,41, de 60% a 75% do Opus sozinho fazendo tudo. Dados em
+  `bench/orquestracao/resultados/2026-10-16/`.
+- `[citado]` Fontes externas:
+  - Kim et al. 2025: coordenar não paga acima de ~45% de acerto do agente sozinho; −39% a −70% em
+    tarefas sequenciais.
+  - Vals.ai 2026-10-09: equipes custam de 1,8× a 5,1×, com 1 ganho significativo em 4. Opus 5.5 médio:
+    −0,3 ponto a 2,2× o custo.
+  - Tran e Kiela 2026: com o mesmo orçamento, o agente sozinho empata ou ganha.
+
+  Todas em `docs/relatorios/quando-orquestrar.pdf`.
+
+**Consequência.**
+- O pedido do benchmark, o modo Maestro e a skill `narrater-manager` precisam da regra do portão.
+- O gerador de equipes (backlog O11) tem "sozinho" como primeiro modelo.
+- O benchmark precisa de uma tarefa que o agente sozinho não sature e de uma paralelizável. Sem elas,
+  não há como medir o caso em que a equipe deveria ganhar.
+
+**Revisar se:** numa tarefa sem teto (agente sozinho abaixo de ~70%) ou paralelizável, a equipe ganhar em
+qualidade ou em custo por teste aprovado; ou se os modelos mudarem a relação de preço entre o líder e os
+devs a ponto de a coordenação ficar barata.
+
+## D23 · O gerador de equipes preenche modelos conhecidos; "Automatic teams" é uma chave do usuário
+
+`2026-10-16` · orquestração · `src/lib/teamCommands.ts`, `src/lib/teamTemplates.ts`, `src-tauri/src/preferences.rs`, `src-tauri/assets/SKILL*.md`
+
+**Contexto.** Montar uma equipe exigia N comandos (`recruit`, `role create`, `note create`, `connect`), sempre em
+estrela e amontoados à direita, sem modelo por agente. O usuário pediu um gerador: descrever a equipe ("dev, QA
+e design fazendo X") ou deixar o Narrador decidir sozinho, com uma opção liga/desliga. A D22 fixou que o padrão é
+um agente só.
+
+**Decisão.** `narrater team create` monta a equipe inteira numa chamada (terminais com agente, modelo e papel; as
+conexões; uma nota de tarefa com o critério de aceite, para todos; uma nota de porquê, para quem pediu):
+- **Modelos, não invenção.** O gerador preenche formatos conhecidos (`solo`, `dev-reviewer`, `dev-qa`, `readers`,
+  `parallel-devs`), descritos como dados, cada um com "quando compensa" e o custo medido ou lido; `--spec` aceita
+  um formato próprio em JSON.
+- **O portão.** `solo` é um modelo e não cria terminal, só registra a decisão. Para os outros, `--reason` é obrigatório.
+- **Quem pode.** Um terminal Maestro, ou qualquer agente quando o usuário liga **Automatic teams** (botão na barra;
+  `auto_teams` nas preferências, desligado por padrão). Membros de uma equipe gerada não geram equipes. As skills
+  dizem que, com a chave desligada, o Maestro só monta equipe quando o usuário pede.
+- **Fora do escopo:** desmontar equipes (futuro). As equipes montadas à mão e as cenas do benchmark não mudam.
+
+**Alternativas consideradas.**
+- *Um agente gerador dedicado, sempre rodando*: custaria uma sessão inteira para escrever um JSON; o pedido vai ao
+  agente que já está ali.
+- *Gerar a topologia livremente por LLM* (AutoAgents, AgentVerse): os resultados bons da literatura escolhem entre
+  formatos conhecidos (AFlow, MaAS, MasRouter), e o estudo de topologia de 2026 mostra que só a topologia move a
+  nota em 30 pontos. Formatos fixos são verificáveis e medíveis no benchmark.
+- *A chave liberar qualquer agente, inclusive membros*: abriria equipes de equipes; o Orca usa limite de profundidade.
+- *Exigir confirmação do usuário a cada equipe*: fica como terceiro estado possível da chave, se o liga/desliga não bastar.
+
+**Evidência.**
+- `[medido]` D22 e `relatorios/equipe-ou-sozinho.pdf`: o agente sozinho venceu as duas tarefas no tempo, com a
+  mesma nota; a equipe paralela perdeu pelo membro mais lento e pelo tempo fixo do líder. Isso vai nos custos dos
+  modelos e na regra das skills.
+- `[observado]` Teste de ponta a ponta no app real (Xvfb, build de release, terminais shell e um `claude` falso):
+  - `team create` sem `--reason` foi recusado;
+  - com `--reason`, criou Dev e Reviewer à direita, ligados como you ↔ Dev ↔ Reviewer, com as duas notas;
+  - o `claude` recebeu `--model sonnet`, e modelo e equipe ficaram salvos na cena;
+  - `solo` só criou a nota;
+  - um membro tentando gerar equipe foi recusado;
+  - o `list` mostrou "Automatic teams on".
+  Roteiro: `docs/pesquisa/img/gerador-equipe.png` e o script descrito em `pesquisa/orquestracao.md` §8.
+
+**Consequência.**
+- Uma preferência nova e um campo `team` nos nós; o gerador roda no frontend (dono do grafo), sob o timeout de 10 s
+  do `canvas_request`. Com `--isolate`, a criação dos andares entra nesse tempo.
+- O custo de cada modelo de equipe é texto: precisa ser atualizado quando o benchmark medir mais formatos.
+
+**Revisar se:** um formato medido no benchmark ganhar do agente sozinho (vira o padrão sugerido); a chave
+liga/desliga se mostrar fraca (agentes montando equipes sem motivo) e precisar do estado "propor e confirmar"; ou a
+geração precisar de mais de 10 s.
+
+## D24 · "Pronto" é verificado pelo ambiente: `ask --check` roda o critério de aceite no backend
+
+`2026-10-16` · comunicação entre agentes · `src-tauri/src/ipc.rs` (`run_check`), `src-tauri/src/asks.rs`
+
+**Contexto.** O D20 resolveu quando o turno acaba, mas "pronto" continuava sendo a palavra do agente. Na
+literatura, verificação é ~23,5% das falhas de sistemas multiagente (MAST), 75,8% das falhas em trajetórias de
+código com declaração de status eram um "pronto" falso, e juízes LLM não o detectam (AUROC ≤ 0,65).
+
+**Decisão.** `narrater ask … --check "CMD"`: quando o turno do alvo termina como `done`, o backend roda `CMD` com
+`sh -c` no projeto do alvo (timeout de 10 min). Saída 0 acrescenta "Acceptance check passed" à resposta; qualquer
+outra coisa termina o ask com o estado novo `failed`, com a saída do comando (até 3.000 caracteres finais) antes da
+resposta do agente. Vale para `--batch` e `--no-wait`. Junto, o mesmo `ask` marca pedidos repetidos (mesmo autor,
+mesmo alvo, última hora, mesmo texto ou 90% das palavras), sem bloquear, e avisa na resposta e no painel Activity.
+
+**Alternativas consideradas.**
+- *Pedir ao agente que rode os testes e diga o resultado*: continua sendo a palavra dele, e exige cooperação (D01).
+- *Um agente juiz*: AUROC ≤ 0,65 na literatura, e custa um turno a mais.
+- *Hook `TaskCompleted` do Claude* (Agent Teams): só para o Claude (D01).
+- *Bloquear o pedido repetido*: refazer pode ser legítimo, por exemplo depois de um `failed`; o aviso basta.
+
+**Evidência.**
+- `[citado]` MAST (arXiv:2503.13657); Advani 2026 (arXiv:2606.09863); MetaGPT: rodar testes como retorno
+  rendeu de 4 a 5 pontos.
+- `[medido]` Testes de unidade: `run_check` com saída 0, código 3 com stdout e stderr, diretório e diretório
+  inexistente; `same_prompt` e `repeat_of` (mesmo autor, outro autor, outro alvo, fora da janela).
+- `[observado]` De ponta a ponta no app real:
+  - `--check false` voltou `failed` com a resposta do agente depois;
+  - `--check "python3 -m unittest -q"` voltou "passed";
+  - um `ask` igual a outro de antes, mudando só a caixa e o espaço, veio com o aviso apontando o pedido anterior.
+
+**Consequência.** O app passa a rodar um comando escolhido por um agente no projeto de outro. Isso não dá poder
+novo, porque os agentes já têm shell, mas o comando roda com o ambiente do app, não no terminal do alvo.
+
+**Revisar se:** algum agente usar `--check` para rodar coisas que não são verificação; ou um projeto precisar do
+ambiente do terminal do alvo (virtualenv ativado, variáveis) para o check passar.

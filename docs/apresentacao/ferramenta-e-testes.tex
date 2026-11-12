@@ -96,12 +96,12 @@
   \textbullet\ canvas infinito (React Flow)\\
   \textbullet\ cada terminal desenhado por um \textbf{xterm.js}\\
   \textbullet\ dono do \textbf{grafo}: nós, arestas, notas (Zustand)\\
-  \textbullet\ executa \texttt{recruit}, \texttt{note}, \texttt{connect}};
+  \textbullet\ executa \texttt{recruit}, \texttt{team}, \texttt{note}};
 % backend
 \node[caixa, text width=5.9cm] (be) at (7.75,0) {{\small\textbf{Backend}} {\color{suave}(Rust, Tauri 2)}\\[3pt]
   \textbullet\ \texttt{pty.rs}: um \textbf{pseudo-terminal} por nó\\
   \textbullet\ \texttt{screen.rs}: emulador \textbf{vt100} decide o estado\\
-  \textbullet\ \texttt{ipc.rs}: \textbf{socket Unix}, fila, permissões\\
+  \textbullet\ \texttt{ipc.rs}: \textbf{socket Unix}, fila, permissões, aceite\\
   \textbullet\ \texttt{transcript.rs}, \texttt{asks.rs}: respostas e pedidos};
 % cli
 \node[caixa, text width=5.9cm] (cli) at (7.75,-3.5) {{\small\textbf{CLI} \texttt{narrater}} {\color{suave}(binário Rust)}\\[3pt]
@@ -177,6 +177,11 @@ A CLI só lê o ambiente e manda ao socket:
 \vspace{0.2em}
 {\scriptsize O socket fica numa pasta só do usuário (permissões 0700/0600). O \emph{token} prova que o pedido
 veio mesmo daquele terminal: o nome que a CLI manda nunca é aceito sem conferência.}
+\vspace{0.4em}
+
+{\scriptsize\textbf{Com \texttt{--check "CMD"}} (D24): depois do passo 6, o \textbf{backend} roda o critério de aceite no
+projeto do alvo. Se falhar, o pedido termina como \texttt{failed}, com a saída do comando: ``pronto'' passa a ser
+verificado pelo ambiente, não pela palavra do agente.}
 \end{column}
 \begin{column}{0.54\linewidth}
 \scriptsize
@@ -244,6 +249,42 @@ processo real do Codex num pseudo-terminal, entrega as instruções por arquivo 
 \end{columns}
 \end{frame}
 
+\begin{frame}[fragile]{O que acontece num \texttt{narrater team create}}
+\setbeamerfont{itemize/enumerate body}{size=\scriptsize}
+\begin{columns}[T]
+\begin{column}{0.55\linewidth}
+\scriptsize
+Monta a equipe inteira numa chamada, a partir de um \textbf{formato conhecido}:
+\begin{lstlisting}[basicstyle=\ttfamily\tiny, breaklines=false]
+narrater team create --template dev-reviewer --task "..." \
+  --reason "revisor com contexto limpo" --model sonnet
+\end{lstlisting}
+\begin{enumerate}\setlength\itemsep{0.2em}
+\item Mesmo caminho do \texttt{recruit}: CLI $\to$ socket $\to$ backend $\to$ \texttt{canvas\_request} $\to$ frontend
+  (\texttt{teamCommands.ts}).
+\item \textbf{O portão}, conferido antes de criar qualquer coisa:
+  quem pede é Maestro, ou o usuário ligou \textbf{Automatic teams}; quem pede não é membro de outra equipe (sem
+  equipes de equipes); há um \texttt{--reason}; no máximo 5 membros.
+\item O formato \texttt{solo} só grava a decisão numa nota e \textbf{não cria terminal}.
+\item Os outros criam os terminais (agente, \textbf{modelo}, papel), as arestas do formato, uma nota de
+  \textbf{tarefa com o critério de aceite} e uma nota de \textbf{porquê}. Cada terminal nasce por \texttt{pty\_spawn}.
+\end{enumerate}
+\end{column}
+\begin{column}{0.42\linewidth}
+\centering
+\includegraphics[width=\linewidth, trim=430 420 0 60, clip]{gerador-equipe.png}
+\vspace{0.2em}
+
+{\tiny\color{suave} Teste de ponta a ponta no app real: \texttt{dev-reviewer} criou Dev e Reviewer com o modelo
+\texttt{sonnet}, ligados como você $\leftrightarrow$ Dev $\leftrightarrow$ Reviewer.}
+\vspace{0.4em}
+
+{\scriptsize\textbf{Formatos:} \texttt{solo}, \texttt{dev-reviewer}, \texttt{dev-qa}, \texttt{readers},
+\texttt{parallel-devs}, cada um com ``quando compensa'' e o custo medido.}
+\end{column}
+\end{columns}
+\end{frame}
+
 % =====================================================================
 \section{Como se usa}
 
@@ -254,11 +295,12 @@ processo real do Codex num pseudo-terminal, entrega as instruções por arquivo 
 \setbeamerfont{itemize/enumerate body}{size=\scriptsize}
 \scriptsize
 \begin{enumerate}\setlength\itemsep{0.25em}
-\item \textbf{A pessoa escolhe quem orquestra:} liga o \textbf{modo Maestro} num agente. Com o papel \emph{Leader}, ele só delega, não edita código.
-\item \textbf{O líder monta a equipe sozinho.}
+\item \textbf{A pessoa escolhe quem orquestra:} liga o \textbf{modo Maestro} num agente, ou a chave
+  \textbf{Automatic teams}. O padrão continua sendo \textbf{um agente só} (D22).
+\item \textbf{Se houver motivo, o líder monta a equipe}, um por um ou numa chamada (\texttt{team create}):
 \begin{lstlisting}[basicstyle=\ttfamily\tiny, breaklines=false]
-narrater recruit "Ana" --preset "Claude Code" --role Dev
-narrater recruit "Bia" --preset Codex --role Dev
+narrater recruit "Ana" --preset "Claude Code" --model sonnet
+narrater recruit "Bia" --preset Codex --role Reviewer
 \end{lstlisting}
   Cada um vira um terminal real, já ligado ao líder: \textbf{a aresta é a permissão} de conversar.
 \item \textbf{Delega em paralelo.}
@@ -267,7 +309,7 @@ narrater ask --batch '{"Ana":"...","Bia":"..."}' --no-wait
 narrater wait
 \end{lstlisting}
   O pedido é \textbf{digitado} no terminal do alvo quando ele fica ocioso.
-\item \textbf{Recebe as respostas:} o NarraTer percebe o fim do turno e devolve a resposta final.
+\item \textbf{Recebe as respostas:} o NarraTer percebe o fim do turno, roda o aceite (\texttt{--check}) e devolve a resposta final.
 \end{enumerate}
 \end{column}
 \begin{column}{0.49\linewidth}
@@ -342,8 +384,39 @@ narrater wait
 \end{tikzpicture}
 \vspace{-0.2em}
 
-\parbox{\linewidth}{\scriptsize Cada etapa nasceu de uma pergunta que a anterior não respondia. \textbf{Próxima:} comparar com um
-\textbf{agente único} (direto e em loop) na mesma tarefa, para responder quando a orquestração compensa.}
+\parbox{\linewidth}{\scriptsize Cada etapa nasceu de uma pergunta que a anterior não respondia. O resultado da etapa 4
+(nota máxima em tudo, só o custo variando) levou à pergunta seguinte: \textbf{um agente sozinho não faria igual?}}
+\end{frame}
+
+\begin{frame}{Como os testes evoluíram: equipe contra agente sozinho}
+\centering
+\begin{tikzpicture}[>=Stealth,
+  etapa/.style={draw=linha, fill=fundo, rounded corners=3pt, align=left, font=\scriptsize, anchor=north, inner sep=5pt},
+  data/.style={font=\scriptsize\bfseries, color=acento}]
+\draw[->, suave, thick] (-0.6,0) -- (14.3,0);
+\foreach \x/\d in {1.9/{16/10}, 6.75/{16/10}, 11.6/{16/10}}
+  { \fill[acento] (\x,0) circle (2.2pt); \node[data, above] at (\x,0.08) {\d}; }
+\node[etapa] at (1.9,-0.25) {\parbox[t][4.1cm][t]{3.9cm}{\raggedright\textbf{\small 5. Braço ``sozinho''}\\[1pt]{\color{suave}tarefa \texttt{pedidos}, 3 rodadas}\\[4pt]
+  \textbf{Como:} o mesmo pedido a um Opus sozinho, contra as equipes F e G.\\[4pt]
+  \textbf{Mede:} o grupo de controle que faltava.\\[4pt]
+  \textbf{Resultado:} 31/31 também; \textcolor{ok}{1,6 contra 3,9~min}, \textcolor{ok}{0,36 contra 2,50 milhões} de tokens,
+  \textcolor{ok}{US\$\,0,55 contra 0,74}.}};
+\node[etapa] at (6.75,-0.25) {\parbox[t][4.1cm][t]{3.9cm}{\raggedright\textbf{\small 6. Tarefa \texttt{armazem}}\\[1pt]{\color{suave}9 rodadas, 3 montagens}\\[4pt]
+  \textbf{Como:} 4 módulos independentes, feita para a equipe ganhar; \textbf{previsões gravadas antes} de rodar.\\[4pt]
+  \textbf{Mede:} sozinho × equipe paralela × dev + revisor.\\[4pt]
+  \textbf{Resultado:} 46/46 em todas; sozinho \textcolor{ok}{1,8~min}, equipe 2,8, revisor 2,3.
+  A previsão ``a equipe ganha'' foi \textcolor{ruim}{refutada}.}};
+\node[etapa] at (11.6,-0.25) {\parbox[t][4.1cm][t]{3.9cm}{\raggedright\textbf{\small 7. Ponta a ponta}\\[1pt]{\color{suave}\texttt{bench/e2e/gerador-equipes.sh}}\\[4pt]
+  \textbf{Como:} o app real (build de release, tela virtual) com um \texttt{claude} falso, sem gastar cota.\\[4pt]
+  \textbf{Mede:} se o gerador, o portão e o \texttt{--check} fazem o que dizem.\\[4pt]
+  \textbf{Resultado:} sem \texttt{--reason}, recusado; \texttt{solo} não cria terminal; \texttt{--check false}
+  volta \texttt{failed}.}};
+\end{tikzpicture}
+\vspace{0.4em}
+
+\parbox{\linewidth}{\scriptsize\textbf{Próximo:} uma tarefa em que o agente sozinho erre ($<$ 70\%), ``Sonnet + revisor
+Opus'' contra o Opus sozinho, e a montagem \textbf{gerada}: com Automatic teams ligado, o líder escolhe ``solo''
+quando deve?}
 \end{frame}
 
 \end{document}

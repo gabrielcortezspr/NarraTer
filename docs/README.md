@@ -30,10 +30,14 @@ Estudos de outros projetos (skill `pesquisa`). Um arquivo por assunto.
 | [`pesquisa/leitor-de-estado.md`](pesquisa/leitor-de-estado.md) | Como saber que um agente terminou: CAO (AWS), Orca, o método de medição (`turn_eval`) e os resultados antes/depois | 2026-10-14 |
 | [`pesquisa/agent-teams.md`](pesquisa/agent-teams.md) | Agent Teams do Claude Code: caixa de correio, lista de tarefas com dependências, resposta final empurrada; o que reaproveitar sem quebrar a D01 | 2026-10-15 |
 | [`pesquisa/comparacao-versoes.md`](pesquisa/comparacao-versoes.md) | Benchmark de orquestração entre versões (A–D): tokens, contexto, tempo e trabalho feito; relatório em `relatorios/orquestracao-versoes.pdf` | 2026-10-15 |
+| [`relatorios/equipe-ou-sozinho.pdf`](relatorios/equipe-ou-sozinho.pdf) | Teste desenhado para a equipe ganhar (tarefa `armazem`, 4 módulos independentes): sozinho × equipe paralela × dev + revisor; previsões da literatura contra o medido | 2026-10-16 |
+| [`relatorios/quando-orquestrar.pdf`](relatorios/quando-orquestrar.pdf) | Quando orquestrar agentes não compensa: literatura (Kim et al., Vals.ai, Cognition, MAST) e o braço "sozinho" do benchmark (1 terminal: 2,5× mais rápido, 7× menos tokens, mesma nota) | 2026-10-16 |
+| [`pesquisa/orquestracao.md`](pesquisa/orquestracao.md) | Estado da arte em orquestração multiagente (MAST, Anthropic, Cognition, Kim et al., Vals.ai), falhas do nosso método e o desenho do gerador de equipes | 2026-10-16 |
 | [`pesquisa/visual.md`](pesquisa/visual.md) | Visual: HIG da Apple, tokens do Orca, Maestri, diagnóstico do NarraTer e de onde vem a porcentagem de uso de cada CLI | 2026-10-14 |
 
 ## Apresentações
 
 | Arquivo | Leia quando |
 |---|---|
-| [`apresentacao/tcc-andamento.pdf`](apresentacao/tcc-andamento.pdf) | Vai apresentar o andamento do TCC: pergunta de pesquisa, método, os dois estudos (leitor de estado e benchmark), limitações. Fonte `.tex` ao lado; gráficos leem `relatorios/dados/` |
+| [`apresentacao/tcc-andamento.pdf`](apresentacao/tcc-andamento.pdf) | Vai apresentar o TCC: quando a orquestração compensa, literatura, fase exploratória (protocolo e leitor de estado), equipe contra agente sozinho (`pedidos`, `armazem`), D22–D24, limitações. Fonte `.tex` ao lado; gráficos leem `relatorios/dados/` |
+| [`apresentacao/ferramenta-e-testes.pdf`](apresentacao/ferramenta-e-testes.pdf) | Vai explicar como o NarraTer é feito (arquitetura, terminal, `ask`, `recruit`, `team create`), como se usa e como os testes evoluíram |

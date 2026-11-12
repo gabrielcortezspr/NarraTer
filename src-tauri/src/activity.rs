@@ -33,7 +33,7 @@ pub struct ActivityEvent {
     pub peer: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub peer_label: Option<String>,
-    /// state: running | idle | attention · answer: done | attention | answered | timeout | cancelled | exited | error
+    /// state: running | idle | attention · answer: done | attention | failed | answered | timeout | cancelled | exited | error
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -16,11 +16,16 @@ pub struct Preferences {
     /// running when NarraTer closes and reattach when it opens again
     #[serde(default = "yes")]
     pub persistent_sessions: bool,
+    /// Automatic teams: any agent may build a team with `narrater team create`
+    /// when it judges the task worth it (off: only a Maestro terminal, and only
+    /// when the user asks). Off by default: one agent is the default (D22).
+    #[serde(default)]
+    pub auto_teams: bool,
 }
 
 impl Default for Preferences {
     fn default() -> Self {
-        Preferences { persistent_sessions: true }
+        Preferences { persistent_sessions: true, auto_teams: false }
     }
 }
 

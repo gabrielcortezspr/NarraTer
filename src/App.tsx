@@ -1,5 +1,6 @@
 import { initUsage } from "@/stores/usage";
 import { initActivity } from "@/stores/activity";
+import { usePreferencesStore } from "@/stores/preferences";
 import ActivityPanel from "@/components/ActivityPanel";
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
@@ -85,6 +86,7 @@ export default function App() {
 
     // Activity log written by the backend (states, asks, messages) → Activity panel
     initActivity().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));
+    usePreferencesStore.getState().load().catch(console.error);
 
     // Workspace layout changes made by agents → sidebar
     initWorkspaceEvents().then((fn) => (cancelled ? fn() : unlisteners.push(fn)));

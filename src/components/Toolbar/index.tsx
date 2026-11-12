@@ -1,9 +1,10 @@
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MousePointer2, Terminal, StickyNote, Type, Folder, Paperclip, Globe,
-  Pencil, Eraser, Undo2, Check, Loader2, Save, Activity,
+  Pencil, Eraser, Undo2, Check, Loader2, Save, Activity, Users,
 } from "lucide-react";
 import { useActivityStore } from "@/stores/activity";
+import { usePreferencesStore } from "@/stores/preferences";
 import { useToolStore, type Tool } from "@/stores/tool";
 import { useSketchStore } from "@/stores/sketch";
 import { usePersistenceStore } from "@/stores/persistence";
@@ -44,6 +45,8 @@ export default function Toolbar({ onTerminal, onAttachment }: Props) {
   const saveState = usePersistenceStore((s) => s.state);
   const activityOpen = useActivityStore((s) => s.open);
   const toggleActivity = useActivityStore((s) => s.toggle);
+  const autoTeams = usePreferencesStore((s) => s.prefs?.auto_teams === true);
+  const setPrefs = usePreferencesStore((s) => s.set);
 
   const handleTool = (tool: Tool) => {
     if (DISABLED_TOOLS.has(tool)) return;
@@ -152,6 +155,22 @@ export default function Toolbar({ onTerminal, onAttachment }: Props) {
           }`}
         >
           <Activity size={14} />
+        </button>
+
+        {/* Automatic teams: agents may generate a team when a task is worth it (D22) */}
+        <button
+          onClick={() => setPrefs({ auto_teams: !autoTeams })}
+          aria-pressed={autoTeams}
+          title={
+            autoTeams
+              ? "Automatic teams on — agents may build a team (terminals, wiring, notes) when a task is worth it. Click to turn off"
+              : "Automatic teams off — only a Maestro builds teams, when you ask. Click to let agents build one when a task is worth it"
+          }
+          className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
+            autoTeams ? "bg-accent/20 text-accent-text" : "text-ink-2 hover:bg-hover hover:text-ink"
+          }`}
+        >
+          <Users size={14} />
         </button>
 
         {/* Auto-save indicator (Ctrl+S forces) */}
