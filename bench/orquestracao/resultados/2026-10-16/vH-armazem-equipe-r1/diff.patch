@@ -1,0 +1,561 @@
+diff --git a/armazem/__pycache__/__init__.cpython-313.pyc b/armazem/__pycache__/__init__.cpython-313.pyc
+new file mode 100644
+index 0000000..ce19135
+Binary files /dev/null and b/armazem/__pycache__/__init__.cpython-313.pyc differ
+diff --git a/armazem/__pycache__/cupons.cpython-313.pyc b/armazem/__pycache__/cupons.cpython-313.pyc
+new file mode 100644
+index 0000000..5f20f42
+Binary files /dev/null and b/armazem/__pycache__/cupons.cpython-313.pyc differ
+diff --git a/armazem/__pycache__/estoque.cpython-313.pyc b/armazem/__pycache__/estoque.cpython-313.pyc
+new file mode 100644
+index 0000000..9a36354
+Binary files /dev/null and b/armazem/__pycache__/estoque.cpython-313.pyc differ
+diff --git a/armazem/__pycache__/frete.cpython-313.pyc b/armazem/__pycache__/frete.cpython-313.pyc
+new file mode 100644
+index 0000000..1fc4773
+Binary files /dev/null and b/armazem/__pycache__/frete.cpython-313.pyc differ
+diff --git a/armazem/__pycache__/parcelas.cpython-313.pyc b/armazem/__pycache__/parcelas.cpython-313.pyc
+new file mode 100644
+index 0000000..e26f8b8
+Binary files /dev/null and b/armazem/__pycache__/parcelas.cpython-313.pyc differ
+diff --git a/armazem/cupons.py b/armazem/cupons.py
+index 059c28d..7addca7 100644
+--- a/armazem/cupons.py
++++ b/armazem/cupons.py
+@@ -18,12 +18,14 @@ class Item:
+ @dataclass
+ class Cupom:
+     codigo: str
+-    tipo: str  # "percentual" | "fixo"
++    tipo: str  # "percentual" | "fixo" | "leve_pague"
+     valor: Decimal = Decimal("0")
+     validade: date = date.max
+     minimo: Decimal = Decimal("0")
+     categorias: set | None = None
+     teto: Decimal | None = None
++    leve: int = 0
++    pague: int = 0
+ 
+ 
+ @dataclass
+@@ -47,8 +49,21 @@ def _elegiveis(carrinho, cupom):
+     return [i for i in carrinho if i.categoria.lower() in cats]
+ 
+ 
++def _desconto_leve_pague(itens, cupom) -> Decimal:
++    if cupom.leve <= 0 or not 0 <= cupom.pague < cupom.leve:
++        raise ValueError("leve_pague exige leve > pague >= 0")
++    por_sku = {}
++    for i in itens:
++        qtd, preco = por_sku.get(i.sku, (0, i.preco))
++        por_sku[i.sku] = (qtd + i.qtd, min(preco, i.preco))
++    return sum(
++        (Decimal((qtd // cupom.leve) * (cupom.leve - cupom.pague)) * preco for qtd, preco in por_sku.values()),
++        Decimal("0"),
++    )
++
++
+ def aplicar(carrinho, cupom: Cupom, hoje: date) -> Resultado:
+-    if hoje >= cupom.validade:
++    if hoje > cupom.validade:
+         return Resultado(Decimal("0.00"), "expirado")
+     itens = _elegiveis(carrinho, cupom)
+     if not itens:
+@@ -60,6 +75,8 @@ def aplicar(carrinho, cupom: Cupom, hoje: date) -> Resultado:
+         desconto = soma * cupom.valor / 100
+     elif cupom.tipo == "fixo":
+         desconto = min(cupom.valor, soma)
++    elif cupom.tipo == "leve_pague":
++        desconto = _desconto_leve_pague(itens, cupom)
+     else:
+         raise ValueError(f"tipo de cupom desconhecido: {cupom.tipo}")
+     desconto = desconto.quantize(CENTAVO, ROUND_HALF_EVEN)
+diff --git a/armazem/estoque.py b/armazem/estoque.py
+index 893edb5..5a6279d 100644
+--- a/armazem/estoque.py
++++ b/armazem/estoque.py
+@@ -1,8 +1,11 @@
+-"""Estoque com custo PEPS (REGRAS.md §3)."""
++"""Estoque com custo PEPS (REGRAS.md §3) e depósitos (docs/PEDIDOS.md §3)."""
+ 
++from bisect import insort
+ from decimal import ROUND_HALF_EVEN, Decimal
++from itertools import count
+ 
+ CENTAVO = Decimal("0.01")
++PRINCIPAL = "principal"
+ 
+ 
+ class ErroEstoque(Exception):
+@@ -11,36 +14,71 @@ class ErroEstoque(Exception):
+ 
+ class Estoque:
+     def __init__(self):
+-        # sku -> lista de lotes [qtd, custo_unit], do mais antigo ao mais novo
++        # deposito -> sku -> lista de lotes [qtd, custo_unit, seq], do mais antigo ao mais novo.
++        # seq é a ordem de entrada no sistema; ela acompanha o lote quando ele é transferido.
+         self._lotes = {}
++        self._seq = count()
+ 
+-    def entrada(self, sku, qtd, custo_unit):
+-        if not isinstance(qtd, int) or qtd <= 0:
+-            raise ValueError("qtd deve ser inteiro positivo")
+-        self._lotes.setdefault(sku, []).append([qtd, Decimal(str(custo_unit))])
++    def _fila(self, deposito, sku):
++        return self._lotes.get(deposito, {}).get(sku, [])
++
++    def _fila_para_escrita(self, deposito, sku):
++        return self._lotes.setdefault(deposito, {}).setdefault(sku, [])
+ 
+-    def saida(self, sku, qtd) -> Decimal:
++    @staticmethod
++    def _validar_qtd(qtd):
+         if not isinstance(qtd, int) or qtd <= 0:
+             raise ValueError("qtd deve ser inteiro positivo")
+-        fila = self._lotes.setdefault(sku, [])
++
++    def entrada(self, sku, qtd, custo_unit, deposito=PRINCIPAL):
++        self._validar_qtd(qtd)
++        self._fila_para_escrita(deposito, sku).append([qtd, Decimal(str(custo_unit)), next(self._seq)])
++
++    def _retirar(self, sku, qtd, deposito):
++        """Tira qtd unidades por PEPS. Devolve os pedaços retirados (qtd, custo_unit, seq).
++
++        Se faltar saldo, levanta ErroEstoque antes de mexer em qualquer lote.
++        """
++        fila = self._fila(deposito, sku)
+         if sum(l[0] for l in fila) < qtd:
+-            raise ErroEstoque(f"saldo insuficiente de {sku}")
+-        custo = Decimal("0")
+-        custo_lote = fila[0][1]
++            raise ErroEstoque(f"saldo insuficiente de {sku} no depósito {deposito}")
++        pedacos = []
+         falta = qtd
+         while falta:
+             lote = fila[0]
+             usa = min(falta, lote[0])
+-            custo += usa * custo_lote
++            pedacos.append((usa, lote[1], lote[2]))
+             lote[0] -= usa
+             falta -= usa
+             if lote[0] == 0:
+                 fila.pop(0)
++        return pedacos
++
++    def saida(self, sku, qtd, deposito=PRINCIPAL) -> Decimal:
++        self._validar_qtd(qtd)
++        pedacos = self._retirar(sku, qtd, deposito)
++        custo = sum((usa * custo_unit for usa, custo_unit, _ in pedacos), Decimal("0"))
++        return custo.quantize(CENTAVO, ROUND_HALF_EVEN)
++
++    def transferir(self, sku, qtd, origem, destino) -> Decimal:
++        self._validar_qtd(qtd)
++        if origem == destino:
++            raise ValueError("origem e destino devem ser diferentes")
++        pedacos = self._retirar(sku, qtd, origem)
++        fila = self._fila_para_escrita(destino, sku)
++        custo = Decimal("0")
++        for usa, custo_unit, seq in pedacos:
++            custo += usa * custo_unit
++            # Mantém a antiguidade: o lote entra na posição da sua seq original
++            insort(fila, [usa, custo_unit, seq], key=lambda l: l[2])
+         return custo.quantize(CENTAVO, ROUND_HALF_EVEN)
+ 
+-    def saldo(self, sku) -> int:
+-        return sum(l[0] for l in self._lotes.get(sku, []))
++    def saldo(self, sku, deposito=PRINCIPAL) -> int:
++        return sum(l[0] for l in self._fila(deposito, sku))
++
++    def saldo_total(self, sku) -> int:
++        return sum(self.saldo(sku, d) for d in self._lotes)
+ 
+-    def valor(self, sku) -> Decimal:
+-        lotes = self._lotes.get(sku, [])
++    def valor(self, sku, deposito=PRINCIPAL) -> Decimal:
++        lotes = self._fila(deposito, sku)
+         return sum((l[0] * l[1] for l in lotes), Decimal("0")).quantize(CENTAVO, ROUND_HALF_EVEN)
+diff --git a/armazem/frete.py b/armazem/frete.py
+index ba9d220..79e917d 100644
+--- a/armazem/frete.py
++++ b/armazem/frete.py
+@@ -17,6 +17,8 @@ GRATIS_MINIMO = Decimal("299.00")
+ GRATIS_PESO_MAX = Decimal("30")
+ SEGURO = Decimal("0.005")
+ CENTAVO = Decimal("0.01")
++DIVISOR_CUBICO = Decimal("6000")
++MEIO_KG = Decimal("0.5")
+ 
+ 
+ @dataclass
+@@ -25,6 +27,7 @@ class Cotacao:
+     tarifa: Decimal
+     seguro: Decimal
+     total: Decimal
++    peso_cobrado: Decimal = Decimal("0")
+ 
+ 
+ def regiao(cep: str) -> str:
+@@ -40,22 +43,31 @@ def regiao(cep: str) -> str:
+ 
+ def tarifa(reg: str, peso: Decimal) -> Decimal:
+     ate1, ate5, ate10, por_kg = TARIFAS[reg]
+-    if peso < 1:
++    if peso <= 1:
+         return ate1
+-    if peso < 5:
++    if peso <= 5:
+         return ate5
+-    if peso < 10:
++    if peso <= 10:
+         return ate10
+     excedente = (peso - 10).to_integral_value(rounding=ROUND_CEILING)
+     return ate10 + por_kg * excedente
+ 
+ 
+-def cotar(cep: str, peso_kg, valor) -> Cotacao:
++def peso_cobrado(peso_kg, dimensoes=None) -> Decimal:
++    """Maior entre peso informado e cúbico, arredondado para cima a múltiplo de 0,5 kg."""
++    peso = Decimal(str(peso_kg))
++    if dimensoes is not None:
++        c, l, a = (Decimal(str(d)) for d in dimensoes)
++        peso = max(peso, c * l * a / DIVISOR_CUBICO)
++    return (peso / MEIO_KG).to_integral_value(rounding=ROUND_CEILING) * MEIO_KG
++
++
++def cotar(cep: str, peso_kg, valor, dimensoes=None) -> Cotacao:
+     reg = regiao(cep)
+     valor = Decimal(str(valor))
+-    peso = Decimal(str(peso_kg))
++    peso = peso_cobrado(peso_kg, dimensoes)
+     t = tarifa(reg, peso)
+     if valor >= GRATIS_MINIMO and reg in ("SE", "S") and peso <= GRATIS_PESO_MAX:
+         t = Decimal("0.00")
+     seguro = (valor * SEGURO).quantize(CENTAVO, ROUND_HALF_EVEN)
+-    return Cotacao(reg, t, seguro, t + seguro)
++    return Cotacao(reg, t, seguro, t + seguro, peso)
+diff --git a/armazem/parcelas.py b/armazem/parcelas.py
+index 836afdd..5315018 100644
+--- a/armazem/parcelas.py
++++ b/armazem/parcelas.py
+@@ -1,10 +1,13 @@
+-"""Parcelamento (REGRAS.md §4)."""
++"""Parcelamento (REGRAS.md §4; juros de docs/PEDIDOS.md §4)."""
+ 
++import calendar
+ from dataclasses import dataclass
+ from datetime import date, timedelta
+-from decimal import ROUND_DOWN, Decimal
++from decimal import ROUND_DOWN, ROUND_HALF_EVEN, Decimal, localcontext
+ 
+ CENTAVO = Decimal("0.01")
++TAXA_MENSAL = Decimal("0.0199")
++SEM_JUROS_ATE = 3
+ 
+ 
+ @dataclass
+@@ -17,16 +20,35 @@ class Parcela:
+ def vencimento(primeira: date, k: int) -> date:
+     """Vencimento da parcela k (1 = primeira)."""
+     m = primeira.month - 1 + (k - 1)
+-    d = primeira.replace(year=primeira.year + m // 12, month=m % 12 + 1)
++    ano = primeira.year + m // 12
++    mes = m % 12 + 1
++    # Mês sem o dia de referência: vence no último dia do mês
++    dia = min(primeira.day, calendar.monthrange(ano, mes)[1])
++    d = date(ano, mes, dia)
+     if d.weekday() >= 5:
+         d += timedelta(days=7 - d.weekday())
+     return d
+ 
+ 
+-def parcelar(total, n: int, primeira: date):
++def _valores(total, n: int):
+     if not isinstance(n, int) or not 1 <= n <= 12:
+         raise ValueError("n deve estar entre 1 e 12")
+     total = Decimal(str(total))
+-    base = (total / n).quantize(CENTAVO, ROUND_DOWN)
+-    valores = [base + (total - base * n)] + [base] * (n - 1)
+-    return [Parcela(k, vencimento(primeira, k), v) for k, v in enumerate(valores, start=1)]
++    if n <= SEM_JUROS_ATE:
++        base = (total / n).quantize(CENTAVO, ROUND_DOWN)
++        return [base + (total - base * n)] + [base] * (n - 1)
++    with localcontext() as ctx:
++        ctx.prec = 50
++        i = TAXA_MENSAL
++        pmt = total * i / (1 - (1 + i) ** -n)
++        parcela = pmt.quantize(CENTAVO, ROUND_HALF_EVEN)
++        ultima = (pmt * n).quantize(CENTAVO, ROUND_HALF_EVEN) - parcela * (n - 1)
++    return [parcela] * (n - 1) + [ultima]
++
++
++def parcelar(total, n: int, primeira: date):
++    return [Parcela(k, vencimento(primeira, k), v) for k, v in enumerate(_valores(total, n), start=1)]
++
++
++def total_pago(total, n: int) -> Decimal:
++    return sum(_valores(total, n), Decimal("0"))
+diff --git a/tests/__pycache__/__init__.cpython-313.pyc b/tests/__pycache__/__init__.cpython-313.pyc
+new file mode 100644
+index 0000000..f593884
+Binary files /dev/null and b/tests/__pycache__/__init__.cpython-313.pyc differ
+diff --git a/tests/__pycache__/test_cupons.cpython-313.pyc b/tests/__pycache__/test_cupons.cpython-313.pyc
+new file mode 100644
+index 0000000..db83efa
+Binary files /dev/null and b/tests/__pycache__/test_cupons.cpython-313.pyc differ
+diff --git a/tests/__pycache__/test_estoque.cpython-313.pyc b/tests/__pycache__/test_estoque.cpython-313.pyc
+new file mode 100644
+index 0000000..d4dd430
+Binary files /dev/null and b/tests/__pycache__/test_estoque.cpython-313.pyc differ
+diff --git a/tests/__pycache__/test_frete.cpython-313.pyc b/tests/__pycache__/test_frete.cpython-313.pyc
+new file mode 100644
+index 0000000..a089e9f
+Binary files /dev/null and b/tests/__pycache__/test_frete.cpython-313.pyc differ
+diff --git a/tests/__pycache__/test_parcelas.cpython-313.pyc b/tests/__pycache__/test_parcelas.cpython-313.pyc
+new file mode 100644
+index 0000000..10e1640
+Binary files /dev/null and b/tests/__pycache__/test_parcelas.cpython-313.pyc differ
+diff --git a/tests/test_cupons.py b/tests/test_cupons.py
+index 46cd03b..9c0c94d 100644
+--- a/tests/test_cupons.py
++++ b/tests/test_cupons.py
+@@ -22,3 +22,38 @@ class TestCupons(unittest.TestCase):
+ 
+     def test_buscar(self):
+         self.assertEqual(buscar([Cupom("PRIMAVERA", "fixo", D("1"))], " primavera ").codigo, "PRIMAVERA")
++
++    def test_regressao_vale_no_dia_da_validade(self):
++        # Reclamação 2: PRIMAVERA vencendo dia 30 deve valer no dia 30.
++        c = Cupom("PRIMAVERA", "fixo", D("10.00"), validade=date(2026, 9, 30))
++        r = aplicar(CARRINHO, c, date(2026, 9, 30))
++        self.assertEqual((r.desconto, r.motivo), (D("10.00"), None))
++
++    def test_expira_no_dia_seguinte(self):
++        c = Cupom("PRIMAVERA", "fixo", D("10.00"), validade=date(2026, 9, 30))
++        self.assertEqual(aplicar(CARRINHO, c, date(2026, 10, 1)).motivo, "expirado")
++
++    def test_leve_pague_basico(self):
++        c = Cupom("L3P2", "leve_pague", leve=3, pague=2)
++        cart = [Item("A", "x", D("10.00"), 7)]
++        self.assertEqual(aplicar(cart, c, date(2026, 1, 1)).desconto, D("20.00"))
++
++    def test_leve_pague_soma_linhas_e_usa_menor_preco(self):
++        c = Cupom("L3P2", "leve_pague", leve=3, pague=2)
++        cart = [Item("A", "x", D("10.00"), 2), Item("A", "x", D("8.00"), 1), Item("B", "x", D("5.00"), 2)]
++        self.assertEqual(aplicar(cart, c, date(2026, 1, 1)).desconto, D("8.00"))
++
++    def test_leve_pague_so_itens_elegiveis_minimo_e_teto(self):
++        cart = [Item("A", "moda", D("10.00"), 3), Item("B", "casa", D("20.00"), 3)]
++        c = Cupom("L", "leve_pague", leve=3, pague=1, categorias={"MODA"})
++        self.assertEqual(aplicar(cart, c, date(2026, 1, 1)).desconto, D("20.00"))
++        c = Cupom("L", "leve_pague", leve=3, pague=1, categorias={"moda"}, teto=D("15.00"))
++        self.assertEqual(aplicar(cart, c, date(2026, 1, 1)).desconto, D("15.00"))
++        c = Cupom("L", "leve_pague", leve=3, pague=1, categorias={"moda"}, minimo=D("31.00"))
++        self.assertEqual(aplicar(cart, c, date(2026, 1, 1)).motivo, "minimo")
++        c = Cupom("L", "leve_pague", leve=3, pague=1, validade=date(2025, 1, 1))
++        self.assertEqual(aplicar(cart, c, date(2026, 1, 1)).motivo, "expirado")
++
++    def test_leve_pague_abaixo_de_leve_nao_da_desconto(self):
++        c = Cupom("L3P2", "leve_pague", leve=3, pague=2)
++        self.assertEqual(aplicar([Item("A", "x", D("10.00"), 2)], c, date(2026, 1, 1)).desconto, D("0.00"))
+diff --git a/tests/test_estoque.py b/tests/test_estoque.py
+index b6fc613..5f45dbf 100644
+--- a/tests/test_estoque.py
++++ b/tests/test_estoque.py
+@@ -20,3 +20,81 @@ class TestEstoque(unittest.TestCase):
+ 
+     def test_sku_desconhecido(self):
+         self.assertEqual((Estoque().saldo("Z"), Estoque().valor("Z")), (0, D("0.00")))
++
++    def test_regressao_peps_cada_lote_pelo_seu_custo(self):
++        # Reclamação 3 (CAD-01): 10 a 2,00 + 10 a 3,00; saída de 15 = 10×2 + 5×3 = 35,00
++        e = Estoque()
++        e.entrada("CAD-01", 10, D("2.00"))
++        e.entrada("CAD-01", 10, D("3.00"))
++        self.assertEqual(e.saida("CAD-01", 15), D("35.00"))
++        self.assertEqual((e.saldo("CAD-01"), e.valor("CAD-01")), (5, D("15.00")))
++
++    def test_arredondamento_so_no_final(self):
++        # Arredondar por unidade daria 0,02 + 0,02 = 0,04; o certo é 2 × 0,025 = 0,05
++        e = Estoque()
++        e.entrada("X", 2, D("0.025"))
++        self.assertEqual(e.saida("X", 2), D("0.05"))
++
++    def test_depositos_sao_independentes(self):
++        e = Estoque()
++        e.entrada("X", 4, D("1.00"), deposito="A")
++        e.entrada("X", 6, D("2.00"))
++        self.assertEqual((e.saldo("X", deposito="A"), e.saldo("X")), (4, 6))
++        self.assertEqual(e.saida("X", 2, deposito="A"), D("2.00"))
++        self.assertEqual((e.saldo("X", deposito="A"), e.saldo("X")), (2, 6))
++        self.assertEqual(e.valor("X", deposito="A"), D("2.00"))
++
++    def test_saldo_insuficiente_no_deposito_nao_usa_outro(self):
++        e = Estoque()
++        e.entrada("X", 5, D("1.00"), deposito="A")
++        e.entrada("X", 5, D("1.00"))
++        with self.assertRaises(ErroEstoque):
++            e.saida("X", 6, deposito="A")
++        self.assertEqual(e.saldo("X", deposito="A"), 5)
++
++    def test_saldo_total_soma_depositos(self):
++        e = Estoque()
++        e.entrada("X", 4, D("1.00"), deposito="A")
++        e.entrada("X", 6, D("2.00"), deposito="B")
++        self.assertEqual(e.saldo_total("X"), 10)
++        self.assertEqual(Estoque().saldo_total("Z"), 0)
++
++    def test_transferir_move_com_custo_original(self):
++        e = Estoque()
++        e.entrada("X", 10, D("2.00"), deposito="A")
++        e.entrada("X", 10, D("3.00"), deposito="A")
++        self.assertEqual(e.transferir("X", 15, "A", "B"), D("35.00"))
++        self.assertEqual((e.saldo("X", deposito="A"), e.valor("X", deposito="A")), (5, D("15.00")))
++        self.assertEqual((e.saldo("X", deposito="B"), e.valor("X", deposito="B")), (15, D("35.00")))
++        self.assertEqual(e.saldo_total("X"), 20)
++
++    def test_transferir_sem_saldo_nao_muda_nada(self):
++        e = Estoque()
++        e.entrada("X", 3, D("1.00"), deposito="A")
++        with self.assertRaises(ErroEstoque):
++            e.transferir("X", 4, "A", "B")
++        self.assertEqual((e.saldo("X", deposito="A"), e.saldo("X", deposito="B")), (3, 0))
++
++    def test_transferir_mesma_origem_e_destino(self):
++        e = Estoque()
++        e.entrada("X", 3, D("1.00"), deposito="A")
++        with self.assertRaises(ValueError):
++            e.transferir("X", 1, "A", "A")
++        self.assertEqual(e.saldo("X", deposito="A"), 3)
++
++    def test_transferir_mantem_antiguidade_no_destino(self):
++        # O lote de 1,00 entrou antes do de 5,00 do destino, então sai primeiro na saída do destino
++        e = Estoque()
++        e.entrada("X", 10, D("1.00"), deposito="A")
++        e.entrada("X", 10, D("5.00"), deposito="B")
++        e.transferir("X", 10, "A", "B")
++        self.assertEqual(e.saida("X", 10, deposito="B"), D("10.00"))
++        self.assertEqual(e.saldo("X", deposito="B"), 10)
++
++    def test_lote_transferido_mais_antigo_sai_antes_de_entrada_posterior(self):
++        e = Estoque()
++        e.entrada("X", 5, D("1.00"), deposito="A")
++        e.entrada("X", 5, D("2.00"), deposito="B")
++        e.transferir("X", 5, "A", "B")
++        self.assertEqual(e.saida("X", 5, deposito="B"), D("5.00"))
++        self.assertEqual(e.saida("X", 5, deposito="B"), D("10.00"))
+diff --git a/tests/test_frete.py b/tests/test_frete.py
+index dae9445..c6db65e 100644
+--- a/tests/test_frete.py
++++ b/tests/test_frete.py
+@@ -19,3 +19,38 @@ class TestFrete(unittest.TestCase):
+     def test_cep_invalido(self):
+         with self.assertRaises(ValueError):
+             cotar("1234-567", D("1"), D("10"))
++
++    def test_regressao_1kg_exato_e_faixa_ate_1kg(self):
++        # Reclamação 1: 1 kg exato é "até 1 kg" (SE: 15,00), não 22,00.
++        self.assertEqual(cotar("01310-100", D("1"), D("100.00")).tarifa, D("15.00"))
++
++    def test_limites_inclusivos_5_e_10kg(self):
++        self.assertEqual(cotar("01310100", D("5"), D("10")).tarifa, D("22.00"))
++        self.assertEqual(cotar("01310100", D("10"), D("10")).tarifa, D("35.00"))
++        self.assertEqual(cotar("01310100", D("10.2"), D("10")).tarifa, D("35.00") + D("3.00"))
++
++    def test_peso_cobrado_arredonda_para_cima_meio_kg(self):
++        self.assertEqual(cotar("01310100", D("1.01"), D("10")).peso_cobrado, D("1.5"))
++        self.assertEqual(cotar("01310100", D("1.01"), D("10")).tarifa, D("22.00"))
++        self.assertEqual(cotar("01310100", D("1.0"), D("10")).peso_cobrado, D("1.0"))
++        self.assertEqual(cotar("01310100", D("0.2"), D("10")).peso_cobrado, D("0.5"))
++
++    def test_peso_cubico_maior_que_informado(self):
++        # 50x40x30 / 6000 = 10 kg
++        c = cotar("01310100", D("1"), D("10"), dimensoes=(50, 40, 30))
++        self.assertEqual((c.peso_cobrado, c.tarifa), (D("10.0"), D("35.00")))
++
++    def test_peso_cubico_com_excedente(self):
++        # 60x50x41 / 6000 = 20,5 kg -> 10,5 kg acima de 10 => 11 kg a mais
++        c = cotar("01310100", D("2"), D("10"), dimensoes=(60, 50, 41))
++        self.assertEqual((c.peso_cobrado, c.tarifa), (D("20.5"), D("35.00") + 11 * D("3.00")))
++
++    def test_peso_informado_maior_que_cubico(self):
++        c = cotar("01310100", D("4"), D("10"), dimensoes=(10, 10, 10))
++        self.assertEqual(c.peso_cobrado, D("4.0"))
++
++    def test_peso_cobrado_no_limite_do_frete_gratis(self):
++        # cúbico 31 kg > 30: sem frete grátis; 30 kg exatos: grátis
++        c = cotar("01310100", D("1"), D("300"), dimensoes=(60, 50, 62))
++        self.assertEqual((c.peso_cobrado, c.tarifa), (D("31.0"), D("35.00") + 21 * D("3.00")))
++        self.assertEqual(cotar("01310100", D("30"), D("300")).tarifa, D("0.00"))
+diff --git a/tests/test_parcelas.py b/tests/test_parcelas.py
+index 4a3a1e0..b854a52 100644
+--- a/tests/test_parcelas.py
++++ b/tests/test_parcelas.py
+@@ -2,7 +2,7 @@ import unittest
+ from datetime import date
+ from decimal import Decimal as D
+ 
+-from armazem.parcelas import parcelar
++from armazem.parcelas import parcelar, total_pago
+ 
+ 
+ class TestParcelas(unittest.TestCase):
+@@ -16,3 +16,59 @@ class TestParcelas(unittest.TestCase):
+     def test_n_invalido(self):
+         with self.assertRaises(ValueError):
+             parcelar(D("10"), 13, date(2026, 1, 5))
++        with self.assertRaises(ValueError):
++            parcelar(D("10"), 0, date(2026, 1, 5))
++
++    def test_regressao_primeira_no_dia_31(self):
++        # Reclamação 4: primeira parcela no dia 31 dava ValueError quando um mês seguinte
++        # não tinha dia 31. 31/03 → 30/04 (quinta) → 31/05 cai num domingo → segunda 01/06.
++        self.assertEqual([p.vencimento for p in parcelar(D("300"), 3, date(2026, 3, 31))],
++                         [date(2026, 3, 31), date(2026, 4, 30), date(2026, 6, 1)])
++
++    def test_dia_31_sem_erro_em_mes_curto_com_ano_bissexto(self):
++        # 31/01/2028 → 29/02/2028 (terça) → 31/03/2028 (sexta)
++        self.assertEqual([p.vencimento for p in parcelar(D("300"), 3, date(2028, 1, 31))],
++                         [date(2028, 1, 31), date(2028, 2, 29), date(2028, 3, 31)])
++
++    def test_ultimo_dia_do_mes_quando_nao_tem_dia_31(self):
++        # Parcela 2 de 31/01/2028 cai em 29/02; parcela 4 em 30/04 (domingo) passa para 01/05
++        self.assertEqual([p.vencimento for p in parcelar(D("400"), 4, date(2028, 1, 31))],
++                         [date(2028, 1, 31), date(2028, 2, 29), date(2028, 3, 31), date(2028, 5, 1)])
++
++    def test_dia_de_referencia_e_sempre_o_da_primeira(self):
++        # Depois de 29/02, a parcela de março volta para o dia 31 (não fica presa em 29)
++        vencs = [p.vencimento for p in parcelar(D("300"), 3, date(2028, 1, 31))]
++        self.assertEqual(vencs[2], date(2028, 3, 31))
++
++    def test_juros_a_partir_de_4_parcelas_tabela_price(self):
++        # 300,00 em 4x a 1,99% a.m.: PMT = 78,768 → 78,77 nas três primeiras; última 78,76
++        # (arredonda(PMT × 4) = 315,07, menos 3 × 78,77)
++        self.assertEqual([p.valor for p in parcelar(D("300.00"), 4, date(2026, 3, 10))],
++                         [D("78.77"), D("78.77"), D("78.77"), D("78.76")])
++
++    def test_juros_12_parcelas_centavos_na_ultima(self):
++        # 1000,00 em 12x: PMT = 94,5015 → 94,50 em 11 parcelas; última 94,52 (1134,02 − 1039,50)
++        valores = [p.valor for p in parcelar(D("1000.00"), 12, date(2026, 3, 10))]
++        self.assertEqual(valores, [D("94.50")] * 11 + [D("94.52")])
++
++    def test_sem_juros_ate_3_parcelas(self):
++        self.assertEqual([p.valor for p in parcelar(D("300.00"), 3, date(2026, 3, 10))],
++                         [D("100.00")] * 3)
++
++    def test_total_pago_sem_juros_e_igual_ao_total(self):
++        self.assertEqual(total_pago(D("100.00"), 3), D("100.00"))
++        self.assertEqual(total_pago(D("100.00"), 1), D("100.00"))
++
++    def test_total_pago_com_juros(self):
++        self.assertEqual(total_pago(D("300.00"), 4), D("315.07"))
++        self.assertEqual(total_pago(D("1000.00"), 12), D("1134.02"))
++
++    def test_total_pago_e_soma_das_parcelas(self):
++        for n in range(1, 13):
++            with self.subTest(n=n):
++                soma = sum((p.valor for p in parcelar(D("1234.56"), n, date(2026, 3, 10))), D("0"))
++                self.assertEqual(total_pago(D("1234.56"), n), soma)
++
++    def test_total_pago_n_invalido(self):
++        with self.assertRaises(ValueError):
++            total_pago(D("10"), 13)

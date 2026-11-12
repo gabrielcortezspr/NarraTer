@@ -1,8 +1,7 @@
 import type { ReactNode } from "react";
 
-// Colored pill used in tile headers (agent, role, pipe, schedule…).
-// Derives translucent bg/border from the color — replaces the 4 nearly
-// identical implementations that used to live in TerminalTile.
+// Coloured pill (agent, role, state…). The tint is derived from the colour with
+// color-mix, so it works with tokens (var(--accent)) as well as hex.
 interface BadgeProps {
   color: string;
   children: ReactNode;
@@ -15,10 +14,14 @@ export default function Badge({ color, children, title, rounded = "full", classN
   return (
     <span
       title={title}
-      className={`flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 shrink-0 select-none ${
-        rounded === "full" ? "rounded-full" : "rounded"
+      className={`flex items-center gap-1 h-[18px] text-2xs font-medium px-1.5 shrink-0 select-none ${
+        rounded === "full" ? "rounded-full" : "rounded-sm"
       } ${className}`}
-      style={{ color, background: `${color}18`, border: `1px solid ${color}30` }}
+      style={{
+        color,
+        background: `color-mix(in srgb, ${color} 12%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${color} 24%, transparent)`,
+      }}
     >
       {children}
     </span>

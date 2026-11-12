@@ -17,14 +17,14 @@ import {
 type Kind = Environment["kind"];
 
 const input =
-  "w-full bg-[#111] border border-[#2a2a2a] rounded px-2 py-1 text-xs text-[#ddd] focus:outline-none focus:border-[#8b5cf6]";
+  "w-full bg-term border border-line rounded px-2 py-1 text-xs text-ink focus:outline-none focus:border-accent";
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[10px] uppercase tracking-wider text-[#666]">{label}</span>
+      <span className="text-[10px] uppercase tracking-wider text-ink-muted">{label}</span>
       {children}
-      {hint && <span className="text-[10px] text-[#555]">{hint}</span>}
+      {hint && <span className="text-[10px] text-ink-muted">{hint}</span>}
     </label>
   );
 }
@@ -131,7 +131,7 @@ export default function EnvironmentSheet({ scene, onClose }: { scene: string; on
     <button
       onClick={() => { setKind(k); setResult(null); }}
       className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs ${
-        kind === k ? "bg-[#8b5cf633] text-white" : "text-[#777] hover:text-[#bbb]"
+        kind === k ? "bg-accent/20 text-white" : "text-ink-muted hover:text-ink"
       }`}
     >
       {icon} {label}
@@ -141,15 +141,15 @@ export default function EnvironmentSheet({ scene, onClose }: { scene: string; on
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onMouseDown={onClose}>
       <div
-        className="w-[440px] max-w-[92vw] rounded-xl bg-[#141414] border border-[#2a2a2a] shadow-2xl p-4 flex flex-col gap-3"
+        className="w-[440px] max-w-[92vw] rounded-xl bg-surface border border-line shadow-2xl p-4 flex flex-col gap-3"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
           <div className="text-sm text-white">Where “{scene}” runs</div>
-          <button onClick={onClose} className="text-[#555] hover:text-white"><X size={14} /></button>
+          <button onClick={onClose} className="text-ink-muted hover:text-ink"><X size={14} /></button>
         </div>
 
-        <div className="flex gap-1 p-1 rounded-lg bg-[#0e0e0e] border border-[#222]">
+        <div className="flex gap-1 p-1 rounded-lg bg-term border border-line">
           {tab("local", <Laptop size={12} />, "This machine")}
           {tab("ssh", <Server size={12} />, "SSH server")}
           {tab("docker", <Container size={12} />, "Docker")}
@@ -188,7 +188,7 @@ export default function EnvironmentSheet({ scene, onClose }: { scene: string; on
                     {containers?.map((c) => <option key={c.name} value={c.name}>{c.name} · {c.image}</option>)}
                     {container && !containers?.some((c) => c.name === container) && <option value={container}>{container}</option>}
                   </select>
-                  <button onClick={refreshContainers} title="Refresh" className="text-[#666] hover:text-white px-1"><RefreshCw size={11} /></button>
+                  <button onClick={refreshContainers} title="Refresh" className="text-ink-muted hover:text-ink px-1"><RefreshCw size={11} /></button>
                 </div>
               </Field>
             </div>
@@ -196,7 +196,7 @@ export default function EnvironmentSheet({ scene, onClose }: { scene: string; on
               <Field label="User"><input value={dockerUser} onChange={(e) => setDockerUser(e.target.value)} placeholder="(image default)" className={input} /></Field>
               <Field label="Shell"><input value={shell} onChange={(e) => setShell(e.target.value)} placeholder="/bin/sh" className={input} /></Field>
             </div>
-            <div className="text-[10px] text-[#555]">
+            <div className="text-[10px] text-ink-muted">
               NarraTer never creates, starts or stops the container, and adds no mounts — the project must already be inside it.
             </div>
           </>
@@ -207,11 +207,11 @@ export default function EnvironmentSheet({ scene, onClose }: { scene: string; on
             <Field label="Project directory" hint={kind === "ssh" ? "A path on the server (~ is its home)" : "A path inside the container"}>
               <input value={dir} onChange={(e) => setDir(e.target.value)} placeholder="~/app" className={input} />
             </Field>
-            <label className="flex items-start gap-2 text-xs text-[#bbb] select-none">
-              <input type="checkbox" checked={persistent} onChange={(e) => setPersistent(e.target.checked)} className="mt-0.5 accent-[#8b5cf6]" />
+            <label className="flex items-start gap-2 text-xs text-ink select-none">
+              <input type="checkbox" checked={persistent} onChange={(e) => setPersistent(e.target.checked)} className="mt-0.5 accent-accent" />
               <span>
                 Persistent session
-                <span className="block text-[10px] text-[#555]">Agents keep running in tmux when NarraTer quits or the connection drops; reconnecting reattaches.</span>
+                <span className="block text-[10px] text-ink-muted">Agents keep running in tmux when NarraTer quits or the connection drops; reconnecting reattaches.</span>
               </span>
             </label>
           </>
@@ -223,20 +223,20 @@ export default function EnvironmentSheet({ scene, onClose }: { scene: string; on
         )}
 
         {result && (
-          <div className={`text-[11px] rounded-md px-2 py-1.5 break-words ${result.ok ? "bg-[#14532d55] text-[#86efac]" : "bg-[#7f1d1d55] text-[#fca5a5]"}`}>
+          <div className={`text-[11px] rounded-md px-2 py-1.5 break-words ${result.ok ? "bg-ok/15 text-ok" : "bg-danger/20 text-danger-text"}`}>
             {result.text}
           </div>
         )}
 
         {savedRemote?.persistent && sessions && sessions.length > 0 && (
           <div className="flex flex-col gap-1">
-            <div className="text-[10px] uppercase tracking-wider text-[#666]">Persistent sessions running there</div>
+            <div className="text-[10px] uppercase tracking-wider text-ink-muted">Persistent sessions running there</div>
             {sessions.map((s) => (
-              <div key={s} className="flex items-center justify-between text-[11px] text-[#999]">
+              <div key={s} className="flex items-center justify-between text-[11px] text-ink-2">
                 <span className="font-mono">{s}</span>
                 <button
                   onClick={() => environmentEndSessions(savedRemote, s).then(loadSessions).catch((e) => toast.error(String(e)))}
-                  className="text-[#f87171] hover:text-white"
+                  className="text-danger-text hover:text-ink"
                 >
                   End
                 </button>
@@ -247,11 +247,11 @@ export default function EnvironmentSheet({ scene, onClose }: { scene: string; on
 
         <div className="flex items-center justify-end gap-2 pt-1">
           {kind !== "local" && (
-            <button onClick={test} disabled={testing} className="flex items-center gap-1 px-3 py-1 rounded-md text-xs text-[#ccc] border border-[#333] hover:border-[#555]">
+            <button onClick={test} disabled={testing} className="flex items-center gap-1 px-3 py-1 rounded-md text-xs text-ink border border-line-strong hover:border-line-strong">
               {testing && <Loader2 size={11} className="animate-spin" />} Test
             </button>
           )}
-          <button onClick={save} disabled={saving} className="px-3 py-1 rounded-md text-xs text-white bg-[#8b5cf6] hover:bg-[#7c3aed] disabled:opacity-50">
+          <button onClick={save} disabled={saving} className="px-3 py-1 rounded-md text-xs text-white bg-accent hover:bg-accent-dim disabled:opacity-50">
             Save
           </button>
         </div>

@@ -1,0 +1,82 @@
+[
+  {
+    "correct": 5,
+    "latencies_ms": [
+      481.066650390625,
+      551.28125,
+      639.88671875,
+      658.052978515625,
+      670.023193359375
+    ],
+    "outcomes": [
+      "idle",
+      "idle",
+      "idle",
+      "idle",
+      "idle"
+    ],
+    "premature": 0,
+    "runs": 5,
+    "scenario": "claude-short"
+  },
+  {
+    "correct": 5,
+    "latencies_ms": [
+      465.619384765625,
+      543.33642578125,
+      550.726318359375,
+      585.55078125,
+      643.56591796875
+    ],
+    "outcomes": [
+      "idle",
+      "idle",
+      "idle",
+      "idle",
+      "idle"
+    ],
+    "premature": 0,
+    "runs": 5,
+    "scenario": "claude-silent-tool"
+  },
+  {
+    "correct": 5,
+    "latencies_ms": [
+      470.44384765625,
+      508.521240234375,
+      514.316650390625,
+      584.550537109375,
+      642.986328125
+    ],
+    "outcomes": [
+      "idle",
+      "idle",
+      "idle",
+      "idle",
+      "idle"
+    ],
+    "premature": 0,
+    "runs": 5,
+    "scenario": "claude-long-answer"
+  },
+  {
+    "correct": 0,
+    "latencies_ms": [
+      -5987.853759765625,
+      -5948.977783203125,
+      -5857.135498046875,
+      -5838.02099609375,
+      -5809.50048828125
+    ],
+    "outcomes": [
+      "attention",
+      "attention",
+      "attention",
+      "attention",
+      "attention"
+    ],
+    "premature": 5,
+    "runs": 5,
+    "scenario": "claude-permission"
+  }
+]

@@ -1,0 +1,18 @@
+[
+  {
+    "correct": 3,
+    "latencies_ms": [
+      102.55517578125,
+      119.319091796875,
+      222.357421875
+    ],
+    "outcomes": [
+      "attention",
+      "attention",
+      "attention"
+    ],
+    "premature": 0,
+    "runs": 3,
+    "scenario": "claude-permission"
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "delivered_s": 2.606089919,
+  "expected": "idle",
+  "is_shell": false,
+  "oracle_s": 9.465301100640625,
+  "scenario": "claude-long-answer"
+}

@@ -42,33 +42,33 @@ export default function BackupsSheet({ scene, onClose }: { scene: string; onClos
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50" onMouseDown={onClose}>
       <div
-        className="w-[400px] max-w-[92vw] rounded-xl bg-[#141414] border border-[#2a2a2a] shadow-2xl p-4 flex flex-col gap-3"
+        className="w-[400px] max-w-[92vw] rounded-xl bg-surface border border-line shadow-2xl p-4 flex flex-col gap-3"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm text-white"><History size={14} /> Backups of “{scene}”</div>
-          <button onClick={onClose} className="text-[#555] hover:text-white"><X size={14} /></button>
+          <button onClick={onClose} className="text-ink-muted hover:text-ink"><X size={14} /></button>
         </div>
-        <div className="text-[10px] text-[#555]">
+        <div className="text-[10px] text-ink-muted">
           Saved as you work — at most one every 10 minutes, the last 30 kept.
         </div>
         <div className="max-h-[50vh] overflow-y-auto flex flex-col gap-1">
-          {list === null && <div className="text-xs text-[#555]">loading…</div>}
-          {list?.length === 0 && <div className="text-xs text-[#555]">No backups yet — they appear as the workspace is saved over time.</div>}
+          {list === null && <div className="text-xs text-ink-muted">loading…</div>}
+          {list?.length === 0 && <div className="text-xs text-ink-muted">No backups yet — they appear as the workspace is saved over time.</div>}
           {list?.map((b) => (
-            <div key={b.file} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-md hover:bg-[#1c1c1c]">
+            <div key={b.file} className="flex items-center justify-between gap-2 px-2 py-1.5 rounded-md hover:bg-hover">
               <div className="flex flex-col">
-                <span className="text-xs text-[#ddd]">{ago(b.at)}</span>
-                <span className="text-[10px] text-[#666]">
+                <span className="text-xs text-ink">{ago(b.at)}</span>
+                <span className="text-[10px] text-ink-muted">
                   {b.nodes} nodes · {b.terminals} terminals{b.floors ? ` · ${b.floors} floors` : ""}
                 </span>
               </div>
               {confirm === b.file ? (
-                <button onClick={() => restore(b)} className="text-[11px] px-2 py-0.5 rounded bg-[#8b5cf6] text-white">
+                <button onClick={() => restore(b)} className="text-[11px] px-2 py-0.5 rounded bg-accent text-white">
                   Restore this?
                 </button>
               ) : (
-                <button onClick={() => setConfirm(b.file)} className="text-[11px] text-[#c4b5fd] hover:text-white">
+                <button onClick={() => setConfirm(b.file)} className="text-[11px] text-accent-text hover:text-ink">
                   Restore
                 </button>
               )}

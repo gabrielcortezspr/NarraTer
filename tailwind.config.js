@@ -1,23 +1,46 @@
 /** @type {import('tailwindcss').Config} */
+// Cores do perfil "Palco" (docs/design.md). Os valores vivem nas CSS variables do
+// index.css; as que aceitam opacidade (bg-accent/15) usam os canais -rgb.
+const ch = (name) => `rgb(var(--${name}-rgb) / <alpha-value>)`;
+
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
   darkMode: "class",
   theme: {
     extend: {
       colors: {
-        // Valores vivem nas CSS variables do index.css (tokens de design)
-        canvas: {
-          bg: "var(--canvas-bg)",
-          panel: "var(--canvas-panel)",
-          tile: "var(--canvas-tile)",
-          header: "var(--canvas-header)",
-          border: "var(--canvas-border)",
-          hover: "var(--canvas-hover)",
-        },
+        bg: ch("bg"),
+        term: ch("term"),
+        surface: { DEFAULT: ch("surface"), 2: ch("surface-2") },
+        raised: ch("raised"),
+        hover: "var(--hover)",
+        press: "var(--press)",
+        line: { DEFAULT: "var(--line)", strong: "var(--line-strong)" },
+        ok: ch("ok"),
+        warn: ch("warn"),
+        queue: ch("queue"),
+        danger: { DEFAULT: ch("danger"), text: "var(--danger-text)" },
+        info: ch("info"),
         accent: {
-          DEFAULT: "var(--accent)",
+          DEFAULT: ch("accent"),
+          text: "var(--accent-text)",
           dim: "var(--accent-dim)",
-          glow: "#8b5cf620",
+          glow: "rgb(var(--accent-rgb) / 0.12)",
+        },
+        ink: {
+          DEFAULT: ch("text"),
+          2: "var(--text-2)",
+          muted: "var(--text-3)",
+          faint: "var(--text-4)",
+        },
+        // Nomes antigos
+        canvas: {
+          bg: ch("bg"),
+          panel: ch("surface"),
+          tile: ch("surface"),
+          header: ch("surface-2"),
+          border: "var(--line)",
+          hover: "var(--hover)",
         },
         agent: {
           shell: "var(--agent-shell)",
@@ -31,19 +54,28 @@ export default {
           idle: "var(--status-idle)",
           exited: "var(--status-exited)",
         },
-        ink: {
-          DEFAULT: "var(--text)",
-          muted: "var(--text-muted)",
-          faint: "var(--text-faint)",
-        },
       },
       fontFamily: {
         sans: ["Inter Variable", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
         mono: ["JetBrains Mono", "Cascadia Code", "Fira Code", "monospace"],
       },
+      fontSize: {
+        "2xs": ["11px", "14px"],
+      },
+      borderRadius: {
+        sm: "var(--radius-sm)",
+        md: "var(--radius-md)",
+        lg: "var(--radius-lg)",
+        xl: "var(--radius-lg)",
+      },
       boxShadow: {
-        tile: "0 4px 24px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.06)",
-        "tile-active": "0 4px 32px rgba(139,92,246,0.2), 0 0 0 1px rgba(139,92,246,0.3)",
+        tile: "var(--shadow-tile)",
+        "tile-active": "var(--ring-accent), var(--shadow-tile)",
+        float: "var(--shadow-float)",
+        ring: "var(--ring-accent)",
+      },
+      transitionTimingFunction: {
+        ease: "var(--ease)",
       },
     },
   },

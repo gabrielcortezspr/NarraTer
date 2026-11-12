@@ -1,0 +1,8 @@
+{
+  "scenario": "claude-permission",
+  "is_shell": false,
+  "expected": "attention",
+  "delivered_s": 3.406,
+  "oracle_s": 5.9682,
+  "oracle_note": "derived: first frame that shows the permission dialog (this baseline run had no PermissionRequest hook); recording cut at 30 s, the bullet blinks every 0.6 s while the dialog waits"
+}

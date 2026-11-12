@@ -1,0 +1,7 @@
+{
+  "delivered_s": 2.604400468,
+  "expected": "attention",
+  "is_shell": false,
+  "oracle_s": 4.71247712815625,
+  "scenario": "claude-permission"
+}

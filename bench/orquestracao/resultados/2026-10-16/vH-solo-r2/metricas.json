@@ -1,0 +1,125 @@
+{
+ "versao": "H",
+ "rep": 2,
+ "variante": "solo",
+ "motivo": "concluida",
+ "inicio": 1792151878.0875533,
+ "fim": 1792151970.805,
+ "duracao_s": 92.71744680404663,
+ "placar": {
+  "oculto": {
+   "Basico": {
+    "ok": 7,
+    "total": 7
+   },
+   "Bordas": {
+    "ok": 12,
+    "total": 12
+   },
+   "Defeitos": {
+    "ok": 5,
+    "total": 5
+   },
+   "Regressao": {
+    "ok": 7,
+    "total": 7
+   }
+  },
+  "oculto_ok": 31,
+  "oculto_total": 31,
+  "proprios_ok": 40,
+  "proprios_total": 40
+ },
+ "diff": {
+  "linhas_adicionadas": 337,
+  "linhas_removidas": 15,
+  "arquivos": [
+   "README.md",
+   "pedidos/cambio.py",
+   "pedidos/importa.py",
+   "pedidos/modelo.py",
+   "pedidos/preco.py",
+   "pedidos/relatorio.py",
+   "tests/test_importa.py",
+   "tests/test_multimoeda.py",
+   "tests/test_preco.py",
+   "tests/test_relatorio.py"
+  ]
+ },
+ "agentes": {
+  "Narrador": {
+   "tokens": {
+    "entrada": 16,
+    "saida": 11640,
+    "cache_lido": 324759,
+    "cache_criado": 30069,
+    "cache_criado_1h": 30069,
+    "processados": 354844
+   },
+   "chamadas_api": 8,
+   "contexto_inicial": 31293,
+   "contexto_pico": 52538,
+   "contexto_final": 52538,
+   "compactacoes": 0,
+   "prompts_recebidos": 1,
+   "falas_recebidas": {},
+   "ferramentas": {
+    "Bash": 7
+   },
+   "mensageria": {},
+   "edicoes": 0,
+   "escritas_bash": 5,
+   "atividade": {
+    "coordenacao": 0,
+    "verificacao": 3,
+    "leitura": 1,
+    "edicao": 2,
+    "outros": 1
+   },
+   "pedidos": 0,
+   "repeticoes_tela": 0,
+   "avisos_timeout": 0,
+   "primeiro": 1792151879.179,
+   "ultimo": 1792151970.859,
+   "modelo": "claude-opus-5-5",
+   "sessoes": 1,
+   "custo_usd": 0.5384
+  }
+ },
+ "total": {
+  "tokens": {
+   "entrada": 16,
+   "saida": 11640,
+   "cache_lido": 324759,
+   "cache_criado": 30069,
+   "cache_criado_1h": 30069,
+   "processados": 354844
+  },
+  "custo_usd": 0.5384,
+  "chamadas_api": 8,
+  "mensageria": {},
+  "mensagens_entre_agentes": 0,
+  "compactacoes": 0,
+  "edicoes_lider": 0,
+  "escritas_bash_lider": 5
+ },
+ "latencias": {
+  "ocupado_s": {},
+  "algum_dev_s": 0.0,
+  "paralelo_s": 0.0,
+  "rodadas_dev": {},
+  "deteccao_s": [],
+  "deteccao_mediana_s": null,
+  "volta_s": [],
+  "volta_mediana_s": null,
+  "entrega_s": [],
+  "retorno_s": [],
+  "entrega_mediana_s": null,
+  "retorno_mediana_s": null
+ },
+ "prematuros": {
+  "asks": 0,
+  "prematuros": 0,
+  "adiantamento_s": []
+ }
+}

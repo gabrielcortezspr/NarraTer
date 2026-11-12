@@ -1,0 +1,7 @@
+{
+  "delivered_s": 2.60551022,
+  "expected": "idle",
+  "is_shell": false,
+  "oracle_s": 4.56020113796875,
+  "scenario": "claude-short"
+}

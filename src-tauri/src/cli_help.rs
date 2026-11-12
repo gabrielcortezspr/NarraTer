@@ -11,6 +11,10 @@ Usage:
   narrater ask "Agent" "prompt"                    Send a prompt to a connected agent; returns its answer when it finishes
   narrater ask --batch '{"A": "prompt", "B": "prompt"}'
                                                    Ask several agents in parallel; JSON array once all finish
+  narrater ask "Agent" "prompt" --no-wait          Send without blocking; prints an ask id (also works with --batch)
+  narrater ask "Agent" "prompt" --check "CMD"      Done only if CMD passes in the agent's project (e.g. the tests)
+  narrater wait [id…] [--all] [--timeout S]        The first of your asks to finish, with its answer (--all: every one)
+  narrater asks [--all]                            Your recent asks, their ids and states
   narrater ask "Agent" --raw "2\n"                 Type raw input into the agent's terminal (menus, keys, shell input).
                                                    Escapes: \n Enter, \t Tab, \e ESC, \xNN byte (\x03 = Ctrl-C), e.g. \e[A up arrow
   narrater check "Agent"                           Read what the agent's terminal shows right now
@@ -33,10 +37,13 @@ Usage:
   narrater portal key "Portal" "Enter"             Press a key (ctrl+a, shift+tab…)
   narrater portal navigate "Portal" "url"          Go to a URL (also: info, screenshot, text, html, evaluate…)
                                                    Run `narrater help portal` for every portal command
-  narrater recruit "Name" [--preset P] [--role R] [--floor F] [--workspace W] [--command C] [--dir PATH]
+  narrater recruit "Name" [--preset P] [--model M] [--role R] [--floor F] [--workspace W] [--command C] [--dir PATH]
                                                    (Maestro only) Spawn a teammate, auto-connected to you
   narrater recruit ["New Name"] --preset P --replace "Old"
                                                    (Maestro only) Swap which agent runs on a teammate, in place
+  narrater team templates                          Team shapes the generator knows, with when each pays off
+  narrater team create --template T --task "..." --reason "why a team" [--check "CMD"] [--model M]
+                                                   Build a whole team at once: terminals, wiring and notes
   narrater dismiss "Name"                          (Maestro only) Stop and remove a connected teammate
   narrater preset list                             (Maestro only) List agent presets for --preset
   narrater role list | show "Name"                 (Maestro only) List roles / print a role's full prompt
@@ -78,15 +85,20 @@ backslash to send them literally (\\n delivers \n)."#;
 pub fn topic(name: &str) -> Option<&'static str> {
     Some(match name {
         "ask" => r#"Usage:
-  narrater ask "Agent" "prompt" [--timeout SECONDS]
-  narrater ask --batch '{"A": "prompt", "B": "prompt"}'
+  narrater ask "Agent" "prompt" [--timeout SECONDS] [--no-wait] [--check "CMD"]
+  narrater ask --batch '{"A": "prompt", "B": "prompt"}' [--no-wait] [--check "CMD"]
   narrater ask "Agent" --raw "2\n"
 
 `ask` types your prompt into the agent's terminal when it is idle and blocks
 until its turn is over, then prints what its terminal shows. Scale your shell
 tool timeout to the work: about 1 minute for something easy, up to 10 for a
-real task. If your timeout expires, do NOT re-send the prompt: run
-`narrater check "Agent"` to see the progress, then wait again.
+real task. If your timeout expires, do NOT re-send the prompt: the ask keeps
+running. `narrater asks` shows its id and state, and `narrater wait <id>`
+picks up its answer (`narrater check "Agent"` shows the progress meanwhile).
+
+--no-wait sends the prompt the same way but returns at once with an ask id,
+so you can keep working or delegate to several agents and then
+`narrater wait` for whichever finishes first. See `narrater help wait`.
 
 The ask back pattern: tell the agent to report with
 `narrater ask "Your Name" "<result>"` when it finishes (your name is under
@@ -94,14 +106,50 @@ The ask back pattern: tell the agent to report with
 arrives in your terminal in full as a new prompt, instead of being clipped to
 one screen.
 
+--check "CMD" is the acceptance criterion. When the agent's turn ends,
+NarraTer runs CMD with `sh -c` in the agent's project directory (not in its
+terminal; the agent doesn't have to do anything). Exit 0: the answer comes
+back with "Acceptance check passed". Anything else: the ask ends as "failed",
+with the check's output first and the agent's answer after it — send the
+failure back to the agent instead of trusting its "done". Example:
+  narrater ask "Dev" "implement X" --check "python3 -m unittest discover -s tests"
+
 --batch takes a JSON map of agent name to prompt, runs every target in
 parallel and returns a JSON array of {name, output} (or {name, error}) once
-all of them are done. Batch prompts use plain JSON string escaping.
+all of them are done. Batch prompts use plain JSON string escaping. With
+--no-wait it returns [{name, id}] at once instead.
 
 --raw types bytes straight into the terminal, for interactive menus and
 prompts that `ask` cannot drive, and prints the resulting screen.
 Escapes: \n Enter, \t Tab, \e ESC, \xNN byte (\x03 = Ctrl-C). Special keys
 are ESC sequences, e.g. \e[A up arrow, \e[Z Shift-Tab."#,
+        "wait" => r#"Usage:
+  narrater wait                       The next of your --no-wait asks to finish
+  narrater wait ask-1a2b3c [ask-…]    The first of these to finish (or a finished one at once)
+  narrater wait ask-1a2b3c ask-… --all  Once all of these finished: JSON array of {id, name, state, output}
+  Options: --timeout SECONDS (default 3600; scale it to your shell tool's limit)
+
+Prints `[id] Agent · state` and then the agent's answer — its screen at the
+end of its turn, or the notice for what happened instead. States: done,
+attention (stopped at a permission prompt or menu), answered (it messaged you
+back), timeout, exited, cancelled, unknown (NarraTer restarted mid-ask).
+
+Without ids it collects your --no-wait asks one by one: each answer is
+printed once, so call it again for the next. When nothing finishes in time it
+lists what is still running; just wait again — never re-send the prompt.
+
+The fan-out pattern:
+  narrater ask --batch '{"A": "task…", "B": "task…"}' --no-wait
+  narrater wait      # react to whichever finishes first
+  narrater wait      # then the next"#,
+        "asks" => r#"Usage:
+  narrater asks [--all]
+
+Your asks, newest first (15 unless --all): id, agent, state, age and the
+start of the prompt. "uncollected" marks a finished --no-wait ask whose
+answer you haven't read yet. Asks survive a NarraTer restart; one that was
+still running comes back as "unknown". `narrater wait <id>` prints the answer
+of any of them."#,
         "check" => r#"Usage:
   narrater check "Agent"
 
@@ -195,9 +243,52 @@ Dates are local; --to includes that whole day. Attachments have stable ids:
 Workflow: snapshot → act with refs → snapshot again to verify (refs go stale
 when the page changes). Prefer snapshot + refs over screenshot + coordinates.
 Only portals connected to you are reachable (`narrater list`)."#,
+        "team" => r#"Usage:
+  narrater team templates
+  narrater team create --template T --task "..." --reason "why a team" [--check "CMD"]
+                       [--name "Team"] [--preset P] [--model M] [--count N] [--isolate]
+  narrater team create --spec '{"members": [...]}'      (or --spec - to read it from stdin)
+
+The team generator. One command builds a whole team next to you: the
+terminals (agent, model, role), the wiring between them and two notes — the
+task (with its acceptance check) for everyone, and why this team (for you).
+
+Who may: a Maestro terminal (the crown in its header), or any agent when the
+user turned on Automatic teams in NarraTer. Members of a generated team can't
+generate teams of their own.
+
+Is a team worth it? Usually not. Measured in NarraTer: one Opus terminal did
+two coding tasks faster than any team, with the same result (docs/relatorios).
+Build a team only when at least one holds, and say which in --reason:
+  - 2+ independent parts, in separate files, each worth several minutes;
+  - an independent reviewer or tester with a clean context pays off (the
+    writer is a cheaper model, or the change is risky);
+  - the work doesn't fit in one context (wide investigation, many areas).
+Otherwise do it yourself: `--template solo` only records that decision.
+
+  --template   solo, dev-reviewer, dev-qa, readers, parallel-devs
+               (`narrater team templates` shows members, wiring and cost)
+  --task       what the team must deliver; goes in the task note
+  --check      acceptance command (tests, build); written in the task note —
+               delegate with `narrater ask ... --check "CMD"`
+  --reason     why a team beats doing it alone (required, except for solo)
+  --name       team name (default: the template's), used in note names
+  --preset     agent for every member (default: yours); --model its model
+  --count      members for readers / parallel-devs (2–5)
+  --isolate    each writer works in its own git worktree (a floor)
+
+--spec takes the whole team as JSON instead, for custom shapes:
+  {"name": "Checkout", "task": "...", "check": "make test", "reason": "...",
+   "members": [{"name": "Dev", "preset": "codex", "model": "gpt-5-codex",
+                "role": "Implement the task...", "writes": true},
+               {"name": "Reviewer", "preset": "claude", "model": "opus",
+                "role": "Review the diff, never edit...", "writes": false}],
+   "edges": [["me", "Dev"], ["Dev", "Reviewer"]]}
+"me" is you; without "edges", every member is wired to you.
+Removing a team is not automated yet: dismiss its members one by one."#,
         "recruit" => r#"Usage:
-  narrater recruit "Name" [--preset P] [--role R] [--floor F] [--workspace W] [--command C] [--dir PATH]
-  narrater recruit ["New Name"] --preset P --replace "Old"
+  narrater recruit "Name" [--preset P] [--model M] [--role R] [--floor F] [--workspace W] [--command C] [--dir PATH]
+  narrater recruit ["New Name"] --preset P [--model M] --replace "Old"
 
 (Maestro only) Spawns a new terminal on the canvas next to you, names it and
 connects it to you. Returns when the terminal exists; the agent may still be
@@ -209,6 +300,9 @@ ask it instead of recruiting a duplicate.
   Name       a short codename you invent (not the role name); the canvas
              appends (2), (3)… on a collision
   --preset   an agent preset (`narrater preset list`); default: a copy of you
+  --model    the model it runs, passed to the agent's own --model flag
+             (e.g. sonnet, opus, gpt-5-codex, gemini-2.5-pro); default: the
+             CLI's own default. Not for Custom or Shell
   --role     an existing role (`narrater role list`); the recruit boots with
              its prompt as CLAUDE.md / AGENTS.md
   --command  override the program; matching a preset's program uses that preset

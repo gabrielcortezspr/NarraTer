@@ -63,7 +63,7 @@ fn main() {
             None
         };
         let since = now.saturating_duration_since(s.last_change);
-        (classify(&s.footer(), since, is_shell, fg), s.has_output)
+        (classify(&s.footer(), s.title(), since, is_shell, fg), s.has_output)
     };
     let mut last = None;
     let mut wait_for = |label: &str, max: Duration, done: &dyn Fn(TurnState) -> bool| -> TurnState {

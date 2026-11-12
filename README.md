@@ -34,6 +34,13 @@ concept to Linux.
   working directory (xterm.js frontend, real PTYs in the Rust backend, with
   zoom-aware culling and level-of-detail rendering). Every terminal of a scene
   runs whether or not it's on screen.
+- **Activity panel** (Ctrl+J, or the pulse button in the toolbar): a history of
+  every agent state (working, ready, needs you), every ask from request to
+  answer (with how long it took and whether the answer came from the agent's
+  transcript or its screen), direct messages, starts and exits. NarraTer writes
+  it itself as things happen, never an agent, to
+  `~/.config/narrater/activity.jsonl`, so it survives restarts. Filter by agent,
+  by kind, or click an ask's `#id` to follow that one request.
 - **Six node types**: terminal, note, text, file tree, attachment and portal.
 - **Browser portals**: a portal is a real Chrome tab rendered live on the
   canvas (headless Chrome over the DevTools Protocol). You browse it like a
@@ -46,11 +53,23 @@ concept to Linux.
   target's terminal when it's idle, and `ask` returns what the target's
   screen shows once its turn is over — the target needs no plugin, hook or
   special protocol, so Claude can ask Codex, Gemini can ask a shell, and so on.
+  `--no-wait` returns an ask id instead of blocking, and `narrater wait`
+  collects answers as they finish; asks survive an app restart.
   See [docs/narrater-cli.md](docs/narrater-cli.md).
 - **Maestro mode**: turn it on for an agent (crown in its header) and it can
   assemble a team by itself — `narrater recruit` spawns teammates next to it
   (any preset, any role), `--replace` swaps a teammate's agent in place,
   `dismiss` removes one, and `narrater role …` manages role presets.
+- **Team generator**: `narrater team create --template dev-reviewer --task "…"
+  --reason "…"` builds a whole team at once — terminals with agent, model and
+  role, the wiring and a task note with its acceptance check. Shapes: solo,
+  dev-reviewer, dev-qa, readers, parallel-devs. Turn on **Automatic teams**
+  (team button in the toolbar) to let agents build one when a task is worth it;
+  one agent stays the default, because in our benchmark a single agent beat
+  every team on time with the same result.
+- **Acceptance checks**: `narrater ask "Dev" "…" --check "make test"` — NarraTer
+  runs the check after the agent's turn and reports `failed` with the output
+  instead of trusting the agent's "done".
 - **Routines**: scheduled prompts or commands fired into a terminal (or
   desktop reminders) — `--every 30m`, `--daily 09:00`, `--weekly
   mon,fri@09:00`, `--once …`, with an optional pre-run script whose output

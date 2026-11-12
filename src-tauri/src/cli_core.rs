@@ -142,6 +142,14 @@ fn abs_path(env: &Env, p: &str) -> String {
     out.display().to_string()
 }
 
+fn insert_timeout(p: &mut Map<String, Value>, timeout: Option<String>) -> Result<(), String> {
+    if let Some(t) = timeout {
+        let secs: i64 = t.parse().map_err(|_| "Error: --timeout takes a number of seconds".to_string())?;
+        p.insert("timeout_secs".into(), secs.into());
+    }
+    Ok(())
+}
+
 struct Cli<'a, 'b> {
     env: &'a mut Env<'b>,
 }
@@ -178,6 +186,14 @@ impl Cli<'_, '_> {
         let batch = a.value("--batch")?;
         let raw = a.value("--raw")?;
         let timeout = a.value("--timeout")?;
+        let check = a.value("--check")?;
+        let no_wait = a.flag("--no-wait");
+        if check.is_some() && raw.is_some() {
+            return Err("Error: --check doesn't apply to --raw (there is no turn to accept)".into());
+        }
+        if no_wait && raw.is_some() {
+            return Err("Error: --no-wait doesn't apply to --raw (it returns once the screen reacts)".into());
+        }
         let mut p;
         if let Some(batch) = batch {
             let targets: Value =
@@ -202,10 +218,33 @@ impl Cli<'_, '_> {
             p.insert("to".into(), a.get(0).into());
             p.insert("msg".into(), decode(&a.joined(1), false).into());
         }
-        if let Some(t) = timeout {
-            let secs: i64 = t.parse().map_err(|_| "Error: --timeout takes a number of seconds".to_string())?;
-            p.insert("timeout_secs".into(), secs.into());
+        if no_wait {
+            p.insert("no_wait".into(), true.into());
         }
+        if let Some(check) = check.filter(|c| !c.trim().is_empty()) {
+            p.insert("check".into(), check.into());
+        }
+        insert_timeout(&mut p, timeout)?;
+        self.send(p)
+    }
+
+    /// `wait [ids…] [--all|--any] [--timeout S]`
+    fn wait(&self, mut a: Args) -> Parsed {
+        let timeout = a.value("--timeout")?;
+        let all = a.flag("--all");
+        let any = a.flag("--any");
+        if all && any {
+            return Err("Error: pick one of --all and --any".into());
+        }
+        if let Some(bad) = a.0.iter().find(|x| x.starts_with("--")) {
+            return Err(format!("Error: unknown flag {} — see `narrater help wait`", bad));
+        }
+        let mut p = self.base("wait");
+        p.insert("ids".into(), a.0.clone().into());
+        if all {
+            p.insert("all".into(), true.into());
+        }
+        insert_timeout(&mut p, timeout)?;
         self.send(p)
     }
 
@@ -313,6 +352,7 @@ impl Cli<'_, '_> {
         let workspace = a.value("--workspace")?;
         let floor = a.value("--floor")?;
         let preset = a.value("--preset")?;
+        let model = a.value("--model")?;
         let role = a.value("--role")?;
         let command = a.value("--command")?;
         let dir = a.value("--dir")?;
@@ -329,6 +369,7 @@ impl Cli<'_, '_> {
             json!({
                 "name": name,
                 "preset": preset.unwrap_or_default(),
+                "model": model.unwrap_or_default(),
                 "role": role.unwrap_or_default(),
                 "command": command.unwrap_or_default(),
                 "dir": dir.unwrap_or_default(),
@@ -371,6 +412,45 @@ impl Cli<'_, '_> {
             }
             _ if a.0.iter().any(|x| x == "--scope") => Err("Error: NarraTer roles are global — drop --scope".into()),
             _ => Err(help_of("role")),
+        }
+    }
+
+    /// `team templates` | `team create …` (the team generator, docs/pesquisa/orquestracao.md §4)
+    fn team(&mut self, mut a: Args) -> Parsed {
+        if a.len() == 0 {
+            return Err(help_of("team"));
+        }
+        let sub = a.0.remove(0);
+        match sub.as_str() {
+            "templates" if a.len() == 0 => self.canvas("team_templates", json!({})),
+            "create" => {
+                let mut p = json!({});
+                for flag in ["template", "task", "check", "reason", "name", "preset", "model", "count"] {
+                    if let Some(v) = a.value(&format!("--{}", flag))? {
+                        p[flag] = v.into();
+                    }
+                }
+                if a.flag("--isolate") {
+                    p["isolate"] = true.into();
+                }
+                if let Some(spec) = a.value("--spec")? {
+                    let raw = if spec == "-" { (self.env.stdin)().unwrap_or_default() } else { spec };
+                    let v: Value = serde_json::from_str(&raw)
+                        .map_err(|e| format!("Error: --spec is not valid JSON ({}); see `narrater help team`", e))?;
+                    if !v.is_object() {
+                        return Err("Error: --spec takes a JSON object; see `narrater help team`".into());
+                    }
+                    p["spec"] = v;
+                }
+                if a.len() != 0 {
+                    return Err(format!("Error: unexpected '{}'; see `narrater help team`", a.get(0)));
+                }
+                if p.get("template").is_none() && p.get("spec").is_none() {
+                    return Err("Error: team create needs --template T (see `narrater team templates`) or --spec JSON".into());
+                }
+                self.canvas("team_create", p)
+            }
+            _ => Err(help_of("team")),
         }
     }
 
@@ -611,6 +691,26 @@ pub fn parse(argv: &[String], env: &mut Env) -> Parsed {
     match cmd {
         "list" => cli.canvas("list", json!({})),
         "ask" => cli.ask(a),
+        "wait" => cli.wait(a),
+        // Run by NarraTer's Claude Code status-line script, with its payload on stdin
+        "usage-report" => {
+            let text = (cli.env.stdin)().unwrap_or_default();
+            let payload: Value =
+                serde_json::from_str(&text).map_err(|_| "Error: usage-report takes the status-line JSON on stdin".to_string())?;
+            cli.send_params("usage", payload)
+        }
+        "asks" => {
+            let mut a = a;
+            let all = a.flag("--all");
+            if a.len() != 0 {
+                return Err("Usage: narrater asks [--all]".into());
+            }
+            let mut p = cli.base("asks");
+            if all {
+                p.insert("all".into(), true.into());
+            }
+            cli.send(p)
+        }
         "check" => {
             if a.len() != 1 {
                 return Err(r#"Usage: narrater check "Agent""#.into());
@@ -628,6 +728,7 @@ pub fn parse(argv: &[String], env: &mut Env) -> Parsed {
         }
         "portal" => cli.portal(a),
         "recruit" => cli.recruit(a),
+        "team" => cli.team(a),
         "dismiss" => {
             if a.len() != 1 {
                 return Err(r#"Usage: narrater dismiss "Name""#.into());
@@ -693,6 +794,53 @@ mod tests {
     }
 
     #[test]
+    fn team_templates_and_create() {
+        let v = request(&["team", "templates"]);
+        assert_eq!((v["mode"].as_str(), v["action"].as_str()), (Some("canvas"), Some("team_templates")));
+        let v = request(&["team", "create", "--template", "dev-reviewer", "--task", "do X", "--check", "make test",
+            "--reason", "risky change", "--model", "sonnet", "--isolate"]);
+        assert_eq!(v["action"], "team_create");
+        assert_eq!(v["params"]["template"], "dev-reviewer");
+        assert_eq!((v["params"]["check"].as_str(), v["params"]["isolate"].as_bool()), (Some("make test"), Some(true)));
+        let v = request(&["team", "create", "--spec", r#"{"members": [{"name": "A"}]}"#]);
+        assert_eq!(v["params"]["spec"]["members"][0]["name"], "A");
+        assert!(run(&["team", "create"]).unwrap_err().contains("--template"));
+        assert!(run(&["team", "create", "--spec", "[1]"]).unwrap_err().contains("JSON object"));
+        assert!(run(&["team", "create", "--template", "x", "stray"]).unwrap_err().contains("stray"));
+    }
+
+    #[test]
+    fn ask_check_is_sent_and_refused_with_raw() {
+        let v = request(&["ask", "Dev", "do it", "--check", "python3 -m unittest"]);
+        assert_eq!((v["mode"].as_str(), v["check"].as_str()), (Some("ask"), Some("python3 -m unittest")));
+        let v = request(&["ask", "--batch", r#"{"A": "x"}"#, "--check", "make test", "--no-wait"]);
+        assert_eq!((v["mode"].as_str(), v["check"].as_str()), (Some("batch"), Some("make test")));
+        assert!(request(&["ask", "Dev", "do it"]).get("check").is_none());
+        assert!(run(&["ask", "Dev", "--raw", "1", "--check", "true"]).unwrap_err().contains("--check"));
+    }
+
+    #[test]
+    fn ask_no_wait_wait_and_asks() {
+        let v = request(&["ask", "Dev", "do", "it", "--no-wait", "--timeout", "60"]);
+        assert_eq!((v["mode"].as_str(), v["no_wait"].as_bool(), v["timeout_secs"].as_i64()), (Some("ask"), Some(true), Some(60)));
+        let v = request(&["ask", "--batch", r#"{"A": "x"}"#, "--no-wait"]);
+        assert_eq!((v["mode"].as_str(), v["no_wait"].as_bool()), (Some("batch"), Some(true)));
+        assert!(run(&["ask", "Dev", "--raw", "1", "--no-wait"]).unwrap_err().contains("--no-wait"));
+
+        let v = request(&["wait"]);
+        assert_eq!((v["mode"].as_str(), v["ids"].as_array().map(Vec::len), v.get("all")), (Some("wait"), Some(0), None));
+        let v = request(&["wait", "ask-a1", "ask-b2", "--all", "--timeout", "30"]);
+        assert_eq!(v["ids"], json!(["ask-a1", "ask-b2"]));
+        assert_eq!((v["all"].as_bool(), v["timeout_secs"].as_i64()), (Some(true), Some(30)));
+        assert!(run(&["wait", "--all", "--any"]).is_err());
+        assert!(run(&["wait", "--bogus"]).unwrap_err().contains("--bogus"));
+
+        assert_eq!(request(&["asks"])["mode"], "asks");
+        assert_eq!(request(&["asks", "--all"])["all"], true);
+        assert!(run(&["asks", "x"]).is_err());
+    }
+
+    #[test]
     fn builds_requests_with_identity() {
         let v = request(&["ask", "Dev", "do", "it\\n"]);
         assert_eq!(v["mode"], "ask");
@@ -726,8 +874,8 @@ mod tests {
 
     #[test]
     fn every_command_has_help() {
-        for t in ["ask", "check", "note", "list", "connect", "say", "recall", "portal", "recruit", "dismiss", "role",
-                  "preset", "notify", "workspace", "floor", "routine", "debug"] {
+        for t in ["ask", "wait", "asks", "check", "note", "list", "connect", "say", "recall", "portal", "recruit", "dismiss", "role",
+                  "preset", "notify", "workspace", "floor", "routine", "team", "debug"] {
             assert!(help::topic(t).is_some(), "{}", t);
         }
     }

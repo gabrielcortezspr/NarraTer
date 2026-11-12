@@ -1,0 +1,529 @@
+diff --git a/docs/RECLAMACOES.md b/docs/RECLAMACOES.md
+index b9bb05a..60da181 100644
+--- a/docs/RECLAMACOES.md
++++ b/docs/RECLAMACOES.md
+@@ -1,4 +1,4 @@
+-# Reclamações de clientes (abertas)
++# Reclamações de clientes (resolvidas)
+ 
+ 1. **Acme Ltda, pedido P-2087.** "Meu pedido teve subtotal de R$ 1.200,00 e recebi um desconto
+    diferente do que está nas regras que vocês me mandaram." Ninguém conferiu ainda.
+@@ -6,3 +6,13 @@
+ 2. **Bruna Reis, pedido P-2104.** "No relatório de março meu pedido aparece duas vezes, cada
+    metade com um frete de R$ 25,00. Fiz um pedido só." O arquivo de março é exportado por um
+    sistema novo que não ordena as linhas.
++
++## Resolução
++
++1. **P-2087 (Acme):** causa raiz em `pedidos/preco.py`, `desconto_progressivo`: a alíquota de 8% era
++   aplicada sobre todo o excedente de 500 (subtotal 1200 → 56,00), e não por faixas. Corrigido conforme
++   REGRAS.md §2 (1200 → 41,00). Teste: `tests/test_preco.py::test_desconto_por_faixas_como_imposto_de_renda`.
++2. **P-2104 (Bruna):** causa raiz em `pedidos/importa.py`, `ler_pedidos`: usava `itertools.groupby`, que
++   só agrupa linhas consecutivas; o pedido intercalado virava dois pedidos, cada um com frete de 25,00.
++   Agrupamento passou a ser por `id` (REGRAS.md §1). Testes: `tests/test_importa.py::test_agrupa_linhas_intercaladas`
++   e `tests/test_relatorio.py::test_pedido_com_linhas_separadas_conta_uma_vez`.
+diff --git a/pedidos/__pycache__/__init__.cpython-313.pyc b/pedidos/__pycache__/__init__.cpython-313.pyc
+new file mode 100644
+index 0000000..f230abf
+Binary files /dev/null and b/pedidos/__pycache__/__init__.cpython-313.pyc differ
+diff --git a/pedidos/__pycache__/cambio.cpython-313.pyc b/pedidos/__pycache__/cambio.cpython-313.pyc
+new file mode 100644
+index 0000000..bdc2199
+Binary files /dev/null and b/pedidos/__pycache__/cambio.cpython-313.pyc differ
+diff --git a/pedidos/__pycache__/importa.cpython-313.pyc b/pedidos/__pycache__/importa.cpython-313.pyc
+new file mode 100644
+index 0000000..8c134e6
+Binary files /dev/null and b/pedidos/__pycache__/importa.cpython-313.pyc differ
+diff --git a/pedidos/__pycache__/modelo.cpython-313.pyc b/pedidos/__pycache__/modelo.cpython-313.pyc
+new file mode 100644
+index 0000000..0eb9f40
+Binary files /dev/null and b/pedidos/__pycache__/modelo.cpython-313.pyc differ
+diff --git a/pedidos/__pycache__/preco.cpython-313.pyc b/pedidos/__pycache__/preco.cpython-313.pyc
+new file mode 100644
+index 0000000..baf66ea
+Binary files /dev/null and b/pedidos/__pycache__/preco.cpython-313.pyc differ
+diff --git a/pedidos/__pycache__/relatorio.cpython-313.pyc b/pedidos/__pycache__/relatorio.cpython-313.pyc
+new file mode 100644
+index 0000000..3a22dc0
+Binary files /dev/null and b/pedidos/__pycache__/relatorio.cpython-313.pyc differ
+diff --git a/pedidos/cambio.py b/pedidos/cambio.py
+new file mode 100644
+index 0000000..d0f9d8d
+--- /dev/null
++++ b/pedidos/cambio.py
+@@ -0,0 +1,45 @@
++"""Tabela de câmbio (docs/PEDIDO-MULTIMOEDA.md): taxa = reais por 1 unidade da moeda."""
++
++import csv
++from bisect import bisect_right
++from datetime import date, datetime
++from decimal import Decimal, InvalidOperation
++
++
++class ErroCambio(ValueError):
++    pass
++
++
++class TabelaCambio:
++    def __init__(self, taxas: dict[str, dict[date, Decimal]] | None = None):
++        self._taxas = {m: sorted(d.items()) for m, d in (taxas or {}).items()}
++
++    @classmethod
++    def carregar(cls, caminho) -> "TabelaCambio":
++        taxas: dict[str, dict[date, Decimal]] = {}
++        with open(caminho, newline="", encoding="utf-8") as f:
++            leitor = csv.DictReader(f)
++            faltando = [c for c in ("data", "moeda", "taxa") if c not in (leitor.fieldnames or [])]
++            if faltando:
++                raise ErroCambio(f"câmbio: colunas ausentes: {', '.join(faltando)}")
++            for n, l in enumerate(leitor, start=2):
++                try:
++                    d = datetime.strptime((l["data"] or "").strip(), "%d/%m/%Y").date()
++                    t = Decimal((l["taxa"] or "").strip().replace(",", "."))
++                except (ValueError, InvalidOperation):
++                    raise ErroCambio(f"câmbio linha {n}: data ou taxa inválida") from None
++                if not t.is_finite() or t <= 0:
++                    raise ErroCambio(f"câmbio linha {n}: taxa deve ser positiva")
++                # data repetida para a mesma moeda: vale a última linha do arquivo
++                taxas.setdefault((l["moeda"] or "").strip().upper(), {})[d] = t
++        return cls(taxas)
++
++    def taxa(self, moeda: str, data: date) -> Decimal:
++        moeda = moeda.upper()
++        if moeda == "BRL":
++            return Decimal(1)
++        serie = self._taxas.get(moeda, [])
++        i = bisect_right([d for d, _ in serie], data)
++        if i == 0:
++            raise ErroCambio(f"sem taxa de câmbio para {moeda} até {data:%d/%m/%Y}")
++        return serie[i - 1][1]
+diff --git a/pedidos/importa.py b/pedidos/importa.py
+index fbbdfcd..8c8e980 100644
+--- a/pedidos/importa.py
++++ b/pedidos/importa.py
+@@ -3,17 +3,24 @@
+ import csv
+ from datetime import date, datetime
+ from decimal import Decimal, InvalidOperation
+-from itertools import groupby
+ 
+ from .modelo import Item, Pedido
+ 
+ COLUNAS = ("id", "cliente", "data", "sku", "qtd", "preco_unit", "categoria")
++MOEDAS = ("BRL", "USD", "EUR")
+ 
+ 
+ class ErroImportacao(ValueError):
+     pass
+ 
+ 
++def _moeda(texto: str, linha: int) -> str:
++    m = texto.strip().upper() or "BRL"
++    if m not in MOEDAS:
++        raise ErroImportacao(f"linha {linha}: moeda inválida '{texto}'")
++    return m
++
++
+ def _data(texto: str, linha: int) -> date:
+     try:
+         return datetime.strptime(texto.strip(), "%d/%m/%Y").date()
+@@ -59,16 +66,24 @@ def ler_linhas(caminho) -> list[dict]:
+ 
+ 
+ def ler_pedidos(caminho) -> list[Pedido]:
+-    """Agrupa as linhas do CSV em pedidos, na ordem em que cada pedido aparece."""
++    """Agrupa as linhas do CSV em pedidos (REGRAS.md, seção 1): linhas com o mesmo id formam
++    um pedido, mesmo que estejam separadas; os pedidos saem na ordem da primeira linha."""
++    grupos: dict[str, list[dict]] = {}
++    for linha in ler_linhas(caminho):
++        grupos.setdefault(linha["id"].strip(), []).append(linha)
++
+     pedidos = []
+-    for pid, grupo in groupby(ler_linhas(caminho), key=lambda l: l["id"].strip()):
+-        grupo = list(grupo)
++    for pid, grupo in grupos.items():
+         primeira = grupo[0]
+         pedido = Pedido(
+             id=pid,
+             cliente=primeira["cliente"].strip(),
+             data=_data(primeira["data"], primeira["_linha"]),
+         )
++        moedas = {_moeda(l.get("moeda", ""), l["_linha"]) for l in grupo}
++        if len(moedas) > 1:
++            raise ErroImportacao(f"pedido {pid}: linhas com moedas diferentes ({', '.join(sorted(moedas))})")
++        pedido.moeda = moedas.pop()
+         for l in grupo:
+             n = l["_linha"]
+             pedido.itens.append(
+diff --git a/pedidos/modelo.py b/pedidos/modelo.py
+index 229c538..25b3204 100644
+--- a/pedidos/modelo.py
++++ b/pedidos/modelo.py
+@@ -21,3 +21,7 @@ class Pedido:
+     cliente: str
+     data: date
+     itens: list[Item] = field(default_factory=list)
++    moeda: str = "BRL"
++
++    def __post_init__(self):
++        self.moeda = self.moeda.strip().upper()
+diff --git a/pedidos/preco.py b/pedidos/preco.py
+index acb7f2f..dd3f437 100644
+--- a/pedidos/preco.py
++++ b/pedidos/preco.py
+@@ -3,6 +3,7 @@
+ from dataclasses import dataclass
+ from decimal import ROUND_HALF_EVEN, Decimal
+ 
++from .cambio import ErroCambio
+ from .modelo import Pedido
+ 
+ CENTAVO = Decimal("0.01")
+@@ -26,16 +27,25 @@ class Resumo:
+ 
+ 
+ def desconto_progressivo(subtotal: Decimal) -> Decimal:
+-    """Faixas da seção 2: 0% até 500, 5% de 500 a 1000, 8% acima de 1000."""
+-    if subtotal <= 500:
+-        return Decimal(0)
+-    if subtotal <= 1000:
+-        return (subtotal - 500) * Decimal("0.05")
+-    return (subtotal - 500) * Decimal("0.08")
+-
+-
+-def calcular(pedido: Pedido) -> Resumo:
+-    linhas = [(item, centavos(item.total)) for item in pedido.itens]
++    """Faixas da seção 2, como imposto de renda: 0% até 500, 5% sobre a parte de 500 a 1000,
++    8% sobre a parte acima de 1000."""
++    desconto = Decimal(0)
++    if subtotal > 500:
++        desconto += (min(subtotal, Decimal("1000")) - 500) * Decimal("0.05")
++    if subtotal > 1000:
++        desconto += (subtotal - 1000) * Decimal("0.08")
++    return desconto
++
++
++def calcular(pedido: Pedido, tabela=None) -> Resumo:
++    """Resumo em reais; pedidos em moeda estrangeira exigem a `tabela` de câmbio."""
++    if pedido.moeda == "BRL":
++        taxa = Decimal(1)
++    elif tabela is None:
++        raise ErroCambio(f"pedido {pedido.id}: sem tabela de câmbio para {pedido.moeda}")
++    else:
++        taxa = tabela.taxa(pedido.moeda, pedido.data)
++    linhas = [(item, centavos(item.total * taxa)) for item in pedido.itens]
+     subtotal = sum((v for _, v in linhas), Decimal(0))
+     desconto = centavos(desconto_progressivo(subtotal))
+     base = subtotal - desconto
+diff --git a/pedidos/relatorio.py b/pedidos/relatorio.py
+index eb514c1..9f52b69 100644
+--- a/pedidos/relatorio.py
++++ b/pedidos/relatorio.py
+@@ -3,9 +3,11 @@
+ import argparse
+ import json
+ import sys
++from decimal import Decimal
+ 
++from .cambio import ErroCambio, TabelaCambio
+ from .importa import ErroImportacao, ler_pedidos
+-from .preco import calcular
++from .preco import calcular, centavos
+ 
+ 
+ def _filtra(pedidos, cliente):
+@@ -20,6 +22,8 @@ def _linha_json(pedido, resumo) -> dict:
+         "id": pedido.id,
+         "cliente": pedido.cliente,
+         "data": pedido.data.isoformat(),
++        "moeda": pedido.moeda,
++        "subtotal_original": str(centavos(sum((i.total for i in pedido.itens), Decimal(0)))),
+         "itens": len(pedido.itens),
+         "subtotal": str(resumo.subtotal),
+         "desconto": str(resumo.desconto),
+@@ -34,24 +38,26 @@ def main(argv=None) -> int:
+     parser.add_argument("arquivo")
+     parser.add_argument("--cliente")
+     parser.add_argument("--json", action="store_true")
++    parser.add_argument("--cambio")
+     args = parser.parse_args(argv)
+ 
+     try:
+         pedidos = _filtra(ler_pedidos(args.arquivo), args.cliente)
+-    except (ErroImportacao, OSError) as e:
++        tabela = TabelaCambio.carregar(args.cambio) if args.cambio else None
++        resumos = [(p, calcular(p, tabela)) for p in pedidos]
++    except (ErroImportacao, ErroCambio, OSError) as e:
+         print(f"erro: {e}", file=sys.stderr)
+         return 2
+ 
+-    resumos = [(p, calcular(p)) for p in pedidos]
+     if args.json:
+         print(json.dumps([_linha_json(p, r) for p, r in resumos], ensure_ascii=False, indent=2))
+         return 0
+ 
+-    print(f"{'pedido':<10} {'cliente':<16} {'data':<10} {'subtotal':>10} {'desconto':>9} {'imposto':>9} {'frete':>7} {'total':>10}")
++    print(f"{'pedido':<10} {'cliente':<16} {'data':<10} {'moeda':<5} {'subtotal':>10} {'desconto':>9} {'imposto':>9} {'frete':>7} {'total':>10}")
+     geral = 0
+     for p, r in resumos:
+         print(
+-            f"{p.id:<10} {p.cliente[:16]:<16} {p.data:%d/%m/%Y} {r.subtotal:>10} {r.desconto:>9} "
++            f"{p.id:<10} {p.cliente[:16]:<16} {p.data:%d/%m/%Y} {p.moeda:<5} {r.subtotal:>10} {r.desconto:>9} "
+             f"{r.imposto:>9} {r.frete:>7} {r.total:>10}"
+         )
+         geral += r.total
+diff --git a/tests/__pycache__/__init__.cpython-313.pyc b/tests/__pycache__/__init__.cpython-313.pyc
+new file mode 100644
+index 0000000..f71f2a3
+Binary files /dev/null and b/tests/__pycache__/__init__.cpython-313.pyc differ
+diff --git a/tests/__pycache__/test_cambio.cpython-313.pyc b/tests/__pycache__/test_cambio.cpython-313.pyc
+new file mode 100644
+index 0000000..f0c4d5f
+Binary files /dev/null and b/tests/__pycache__/test_cambio.cpython-313.pyc differ
+diff --git a/tests/__pycache__/test_importa.cpython-313.pyc b/tests/__pycache__/test_importa.cpython-313.pyc
+new file mode 100644
+index 0000000..a575425
+Binary files /dev/null and b/tests/__pycache__/test_importa.cpython-313.pyc differ
+diff --git a/tests/__pycache__/test_preco.cpython-313.pyc b/tests/__pycache__/test_preco.cpython-313.pyc
+new file mode 100644
+index 0000000..93f4834
+Binary files /dev/null and b/tests/__pycache__/test_preco.cpython-313.pyc differ
+diff --git a/tests/__pycache__/test_relatorio.cpython-313.pyc b/tests/__pycache__/test_relatorio.cpython-313.pyc
+new file mode 100644
+index 0000000..dc1717e
+Binary files /dev/null and b/tests/__pycache__/test_relatorio.cpython-313.pyc differ
+diff --git a/tests/__pycache__/util.cpython-313.pyc b/tests/__pycache__/util.cpython-313.pyc
+new file mode 100644
+index 0000000..2191bb7
+Binary files /dev/null and b/tests/__pycache__/util.cpython-313.pyc differ
+diff --git a/tests/test_cambio.py b/tests/test_cambio.py
+new file mode 100644
+index 0000000..969330c
+--- /dev/null
++++ b/tests/test_cambio.py
+@@ -0,0 +1,159 @@
++import unittest
++from datetime import date
++from decimal import Decimal
++
++from pedidos.cambio import ErroCambio, TabelaCambio
++from pedidos.importa import ErroImportacao, ler_pedidos
++from pedidos.modelo import Item, Pedido
++from pedidos.preco import calcular
++
++from .test_relatorio import rodar
++from .util import csv_temp
++
++CAB = "id,cliente,data,sku,qtd,preco_unit,categoria,moeda\n"
++CAMBIO = csv_temp('02/03/2026,USD,"5,0125"\n05/03/2026,USD,"5,0870"\n09/03/2026,EUR,"5,5005"\n',
++                  cabecalho="data,moeda,taxa\n")
++
++
++class TestImportaMoeda(unittest.TestCase):
++    def test_padrao_brl_sem_coluna(self):
++        p = ler_pedidos(csv_temp('P,A,01/03/2026,x,1,"1,00",l\n'))[0]
++        self.assertEqual(p.moeda, "BRL")
++
++    def test_vazia_e_minuscula(self):
++        ps = ler_pedidos(csv_temp('P,A,01/03/2026,x,1,"1,00",l,\nQ,A,01/03/2026,x,1,"1,00",l,usd\n', CAB))
++        self.assertEqual([p.moeda for p in ps], ["BRL", "USD"])
++
++    def test_invalida_com_linha(self):
++        with self.assertRaisesRegex(ErroImportacao, "linha 3"):
++            ler_pedidos(csv_temp('P,A,01/03/2026,x,1,"1,00",l,USD\nQ,A,01/03/2026,x,1,"1,00",l,GBP\n', CAB))
++
++    def test_moedas_misturadas(self):
++        with self.assertRaisesRegex(ErroImportacao, "P-9"):
++            ler_pedidos(csv_temp('P-9,A,01/03/2026,x,1,"1,00",l,USD\nP-9,A,01/03/2026,x,1,"1,00",l,EUR\n', CAB))
++
++
++class TestTabela(unittest.TestCase):
++    def setUp(self):
++        self.t = TabelaCambio.carregar(CAMBIO)
++
++    def test_exata_e_anterior(self):
++        self.assertEqual(self.t.taxa("USD", date(2026, 3, 5)), Decimal("5.0870"))
++        self.assertEqual(self.t.taxa("USD", date(2026, 3, 4)), Decimal("5.0125"))
++        self.assertEqual(self.t.taxa("usd", date(2026, 4, 1)), Decimal("5.0870"))
++
++    def test_brl(self):
++        self.assertEqual(self.t.taxa("BRL", date(2000, 1, 1)), 1)
++
++    def test_sem_taxa(self):
++        with self.assertRaisesRegex(ErroCambio, "USD"):
++            self.t.taxa("USD", date(2026, 3, 1))
++        with self.assertRaisesRegex(ErroCambio, "EUR"):
++            self.t.taxa("EUR", date(2026, 3, 8))
++
++
++class TestCalculo(unittest.TestCase):
++    def pedido(self, moeda):
++        return Pedido("P", "A", date(2026, 3, 6), [Item("x", 3, Decimal("33.33"), "papelaria")], moeda)
++
++    def test_conversao(self):
++        r = calcular(self.pedido("USD"), TabelaCambio.carregar(CAMBIO))
++        self.assertEqual(r.subtotal, Decimal("508.65"))  # 3*33.33*5.0870
++        self.assertEqual(r.desconto, Decimal("0.43"))  # 5% de 8,65
++
++    def test_sem_tabela(self):
++        with self.assertRaises(ErroCambio):
++            calcular(self.pedido("USD"))
++        self.assertEqual(calcular(self.pedido("BRL")).subtotal, Decimal("99.99"))
++
++
++class TestRelatorioMoeda(unittest.TestCase):
++    def setUp(self):
++        self.csv = csv_temp('P,A,06/03/2026,x,3,"33,33",papelaria,usd\n', CAB)
++
++    def test_json(self):
++        import json
++        c, out, _ = rodar(self.csv, "--cambio", CAMBIO, "--json")
++        d = json.loads(out)[0]
++        self.assertEqual((c, d["moeda"], d["subtotal_original"], d["subtotal"]), (0, "USD", "99.99", "508.65"))
++
++    def test_texto_tem_moeda(self):
++        c, out, _ = rodar(self.csv, "--cambio", CAMBIO)
++        self.assertEqual(c, 0)
++        self.assertIn("USD", out)
++
++    def test_sem_cambio(self):
++        c, _, err = rodar(self.csv)
++        self.assertEqual((c, err.startswith("erro:")), (2, True))
++
++    def test_taxa_inexistente(self):
++        c, _, err = rodar(csv_temp('P,A,01/03/2026,x,1,"1,00",l,USD\n', CAB), "--cambio", CAMBIO)
++        self.assertEqual((c, err.startswith("erro:")), (2, True))
++
++    def test_cambio_ausente(self):
++        self.assertEqual(rodar(self.csv, "--cambio", "/nao/existe.csv")[0], 2)
++
++
++class TestRegrasSobreValorConvertido(unittest.TestCase):
++    """Taxa USD em 06/03/2026 = 5,0870; limites de REGRAS.md valem em reais convertidos."""
++
++    def calc(self, preco):
++        p = Pedido("P", "A", date(2026, 3, 6), [Item("x", 1, Decimal(preco), "papelaria")], "USD")
++        return calcular(p, TabelaCambio.carregar(CAMBIO))
++
++    def test_frete_abaixo_de_300(self):
++        r = self.calc("58.97")  # 299,97 BRL
++        self.assertEqual((r.subtotal, r.frete), (Decimal("299.98"), Decimal("25.00")))
++
++    def test_frete_gratis_acima_de_300(self):
++        r = self.calc("58.98")  # 300,03 BRL, embora 58,98 < 300 na moeda original
++        self.assertEqual((r.subtotal, r.frete), (Decimal("300.03"), Decimal("0.00")))
++
++    def test_sem_desconto_abaixo_de_500(self):
++        r = self.calc("98.28")  # 499,95 BRL
++        self.assertEqual((r.subtotal, r.desconto), (Decimal("499.95"), Decimal("0.00")))
++
++    def test_desconto_acima_de_500(self):
++        r = self.calc("98.40")  # 500,56 BRL; 5% de 0,56 = 0,03
++        self.assertEqual((r.subtotal, r.desconto), (Decimal("500.56"), Decimal("0.03")))
++
++
++class TestErrosCarregar(unittest.TestCase):
++    def carregar(self, conteudo, cab="data,moeda,taxa\n"):
++        return TabelaCambio.carregar(csv_temp(conteudo, cabecalho=cab))
++
++    def test_coluna_ausente(self):
++        with self.assertRaisesRegex(ErroCambio, "taxa"):
++            self.carregar('02/03/2026,USD\n', cab="data,moeda\n")
++
++    def test_taxa_invalida(self):
++        with self.assertRaisesRegex(ErroCambio, "linha 2"):
++            self.carregar('02/03/2026,USD,"abc"\n')
++
++    def test_taxa_zero_e_negativa(self):
++        for t in ('"0,00"', '"-5,00"'):
++            with self.assertRaisesRegex(ErroCambio, "linha 2"):
++                self.carregar(f'02/03/2026,USD,{t}\n')
++
++    def test_data_repetida_vale_a_ultima(self):
++        t = self.carregar('02/03/2026,USD,"5,00"\n02/03/2026,USD,"6,00"\n')
++        self.assertEqual(t.taxa("USD", date(2026, 3, 2)), Decimal("6.00"))
++
++
++class TestIntercaladas(unittest.TestCase):
++    def test_moedas_diferentes(self):
++        c = csv_temp('P-1,A,01/03/2026,x,1,"1,00",l,USD\nP-2,B,01/03/2026,x,1,"1,00",l,BRL\n'
++                     'P-1,A,01/03/2026,y,1,"1,00",l,EUR\n', CAB)
++        with self.assertRaisesRegex(ErroImportacao, "P-1"):
++            ler_pedidos(c)
++
++    def test_mesma_moeda_um_pedido(self):
++        c = csv_temp('P-1,A,01/03/2026,x,1,"1,00",l,USD\nP-2,B,01/03/2026,x,1,"1,00",l,BRL\n'
++                     'P-1,A,01/03/2026,y,1,"1,00",l,usd\n', CAB)
++        ps = ler_pedidos(c)
++        self.assertEqual([(p.id, p.moeda, len(p.itens)) for p in ps], [("P-1", "USD", 2), ("P-2", "BRL", 1)])
++
++
++class TestModeloMoeda(unittest.TestCase):
++    def test_maiusculas_na_construcao(self):
++        self.assertEqual(Pedido("P", "A", date(2026, 3, 1), moeda="usd").moeda, "USD")
+diff --git a/tests/test_importa.py b/tests/test_importa.py
+index 9719e20..3c099ba 100644
+--- a/tests/test_importa.py
++++ b/tests/test_importa.py
+@@ -20,6 +20,18 @@ class TestImporta(unittest.TestCase):
+         self.assertEqual(pedidos[0].itens[1].preco_unit, Decimal("5.50"))
+         self.assertEqual(pedidos[0].data, date(2026, 3, 1))
+ 
++    def test_agrupa_linhas_intercaladas(self):
++        # REGRAS.md, seção 1: linhas do mesmo id podem estar separadas por linhas de outros pedidos.
++        c = csv_temp(
++            'P-1,Ana,01/03/2026,A,1,"10,00",papelaria\n'
++            'P-2,Beto,02/03/2026,C,1,"7,00",papelaria\n'
++            'P-1,Ana,01/03/2026,B,2,"5,50",livros\n'
++        )
++        pedidos = ler_pedidos(c)
++        self.assertEqual([p.id for p in pedidos], ["P-1", "P-2"])
++        self.assertEqual([i.sku for i in pedidos[0].itens], ["A", "B"])
++        self.assertEqual([i.sku for i in pedidos[1].itens], ["C"])
++
+     def test_categoria_minuscula(self):
+         p = ler_pedidos(csv_temp('P-1,Ana,01/03/2026,A,1,"10,00",LIVROS\n'))[0]
+         self.assertEqual(p.itens[0].categoria, "livros")
+diff --git a/tests/test_preco.py b/tests/test_preco.py
+index d8f6a56..6ee7066 100644
+--- a/tests/test_preco.py
++++ b/tests/test_preco.py
+@@ -18,6 +18,11 @@ class TestPreco(unittest.TestCase):
+         self.assertEqual(centavos(desconto_progressivo(D("800.00"))), D("15.00"))
+         self.assertEqual(centavos(desconto_progressivo(D("1000.00"))), D("25.00"))
+ 
++    def test_desconto_por_faixas_como_imposto_de_renda(self):
++        # REGRAS.md, seção 2: 5% de 500 a 1000 + 8% acima de 1000. Subtotal 1200 → 41,00.
++        self.assertEqual(desconto_progressivo(D("1200.00")), D("41.00"))
++        self.assertEqual(calcular(pedido(("A", 1, D("1200.00"), "eletronicos"))).desconto, D("41.00"))
++
+     def test_livros_isentos(self):
+         r = calcular(pedido(("L", 2, D("50.00"), "livros")))
+         self.assertEqual(r.imposto, D("0.00"))
+diff --git a/tests/test_relatorio.py b/tests/test_relatorio.py
+index 516e53c..514f61b 100644
+--- a/tests/test_relatorio.py
++++ b/tests/test_relatorio.py
+@@ -34,6 +34,22 @@ class TestRelatorio(unittest.TestCase):
+         _, out, _ = rodar(self.csv, "--json", "--cliente", "  acme ltda ")
+         self.assertEqual([d["id"] for d in json.loads(out)], ["P-1"])
+ 
++    def test_pedido_com_linhas_separadas_conta_uma_vez(self):
++        # Subtotal 400, sem desconto, base ≥ 300 → frete grátis. Imposto 12% × 400 = 48,00.
++        c = csv_temp(
++            'P-7,Bruna,03/03/2026,A,1,"200,00",papelaria\n'
++            'P-8,Caio,03/03/2026,B,1,"10,00",papelaria\n'
++            'P-7,Bruna,03/03/2026,C,1,"200,00",papelaria\n'
++        )
++        codigo, out, _ = rodar(c, "--json")
++        self.assertEqual(codigo, 0)
++        dados = {d["id"]: d for d in json.loads(out)}
++        self.assertEqual(list(dados), ["P-7", "P-8"])
++        self.assertEqual(dados["P-7"]["itens"], 2)
++        self.assertEqual(dados["P-7"]["subtotal"], "400.00")
++        self.assertEqual(dados["P-7"]["frete"], "0.00")
++        self.assertEqual(dados["P-7"]["total"], "448.00")
++
+     def test_texto_tem_total_geral(self):
+         _, out, _ = rodar(self.csv)
+         self.assertIn("TOTAL GERAL 262.00", out)

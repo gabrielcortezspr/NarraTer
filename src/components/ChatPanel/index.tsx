@@ -13,8 +13,9 @@ import { toast } from "@/stores/toasts";
 // agent with the chat header; it answers with `narrater say` (bubbles), which
 // lands here. Seven threads per agent, by color.
 const THREAD_COLOR: Record<ChatThread, string> = {
-  blue: "#3b82f6", purple: "#8b5cf6", pink: "#ec4899", red: "#ef4444",
-  orange: "#f97316", yellow: "#eab308", green: "#22c55e",
+  // Apple's dark system colours (docs/design.md)
+  blue: "#0a84ff", purple: "#8f7cff", pink: "#ff7eb6", red: "#ff453a",
+  orange: "#ff9f0a", yellow: "#ffd60a", green: "#30d158",
 };
 
 function timeOf(ts: number): string {
@@ -35,14 +36,14 @@ function ChatImage({ a }: { a: ChatAttachment }) {
       })
       .catch(() => setSrc(""));
   }, [a.path, src]);
-  if (!src) return <div className="w-40 h-24 rounded bg-[#1a1a1a] animate-pulse" />;
+  if (!src) return <div className="w-40 h-24 rounded bg-surface animate-pulse" />;
   return (
     <img
       src={src}
       alt={a.name}
       title={`${a.name} — click to open`}
       onClick={() => openPath(a.path).catch((e) => toast.error(String(e)))}
-      className="max-w-full max-h-64 rounded-md cursor-zoom-in border border-[#2a2a2a]"
+      className="max-w-full max-h-64 rounded-md cursor-zoom-in border border-line"
     />
   );
 }
@@ -133,29 +134,29 @@ export default function ChatPanel() {
   const working = !!last && (last.role === "user" || last.progress) && status !== "exited";
 
   return (
-    <div className="absolute top-0 right-0 h-full w-[360px] z-40 flex flex-col bg-[#141414] border-l border-[#2a2a2a] shadow-2xl">
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-[#2a2a2a] shrink-0">
+    <div className="absolute top-0 right-0 h-full w-[360px] z-40 flex flex-col bg-surface border-l border-line shadow-2xl">
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-line shrink-0">
         <MessageSquare size={13} style={{ color: THREAD_COLOR[thread] }} className="shrink-0" />
-        <span className="text-xs text-[#ccc] font-medium truncate flex-1">{label}</span>
+        <span className="text-xs text-ink font-medium truncate flex-1">{label}</span>
         {confirmClear ? (
           <button
             onClick={() => { setConfirmClear(false); chatClear(terminalId, thread).catch((e) => toast.error(String(e))); }}
-            className="text-[9px] text-[#f87171] hover:text-white px-1"
+            className="text-[9px] text-danger-text hover:text-ink px-1"
           >
             clear {thread}?
           </button>
         ) : (
-          <button onClick={() => setConfirmClear(true)} title="Clear this thread" className="text-[#444] hover:text-[#f87171] p-0.5">
+          <button onClick={() => setConfirmClear(true)} title="Clear this thread" className="text-ink-faint hover:text-danger-text p-0.5">
             <Trash2 size={11} />
           </button>
         )}
-        <button onClick={close} title="Close chat" className="text-[#555] hover:text-[#f87171] p-0.5 rounded hover:bg-[#2a2a2a]">
+        <button onClick={close} title="Close chat" className="text-ink-muted hover:text-danger-text p-0.5 rounded hover:bg-hover">
           <X size={13} />
         </button>
       </div>
 
       {/* Threads */}
-      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-[#1f1f1f] shrink-0">
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-line shrink-0">
         {CHAT_THREADS.map((t) => (
           <button
             key={t}
@@ -166,25 +167,25 @@ export default function ChatPanel() {
               background: counts[t] ? THREAD_COLOR[t] : "transparent",
               border: `2px solid ${THREAD_COLOR[t]}`,
               transform: t === thread ? "scale(1.25)" : undefined,
-              boxShadow: t === thread ? `0 0 0 2px #141414, 0 0 0 3px ${THREAD_COLOR[t]}` : undefined,
+              boxShadow: t === thread ? `0 0 0 2px var(--surface), 0 0 0 3.5px ${THREAD_COLOR[t]}` : undefined,
             }}
           />
         ))}
-        <span className="ml-auto text-[9px] text-[#444]">{thread}</span>
+        <span className="ml-auto text-[9px] text-ink-faint">{thread}</span>
       </div>
 
       {/* Messages */}
       <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-2">
         {entries.length === 0 && (
-          <div className="text-[10px] text-[#555] text-center pt-10 leading-relaxed">
-            Talk to <span className="text-[#888]">{label}</span> here.
+          <div className="text-[10px] text-ink-muted text-center pt-10 leading-relaxed">
+            Talk to <span className="text-ink-2">{label}</span> here.
             <br />
-            It answers with <code className="text-[#777]">narrater say</code>.
+            It answers with <code className="text-ink-muted">narrater say</code>.
           </div>
         )}
         {entries.map((e) =>
           e.progress ? (
-            <div key={e.id} className="text-[10px] text-[#666] italic px-1">
+            <div key={e.id} className="text-[10px] text-ink-muted italic px-1">
               {e.text} · {timeOf(e.ts)}
             </div>
           ) : (
@@ -193,32 +194,32 @@ export default function ChatPanel() {
                 className="max-w-[85%] rounded-xl px-3 py-2 text-[11px] leading-relaxed"
                 style={
                   e.role === "user"
-                    ? { background: `${THREAD_COLOR[thread]}26`, border: `1px solid ${THREAD_COLOR[thread]}40`, color: "#e5e7eb" }
-                    : { background: "#1d1d1d", border: "1px solid #2a2a2a", color: "#d4d4d4" }
+                    ? { background: `color-mix(in srgb, ${THREAD_COLOR[thread]} 16%, var(--surface-2))`, border: `1px solid color-mix(in srgb, ${THREAD_COLOR[thread]} 28%, transparent)`, color: "var(--text)" }
+                    : { background: "var(--surface-2)", border: "1px solid var(--line)", color: "var(--text)" }
                 }
               >
                 {e.text && <div className="whitespace-pre-wrap break-words select-text">{e.text}</div>}
                 <Attachments items={e.attachments} />
-                <div className="text-[8px] text-[#555] mt-1 text-right">{timeOf(e.ts)}</div>
+                <div className="text-[8px] text-ink-muted mt-1 text-right">{timeOf(e.ts)}</div>
               </div>
             </div>
           )
         )}
         {working && (
-          <div className="flex items-center gap-1.5 text-[10px] text-[#555] px-1">
+          <div className="flex items-center gap-1.5 text-[10px] text-ink-muted px-1">
             <Loader2 size={10} className="animate-spin" /> {status === "attention" ? "waiting for input in its terminal" : "working…"}
           </div>
         )}
       </div>
 
       {/* Composer */}
-      <div className="border-t border-[#2a2a2a] p-2 shrink-0">
+      <div className="border-t border-line p-2 shrink-0">
         {files.length > 0 && (
           <div className="flex flex-wrap gap-1 mb-1.5">
             {files.map((f) => (
-              <span key={f} className="flex items-center gap-1 text-[9px] text-[#aaa] bg-[#1d1d1d] rounded px-1.5 py-0.5">
+              <span key={f} className="flex items-center gap-1 text-[9px] text-ink-2 bg-surface-2 rounded px-1.5 py-0.5">
                 {f.split("/").pop()}
-                <button onClick={() => setFiles(files.filter((x) => x !== f))} className="text-[#555] hover:text-[#f87171]">
+                <button onClick={() => setFiles(files.filter((x) => x !== f))} className="text-ink-muted hover:text-danger-text">
                   <X size={9} />
                 </button>
               </span>
@@ -229,7 +230,7 @@ export default function ChatPanel() {
           <button
             onClick={() => pickFile().then((p) => p && setFiles((fs) => [...fs, p])).catch(console.error)}
             title="Attach a file"
-            className="p-1.5 text-[#555] hover:text-white shrink-0"
+            className="p-1.5 text-ink-muted hover:text-ink shrink-0"
           >
             <Paperclip size={13} />
           </button>
@@ -243,8 +244,8 @@ export default function ChatPanel() {
             }}
             rows={Math.min(6, Math.max(1, text.split("\n").length))}
             placeholder={`Message ${label} (${thread})…`}
-            className="flex-1 resize-none bg-[#111] border border-[#2a2a2a] rounded-lg px-2.5 py-1.5 text-[11px] text-white placeholder-[#444] focus:outline-none"
-            style={{ borderColor: text ? `${THREAD_COLOR[thread]}80` : undefined }}
+            className="flex-1 resize-none bg-term border border-line rounded-lg px-2.5 py-1.5 text-[11px] text-white placeholder-ink-faint focus:outline-none"
+            style={{ borderColor: text ? `color-mix(in srgb, ${THREAD_COLOR[thread]} 50%, transparent)` : undefined }}
           />
           <button
             onClick={send}

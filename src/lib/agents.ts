@@ -5,6 +5,9 @@ import { Terminal, Bot, Code2, Wrench, Sparkles, Braces, type LucideIcon } from 
 // launch the program and how to show it.
 export type AgentType = "shell" | "claude" | "codex" | "gemini" | "opencode" | "custom";
 
+// Identity colours (docs/design.md, "Identidade dos agentes"): shown only on
+// the agent icon and the tile's top thread, never as state. Hues stay clear
+// of the state colours where the vendor's brand allows.
 export interface AgentPreset {
   label: string;
   description: string;
@@ -14,50 +17,56 @@ export interface AgentPreset {
   command?: string;
   /** Flag that bypasses the agent's permission prompts, when it has one. */
   skipPermissionsArgs?: string[];
+  /** Flag that picks the model (`--model sonnet`), when the CLI has one. */
+  modelFlag?: string;
 }
 
 export const AGENT_PRESETS: Record<AgentType, AgentPreset> = {
   shell: {
     label: "Shell",
     description: "bash / zsh / fish — default terminal",
-    color: "#6b7280",
+    color: "#8e8e93",
     Icon: Terminal,
   },
   claude: {
     label: "Claude Code",
     description: "Anthropic's coding agent",
-    color: "#8b5cf6",
+    color: "#d97757",
     Icon: Bot,
     command: "claude",
     skipPermissionsArgs: ["--dangerously-skip-permissions"],
+    modelFlag: "--model",
   },
   codex: {
     label: "Codex",
     description: "OpenAI's coding agent",
-    color: "#3b82f6",
+    color: "#d1d1d6",
     Icon: Code2,
     command: "codex",
     skipPermissionsArgs: ["--dangerously-bypass-approvals-and-sandbox"],
+    modelFlag: "--model",
   },
   gemini: {
     label: "Gemini CLI",
     description: "Google's coding agent",
-    color: "#f59e0b",
+    color: "#5b9dff",
     Icon: Sparkles,
     command: "gemini",
     skipPermissionsArgs: ["--yolo"],
+    modelFlag: "--model",
   },
   opencode: {
     label: "OpenCode",
     description: "Open-source coding agent",
-    color: "#10b981",
+    color: "#63e6be",
     Icon: Braces,
     command: "opencode",
+    modelFlag: "--model",
   },
   custom: {
     label: "Custom",
     description: "Any command (aider, qwen, agy…)",
-    color: "#14b8a6",
+    color: "#ff7eb6",
     Icon: Wrench,
   },
 };
@@ -84,6 +93,7 @@ export function getSpawnSpec(
   customCommand?: string,
   skipPermissions?: boolean,
   orchestrator?: boolean,
+  model?: string,
 ): SpawnSpec {
   if (agentType === "shell") return { command: "/bin/bash" };
   if (agentType === "custom") return { command: customCommand?.trim() || "/bin/bash" };
@@ -98,5 +108,7 @@ export function getSpawnSpec(
     if (orchestrator) args.push("--disallowedTools", "Edit", "Write", "NotebookEdit");
   }
   if (skipPermissions && preset.skipPermissionsArgs) args.push(...preset.skipPermissionsArgs);
+  // The model is launch configuration, like the permission flag — not protocol (D01)
+  if (model?.trim() && preset.modelFlag) args.push(preset.modelFlag, model.trim());
   return { command: preset.command ?? agentType, args };
 }
