@@ -19,6 +19,7 @@ Gemini CLI, OpenCode…) knows how to use it. The command set mirrors Maestri's
 | `narrater ask "Agent" "prompt" [--timeout S]` | Types the prompt into the agent's terminal when it's idle; blocks until its turn is over and prints its screen |
 | `narrater ask --batch '{"A": "…", "B": "…"}'` | Several asks in parallel; JSON array of `{name, output}` / `{name, error}` |
 | `narrater ask "Agent" "prompt" --no-wait` | Same delivery, but returns an ask id at once (also `--batch … --no-wait` → `[{name, id}]`) |
+| `narrater ask "Agent" "prompt" --check "CMD"` | Acceptance check: after the turn, NarraTer runs `CMD` (`sh -c`) in the agent's project; exit 0 adds "Acceptance check passed", anything else ends the ask as `failed` with the command's output |
 | `narrater wait [ids…] [--all] [--timeout S]` | The first of the caller's asks to finish, as `[id] Agent · state` + its answer; without ids, the uncollected `--no-wait` asks one by one; `--all` → JSON array once every id finished |
 | `narrater asks [--all]` | The caller's asks, newest first: id, agent, state, age, prompt |
 | `narrater ask "Agent" --raw "2\n"` | Types raw keys (`\n` Enter, `\t`, `\e` ESC, `\xNN`) and prints the resulting screen |
@@ -31,8 +32,10 @@ Gemini CLI, OpenCode…) knows how to use it. The command set mirrors Maestri's
 | `narrater connect "From" "To"` | Wire two things you can reach |
 | `narrater portal create URL ["Name"] [--size WxH]` | Browser portal next to you, connected to you |
 | `narrater portal <verb> "Portal" …` | snapshot, click, fill, type, key, navigate, screenshot, evaluate, logs, resize, ua… (`narrater help portal`) |
-| `narrater recruit "Name" [--preset P] [--role R] [--command C] [--dir D]` | Maestro: spawn a teammate next to you, connected to you |
-| `narrater recruit ["New"] --preset P --replace "Old"` | Maestro: swap the agent of a teammate in place (node, connections, position kept) |
+| `narrater recruit "Name" [--preset P] [--model M] [--role R] [--command C] [--dir D]` | Maestro: spawn a teammate next to you, connected to you; `--model` goes to the agent's own `--model` flag |
+| `narrater recruit ["New"] --preset P [--model M] --replace "Old"` | Maestro: swap the agent of a teammate in place (node, connections, position kept) |
+| `narrater team templates` | The team shapes the generator knows (solo, dev-reviewer, dev-qa, readers, parallel-devs), with when each pays off and its cost |
+| `narrater team create --template T --task "…" --reason "…" [--check C] [--model M] [--count N] [--isolate]` | Maestro, or any agent with Automatic teams on: build a whole team (terminals, wiring, task and why notes); `--spec JSON` for a custom shape |
 | `narrater dismiss "Name"` | Maestro: stop and remove a connected teammate |
 | `narrater preset list` | Maestro: agent presets for `--preset` |
 | `narrater role list \| show \| create \| write \| edit \| assign \| delete` | Maestro: manage role presets; `assign` restarts the teammate with the role |
@@ -54,6 +57,25 @@ New Terminal dialog). It mirrors Maestri: the user decides which agent may
 spawn others. A Maestro's `narrater list` also shows each teammate's own
 connections. The `narrater-manager` skill teaches the workflow (reuse before
 recruiting, codenames, roles, `--batch` delegation).
+
+### Generated teams
+
+`narrater team create` builds a whole team in one request, handled by the
+frontend (`src/lib/teamCommands.ts`): terminals with agent, model and role, the
+wiring (a star around the caller unless the template or the spec says
+otherwise), a `<team> · task` note wired to everyone (the task and its
+acceptance check) and a `<team> · why` note wired to the caller (template,
+reason, expected cost, who decided). The shapes are data
+(`src/lib/teamTemplates.ts`); `solo` creates no terminal and only records the
+decision. Except for `solo`, `--reason` is required: the decision rule is
+D22 (one agent by default).
+
+Who may: a Maestro terminal, or any agent when the user turns on **Automatic
+teams** (the team button in the toolbar; `auto_teams` in
+`~/.config/narrater/preferences.json`, off by default). Members of a generated
+team carry its name (`team` in the scene) and can't generate teams. With
+`--isolate`, each writer gets its own floor (a git worktree). Taking a team
+down is not automated yet: `dismiss` its members.
 
 A swap (`--replace`, `role assign`) respawns the process under the **same
 node id**: the backend kills the old process, drops asks waiting on it, and

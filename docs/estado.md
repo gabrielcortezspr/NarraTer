@@ -5,35 +5,35 @@ Máximo de ~30 linhas: se passar disso, algo aqui deveria estar num commit ou nu
 
 ## Última sessão
 
-2026-10-15, Gabriel com Claude Code, branch `ccr-03e0166a-1f50u2`. Benchmark de orquestração (D19) e,
-a partir dele, o `ask` lendo o transcript do Claude (D20): versões E, F e G medidas.
+2026-10-16, Gabriel com Claude Code, branch `ccr-03e0166a-1f50u2`. Pesquisa de orquestração, equipe contra
+agente sozinho medida, correção das falhas do método e gerador de equipes.
 
 ## Onde parou
 
-- O `ask` devolve a resposta final inteira do transcript do Claude e não dá o turno por encerrado
-  antes de ele terminar de fato (`src-tauri/src/transcript.rs`, D20).
-- Na versão G (`c6ba63e`), as falhas do protocolo foram a zero (0 de 24 asks antes da hora, 0 respostas
-  cortadas), com custo de US$ 0,74 contra 1,02 da D.
-- Relatório com a seção 7 (E, F, G) em `docs/relatorios/orquestracao-versoes.pdf`; estudos novos em
-  `pesquisa/agent-teams.md` e `pesquisa/orca.md` §7.
-
-- Painel Activity (Ctrl+J, D21): histórico de estados, asks e mensagens gravado pelo backend em
-  `~/.config/narrater/activity.jsonl`; verificado no app real (`docs/pesquisa/img/painel-atividade*.png`).
+- Um agente sozinho venceu a equipe nas duas tarefas do benchmark, com a mesma nota (D22):
+  - `pedidos`: 1,6 contra 3,9 min (`relatorios/quando-orquestrar.pdf`);
+  - `armazem`, quatro módulos independentes: 1,8 contra 2,8 min (`relatorios/equipe-ou-sozinho.pdf`).
+- Feito a partir disso (D23, D24, `pesquisa/orquestracao.md` §8), verificado no app real com
+  `bench/e2e/gerador-equipes.sh`:
+  - `recruit --model`, com o modelo salvo na cena e mostrado no terminal;
+  - `ask --check`: aceite rodado pelo backend; falha vira `failed`;
+  - aviso de pedido repetido;
+  - `narrater team create/templates`, com a chave Automatic teams na barra.
 
 ## Próximo passo
 
-O8: tarefas com dependências e pega automática (inspirada no Agent Teams), medida no benchmark. Depois:
-leitor de transcript do Codex; variantes O9 (dev ↔ dev, statusline, tarefa sem teto).
+Medir a montagem "gerada" no benchmark: o Narrador com Automatic teams decide sozinho. Depois: O8 (tirar o líder
+entre as fases), `team dismiss`, leitor de transcript do Codex.
 
 ## Decisões pendentes
 
+- Chave Automatic teams: liga/desliga por ora; "propor e confirmar" se agentes montarem equipe sem motivo.
 - O3: quando a tela ociosa e o `narrater done` chegarem juntos, qual vale.
-- Tela alternativa do Claude: manter (decidido por ora); desligar seria preferência opcional.
 
 ## Lembrar
 
-- Benchmark: versões compiladas e rodadas em `/home/user/bench` (efêmero); `$BENCH/build.sh X`. Precisa de
-  `Xvfb :77` e `IS_SANDBOX=1`. Cópia das métricas em `bench/orquestracao/resultados/`.
-- O `turn_eval` vaza marcadores de sessão para o Claude medido (backlog E).
-- O vt100 mostra o desenho de linha DEC como `qqqq` no texto das respostas (backlog V).
+- Benchmark: `/home/user/bench` (efêmero; as rodadas antigas foram apagadas para liberar disco, e as métricas estão
+  em `bench/orquestracao/resultados/`). Precisa de `Xvfb :77` e `IS_SANDBOX=1`.
+- O disco do contêiner enche com `target/` e rodadas: apague `target/debug/incremental` e `$BENCH/runs` antigos.
+- O socket do tmux não aceita caminhos longos: rode testes de ponta a ponta em `/tmp/<curto>`.
 - Não usar `pkill -f` com padrão que aparece na própria linha de comando.

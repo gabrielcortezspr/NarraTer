@@ -57,6 +57,34 @@ O5, o que sobra de custo são as voltas ao Narrador entre fases.
 - Statusline ligada contra desligada com mais rodadas: na E, as rodadas sem statusline foram mais
   baratas, mas p = 0,2.
 - Uma tarefa mais difícil, sem teto de qualidade.
+- ✅ 2026-10-16 **Braço "sozinho"**: 1 terminal venceu a equipe G em tempo, tokens e custo, com a mesma nota
+  (D22, `relatorios/quando-orquestrar.pdf`).
+- ✅ 2026-10-16 Tarefa paralelizável `armazem` com sozinho × equipe paralela × dev + revisor
+  (`relatorios/equipe-ou-sozinho.pdf`): o agente sozinho venceu no tempo e empatou na nota (46/46).
+- **Escritor barato + revisor** (Sonnet ou Haiku escrevendo, Opus revisando) contra o Opus sozinho: é o caso
+  em que a pesquisa prevê ganho (Vals.ai) e o candidato a modelo padrão do gerador (`pesquisa/orquestracao.md` §7).
+- **Equipe paralela com modelos iguais**, para separar o efeito do Haiku lento do efeito da coordenação.
+- **Uma tarefa em que o Opus sozinho erre**: em 18 rodadas de duas tarefas, ele nunca deixou de passar um teste.
+
+> 2026-10-16: O10, O11 e O12 feitas (D23, D24; `pesquisa/orquestracao.md` §8). Pendentes da linha:
+> - montagem "gerada" no benchmark: o Narrador com Automatic teams decide sozinho; mede se escolhe "solo" quando deve;
+> - `team dismiss` (desmontar a equipe pelo nome) e o estado "propor e confirmar" da chave;
+> - `--check` com o ambiente do terminal do alvo (virtualenv, variáveis), se algum projeto precisar.
+
+**O10 · Comando de aceite.** ✅ `narrater ask … --check "CMD"` (e o mesmo campo na tarefa da O8): no fim do turno o
+backend roda o comando no cwd do alvo; se falhar, o ask termina em `attention` com a saída, em vez de `done`. Não exige
+cooperação (D01). Ataca a família de falhas de verificação (`pesquisa/orquestracao.md` §3 F3).
+
+**O11 · Gerador de equipes.** ✅ Especificação de equipe como dados (membros com preset, **modelo**, role, worktree e se
+escrevem; arestas; notas com a tarefa e o critério de aceite; limite de agentes), aplicada de uma vez por
+`narrater team create spec.json` e desfeita por `team dismiss <id>`, com layout em grupo. Modelos de partida: sozinho,
+dev + revisor, dev + QA, leque de leitura, devs em paralelo com worktrees. Entradas: tela do app (sem IA), pedido a um
+agente, e automático pelo Narrador quando a preferência "O Narrador pode montar equipes" (em `preferences.rs`) estiver
+ligada, passando pelo portão da skill (≥ 2 subtarefas independentes com arquivos disjuntos, verificador com contexto
+limpo, ou contexto que não cabe). A decisão e o motivo vão para uma nota (`pesquisa/orquestracao.md` §4).
+
+**O12 · Laço e estagnação.** ✅ (pedido repetido; estagnação sem progresso continua aberta) Perceber o líder repetindo o mesmo pedido ou um ask sem progresso (MAST: repetição é 15,7%
+das falhas; Magentic-One replaneja depois de 2 passos parados) e avisar no painel Activity (`pesquisa/orquestracao.md` §3 F7).
 
 **Fora do escopo** (D06): heartbeat obrigatório, `worker_done` exigido, Run/Task/Dispatch,
 federação entre máquinas.

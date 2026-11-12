@@ -31,6 +31,7 @@ export interface AgentPickerResult {
   roleName?: string;
   roleColor?: string;
   skipPermissions?: boolean;
+  model?: string;
   cwd?: string;
   maestro?: boolean;
 }
@@ -50,6 +51,7 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
   const [selectedRoleId, setSelectedRoleId] = useState<string>("");
   const [instructions, setInstructions] = useState("");
   const [skipPermissions, setSkipPermissions] = useState(false);
+  const [model, setModel] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [scheduleCommand, setScheduleCommand] = useState("");
   const [scheduleInterval, setScheduleInterval] = useState("60");
@@ -90,6 +92,7 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
       roleName: selectedRole?.name,
       roleColor: selectedRole?.color,
       skipPermissions: skipPermissionsFlag ? skipPermissions : undefined,
+      model: preset.modelFlag ? model.trim() || undefined : undefined,
       cwd: cwd.trim() || undefined,
       maestro: selected !== "shell" && maestro ? true : undefined,
     });
@@ -100,6 +103,7 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
     setSelectedRoleId("");
     setInstructions("");
     setSkipPermissions(false);
+    setModel("");
     setMaestro(false);
     setShowAdvanced(false);
     setScheduleCommand("");
@@ -211,6 +215,21 @@ export default function AgentPicker({ open, defaultCwd, onConfirm, onClose }: Pr
                   focus:outline-none focus:border-accent font-mono placeholder-ink-faint"
               />
             </div>
+
+            {/* Model (agents whose CLI picks one) */}
+            {preset.modelFlag && (
+              <div className="mb-4">
+                <label className="block text-ink-2 text-xs mb-1.5">Model</label>
+                <input
+                  type="text"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  placeholder={`default · runs ${preset.command} ${preset.modelFlag} NAME`}
+                  className="w-full bg-term border border-line-strong text-white text-xs rounded-lg px-3 py-2
+                    focus:outline-none focus:border-accent font-mono placeholder-ink-faint"
+                />
+              </div>
+            )}
 
             {/* Custom command */}
             <AnimatePresence>

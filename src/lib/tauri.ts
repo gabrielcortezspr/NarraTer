@@ -45,6 +45,8 @@ export interface SceneNode {
   role_name?: string;
   role_color?: string;
   skip_permissions?: boolean;
+  model?: string;
+  team?: string;
   cwd?: string;
   maestro?: boolean;
   /** Floor id (absent = ground) */
@@ -496,6 +498,17 @@ export interface SessionUsage {
 
 export const usageSnapshot = () =>
   invoke<{ providers: ProviderUsage[]; sessions: SessionUsage[] }>("usage_snapshot");
+
+// --- Preferences (preferences.rs) -----------------------------------------
+
+export interface Preferences {
+  persistent_sessions: boolean;
+  /** Any agent may generate a team when it judges the task worth it. */
+  auto_teams: boolean;
+}
+
+export const preferencesGet = () => invoke<Preferences>("preferences_get");
+export const preferencesSet = (preferences: Preferences) => invoke<void>("preferences_set", { preferences });
 
 // --- Activity log (activity.rs) -------------------------------------------
 
