@@ -1,0 +1,349 @@
+% Slides avulsos: como o NarraTer é feito (técnico), como se usa e a evolução dos testes.
+% Compilar: cd docs/apresentacao && pdflatex ferramenta-e-testes.tex
+% Gráficos leem os dados do benchmark em ../relatorios/dados/ (gerados por bench/orquestracao/agregar.py).
+% Imagens vêm de ../pesquisa/img/.
+\documentclass[11pt,aspectratio=169]{beamer}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage{lmodern}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{pgfplots}
+\usepackage{pgfplotstable}
+\usepackage{listings}
+\usetikzlibrary{arrows.meta,positioning,calc,shapes.misc}
+\pgfplotsset{compat=1.18}
+\graphicspath{{../pesquisa/img/}}
+
+% ---------- Cores (acento do NarraTer, escurecido para fundo claro) ----------
+\definecolor{acento}{HTML}{6D5BD0}
+\definecolor{tinta}{HTML}{1F2330}
+\definecolor{suave}{HTML}{5B6170}
+\definecolor{linha}{HTML}{D9DCE3}
+\definecolor{fundo}{HTML}{F5F5F8}
+\definecolor{ok}{HTML}{2E8B57}
+\definecolor{ruim}{HTML}{C0392B}
+\definecolor{alerta}{HTML}{B7791F}
+\definecolor{cDevA}{HTML}{3D7DD8}
+\definecolor{cDevB}{HTML}{2E9E6B}
+
+% ---------- Tema mínimo ----------
+\usefonttheme{professionalfonts}
+\setbeamertemplate{navigation symbols}{}
+\setbeamercolor{normal text}{fg=tinta}
+\setbeamercolor{frametitle}{fg=tinta}
+\setbeamercolor{title}{fg=tinta}
+\setbeamercolor{structure}{fg=acento}
+\setbeamercolor{alerted text}{fg=acento}
+\setbeamerfont{frametitle}{size=\Large,series=\bfseries}
+\setbeamerfont{title}{size=\LARGE,series=\bfseries}
+\setbeamertemplate{itemize items}{\raisebox{0.15ex}{\small$\bullet$}}
+\setbeamertemplate{enumerate items}[default]
+\setbeamertemplate{frametitle}{%
+  \vspace*{0.5em}\insertframetitle\par
+  \vspace*{-0.2em}{\color{acento}\rule{2.2em}{2pt}}\vspace*{0.1em}}
+\setbeamertemplate{footline}{%
+  \leavevmode\hbox to\paperwidth{\hspace*{1.2em}{\color{suave}\tiny NarraTer · andamento do TCC}\hfill
+  {\color{suave}\tiny\insertframenumber/\inserttotalframenumber}\hspace*{1.2em}}\vspace*{0.6em}}
+\setbeamertemplate{section page}{%
+  \vfill{\color{acento}\rule{3em}{3pt}}\par\vspace{0.6em}
+  {\usebeamerfont{title}\insertsectionhead\par}\vfill}
+\AtBeginSection{\begin{frame}[plain,noframenumbering]\sectionpage\end{frame}}
+
+% Rótulos de evidência (D09)
+\newcommand{\ev}[2]{{\scriptsize\sffamily\colorbox{#1!12}{\textcolor{#1!80!black}{[#2]}}}}
+\newcommand{\medido}{\ev{ok}{medido}}
+\newcommand{\observado}{\ev{cDevA}{observado}}
+\newcommand{\citado}{\ev{suave}{citado}}
+\newcommand{\inferido}{\ev{alerta}{inferido}}
+\newcommand{\cmd}[1]{\texttt{\color{acento!80!black}#1}}
+
+\lstset{basicstyle=\ttfamily\scriptsize, columns=fullflexible, keepspaces=true,
+  backgroundcolor=\color{fundo}, frame=none, xleftmargin=4pt, xrightmargin=4pt,
+  aboveskip=4pt, belowskip=4pt, showstringspaces=false, breaklines=true,
+  literate={á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1 {ã}{{\~a}}1
+           {õ}{{\~o}}1 {ç}{{\c c}}1 {ê}{{\^e}}1 {â}{{\^a}}1 {Ã}{{\~A}}1 {→}{{$\to$}}1 {·}{{$\cdot$}}1}
+
+\pgfplotsset{
+  bench/.style={
+    width=\linewidth, height=5.4cm,
+    xtick={0,...,7}, xticklabels={A,B,C,D,E,E-sl0,F,G},
+    xmin=-0.6, xmax=7.6, ymin=0,
+    ymajorgrids, grid style={linha},
+    axis line style={suave}, tick style={suave},
+    tick label style={font=\scriptsize}, label style={font=\scriptsize},
+    legend style={font=\scriptsize, draw=none, fill=none},
+  },
+  milhoes/.style={y filter/.code={\pgfmathparse{##1/1000}}},
+}
+
+
+\begin{document}
+
+% =====================================================================
+\section{Como o NarraTer é feito}
+
+\begin{frame}{Arquitetura: três peças}
+\centering
+\begin{tikzpicture}[>=Stealth, font=\tiny,
+  caixa/.style={draw=linha, fill=fundo, rounded corners=3pt, align=left, inner sep=5pt, anchor=north west, font=\scriptsize},
+  tit/.style={font=\small\bfseries},
+  seta/.style={->, thick, acento}]
+% frontend
+\node[caixa, text width=5.9cm] (fe) at (0,0) {{\small\textbf{Frontend}} {\color{suave}(React + TS, na janela do Tauri)}\\[3pt]
+  \textbullet\ canvas infinito (React Flow)\\
+  \textbullet\ cada terminal desenhado por um \textbf{xterm.js}\\
+  \textbullet\ dono do \textbf{grafo}: nós, arestas, notas (Zustand)\\
+  \textbullet\ executa \texttt{recruit}, \texttt{note}, \texttt{connect}};
+% backend
+\node[caixa, text width=5.9cm] (be) at (7.75,0) {{\small\textbf{Backend}} {\color{suave}(Rust, Tauri 2)}\\[3pt]
+  \textbullet\ \texttt{pty.rs}: um \textbf{pseudo-terminal} por nó\\
+  \textbullet\ \texttt{screen.rs}: emulador \textbf{vt100} decide o estado\\
+  \textbullet\ \texttt{ipc.rs}: \textbf{socket Unix}, fila, permissões\\
+  \textbullet\ \texttt{transcript.rs}, \texttt{asks.rs}: respostas e pedidos};
+% cli
+\node[caixa, text width=5.9cm] (cli) at (7.75,-3.5) {{\small\textbf{CLI} \texttt{narrater}} {\color{suave}(binário Rust)}\\[3pt]
+  \textbullet\ em \texttt{\textasciitilde/.local/bin/narrater}\\
+  \textbullet\ \textbf{sem lógica}: argumentos $\to$ JSON $\to$ socket\\
+  \textbullet\ quem chama é o \textbf{agente}, pelo shell dele};
+\node[caixa, text width=5.9cm, draw=alerta!50, fill=alerta!8] (ag) at (0,-3.5) {{\small\textbf{Os agentes}} {\color{suave}(programas de terceiros)}\\[3pt]
+  Claude Code, Codex, Gemini CLI, shell\dots\ \textbf{sem modificação}. Aprendem a CLI por \textbf{arquivos}: \emph{skills} em \texttt{\textasciitilde/.claude/skills} e \texttt{\textasciitilde/.agents/skills}; papel em \texttt{CLAUDE.md}/\texttt{AGENTS.md}.};
+% setas
+\draw[seta] ([yshift=-12pt]fe.north east) -- node[above, color=suave, align=center] {\texttt{invoke}\\[-1pt]spawn, teclas, arestas} ([yshift=-12pt]be.north west);
+\draw[seta] ([yshift=-38pt]be.north west) -- node[below, color=suave, align=center] {eventos\\[-1pt]saída, estado, pedidos} ([yshift=-38pt]fe.north east);
+\draw[seta] ([yshift=-20pt]ag.north east) -- node[above, color=suave] {roda no shell} ([yshift=-20pt]cli.north west);
+\draw[seta] (cli.north) -- node[right, color=suave] {JSON pelo socket Unix} (be.south);
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[fragile]{O que é um terminal no NarraTer}
+\setbeamerfont{itemize/enumerate body}{size=\footnotesize}
+\begin{columns}[T]
+\begin{column}{0.5\linewidth}
+\footnotesize
+Quando um nó de terminal aparece no canvas, o frontend chama \texttt{pty\_spawn} e o backend:
+\begin{enumerate}\setlength\itemsep{0.3em}
+\item escreve o \textbf{papel} em \texttt{.narrater/roles/<id>/CLAUDE.md} e \texttt{AGENTS.md}, e inicia o agente
+  nessa pasta, porque toda CLI lê esses arquivos sozinha;
+\item abre um \textbf{pseudo-terminal} (PTY) e roda o programa nele, dentro de uma sessão \texttt{tmux} própria
+  quando a sessão é persistente (sobrevive ao app fechar);
+\item injeta a \textbf{identidade} do terminal no ambiente:
+\begin{lstlisting}[basicstyle=\ttfamily\tiny, breaklines=false]
+NARRATER_SOCKET=/tmp/narrater-<pid>/narrater.sock
+NARRATER_ID=<id do nó>   NARRATER_LABEL=Ana
+NARRATER_TOKEN=<segredo deste terminal>
+\end{lstlisting}
+\item lê a saída do PTY e manda \textbf{para dois lugares}.
+\end{enumerate}
+\end{column}
+\begin{column}{0.47\linewidth}
+\centering
+\begin{tikzpicture}[>=Stealth, font=\scriptsize,
+  b/.style={draw=linha, fill=fundo, rounded corners=3pt, align=center, minimum width=2.3cm, minimum height=0.8cm}]
+\node[b, draw=alerta!60, fill=alerta!10] (p) at (0,2.6) {\texttt{codex}\\[-1pt]{\tiny processo real}};
+\node[b] (pty) at (0,1.2) {PTY};
+\node[b] (x) at (-1.5,-0.5) {xterm.js\\[-1pt]{\tiny o que você vê}};
+\node[b] (v) at (1.5,-0.5) {vt100 sem tela\\[-1pt]{\tiny o que o app ``lê''}};
+\node[b, draw=acento, minimum width=2.6cm] (st) at (1.5,-2.1) {estado do turno\\[-1pt]{\tiny trabalhando · pronto · precisa de você}};
+\draw[<->, thick, suave] (p) -- (pty);
+\draw[->, thick, acento] (pty) -- node[left, font=\tiny, color=suave] {\texttt{pty\_output}} (x);
+\draw[->, thick, acento] (pty) -- (v);
+\draw[->, thick, acento] (v) -- node[right, font=\tiny, color=suave, align=left] {a cada 200~ms} (st);
+\draw[->, suave, dashed] (x.north) to[bend left=30] node[left, font=\tiny] {teclado} (pty.west);
+\end{tikzpicture}
+\vspace{0.3em}
+
+{\tiny\color{suave} O agente nunca sabe que está no NarraTer: para ele, é um terminal comum.}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{O que acontece num \texttt{narrater ask}}
+\setbeamerfont{itemize/enumerate body}{size=\scriptsize}
+\begin{columns}[T]
+\begin{column}{0.44\linewidth}
+\footnotesize
+O agente líder roda, no shell dele:
+\begin{lstlisting}[basicstyle=\ttfamily\tiny, breaklines=false]
+narrater ask "Ana" "Rode os testes e me diga o resultado"
+\end{lstlisting}
+A CLI só lê o ambiente e manda ao socket:
+\begin{lstlisting}[basicstyle=\ttfamily\tiny, breaklines=false]
+{"from": "<NARRATER_ID>", "token": "<NARRATER_TOKEN>",
+ "mode": "ask", "to": "Ana", "msg": "Rode os testes..."}
+\end{lstlisting}
+\vspace{0.2em}
+{\scriptsize O socket fica numa pasta só do usuário (permissões 0700/0600). O \emph{token} prova que o pedido
+veio mesmo daquele terminal: o nome que a CLI manda nunca é aceito sem conferência.}
+\end{column}
+\begin{column}{0.54\linewidth}
+\scriptsize
+\begin{enumerate}\setlength\itemsep{0.25em}
+\item \textbf{Autentica}: o \emph{token} bate com o do terminal \texttt{from}?
+\item \textbf{Autoriza}: existe aresta entre o chamador e ``Ana''? (\texttt{resolve\_target}). Sem aresta, erro.
+\item \textbf{Registra} o pedido em \texttt{asks.jsonl} (sobrevive a reinício) e \textbf{anota o tamanho} do
+  \emph{transcript} da Ana, para achar a resposta depois.
+\item \textbf{Enfileira} \texttt{[narrater from Narrador]: Rode os testes\dots}
+\item \textbf{Entrega} quando a Ana fica ociosa: \emph{digita} o texto no PTY dela (colagem entre colchetes se o
+  programa aceitar, senão texto + Enter após 300~ms).
+\item \textbf{Espera o fim do turno}: tela (mudou? rodapé ``esc to interrupt''? título da janela?) e
+  \emph{transcript} (\texttt{system/turn\_duration}).
+\item \textbf{Responde}: o último texto da Ana no \emph{transcript}, ou a tela se não houver. A CLI imprime, e o
+  líder lê como a saída de qualquer comando.
+\end{enumerate}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{O que acontece num \texttt{narrater recruit}}
+\setbeamerfont{itemize/enumerate body}{size=\scriptsize}
+\begin{columns}[T]
+\begin{column}{0.56\linewidth}
+\scriptsize
+\begin{lstlisting}[basicstyle=\ttfamily\tiny, breaklines=false]
+narrater recruit "Ana" --preset Codex --role Developer
+\end{lstlisting}
+\begin{enumerate}\setlength\itemsep{0.25em}
+\item A \textbf{CLI} monta o JSON \texttt{\{mode: canvas, action: recruit, name, preset, role\}} e manda ao socket.
+\item O \textbf{backend} autentica o \emph{token}. Como o grafo pertence ao frontend, ele emite
+  \texttt{canvas\_request} e espera a resposta.
+\item O \textbf{frontend} (\texttt{managerCommands.ts}) confere se o chamador está em \textbf{modo Maestro}
+  (senão, erro), resolve o \emph{preset} (o comando do Codex) e o papel, e cria o \textbf{nó} num lugar livre ao
+  lado do líder, com a \textbf{aresta} líder $\to$ Ana.
+\item A mudança no grafo dispara duas coisas: \texttt{connections\_sync} (o backend recebe a nova tabela de
+  permissões) e \texttt{pty\_spawn} (o terminal da Ana nasce, como no slide anterior).
+\item O frontend devolve \texttt{ok: recruited 'Ana' ..., connected to you}, que volta pela CLI ao líder.
+\end{enumerate}
+\end{column}
+\begin{column}{0.41\linewidth}
+\centering
+\begin{tikzpicture}[>=Stealth, font=\tiny, y=0.4cm,
+  lane/.style={draw=linha, fill=fundo, rounded corners=2pt, minimum width=1.25cm, minimum height=0.5cm, font=\tiny\bfseries}]
+\node[lane] at (0,0) {CLI};
+\node[lane] at (1.6,0) {Backend};
+\node[lane] at (3.2,0) {Frontend};
+\foreach \x in {0,1.6,3.2} \draw[linha, thick] (\x,-0.6) -- (\x,-11.2);
+\draw[->, acento, thick] (0,-1.4) -- node[above] {JSON} (1.6,-1.4);
+\node[left, color=suave] at (1.55,-2.2) {token ok};
+\draw[->, acento, thick] (1.6,-3.0) -- node[above] {\texttt{canvas\_request}} (3.2,-3.0);
+\node[left, color=suave, align=right] at (3.15,-4.2) {Maestro?};
+\node[left, color=suave, align=right] at (3.15,-5.0) {nó + aresta};
+\draw[->, acento, thick] (3.2,-6.0) -- node[above] {\texttt{connections\_sync}} (1.6,-6.0);
+\draw[->, acento, thick] (3.2,-7.2) -- node[above] {\texttt{pty\_spawn}} (1.6,-7.2);
+\node[left, color=alerta!80!black, align=right] at (1.55,-8.1) {inicia \texttt{codex}};
+\draw[->, acento, thick] (3.2,-9.0) -- node[above] {\texttt{canvas\_respond}} (1.6,-9.0);
+\draw[->, acento, thick] (1.6,-10.2) -- node[above] {``ok: recruited''} (0,-10.2);
+\end{tikzpicture}
+\vspace{0.3em}
+
+\parbox{\linewidth}{\scriptsize\textbf{Em resumo:} recrutar não cria um ``agente'' abstrato. Cria um nó, abre um
+processo real do Codex num pseudo-terminal, entrega as instruções por arquivo e uma aresta que dá permissão de conversar.}
+\end{column}
+\end{columns}
+\end{frame}
+
+% =====================================================================
+\section{Como se usa}
+
+% =====================================================================
+\begin{frame}[fragile]{Como o NarraTer monta uma orquestração hoje}
+\begin{columns}[T]
+\begin{column}{0.49\linewidth}
+\setbeamerfont{itemize/enumerate body}{size=\scriptsize}
+\scriptsize
+\begin{enumerate}\setlength\itemsep{0.25em}
+\item \textbf{A pessoa escolhe quem orquestra:} liga o \textbf{modo Maestro} num agente. Com o papel \emph{Leader}, ele só delega, não edita código.
+\item \textbf{O líder monta a equipe sozinho.}
+\begin{lstlisting}[basicstyle=\ttfamily\tiny, breaklines=false]
+narrater recruit "Ana" --preset "Claude Code" --role Dev
+narrater recruit "Bia" --preset Codex --role Dev
+\end{lstlisting}
+  Cada um vira um terminal real, já ligado ao líder: \textbf{a aresta é a permissão} de conversar.
+\item \textbf{Delega em paralelo.}
+\begin{lstlisting}[basicstyle=\ttfamily\tiny, breaklines=false]
+narrater ask --batch '{"Ana":"...","Bia":"..."}' --no-wait
+narrater wait
+\end{lstlisting}
+  O pedido é \textbf{digitado} no terminal do alvo quando ele fica ocioso.
+\item \textbf{Recebe as respostas:} o NarraTer percebe o fim do turno e devolve a resposta final.
+\end{enumerate}
+\end{column}
+\begin{column}{0.49\linewidth}
+\centering
+\begin{tikzpicture}[>=Stealth, font=\scriptsize, y=0.82cm,
+  term/.style={draw=linha, fill=fundo, rounded corners=3pt, minimum width=2.15cm, minimum height=0.95cm, align=center},
+  nota/.style={draw=alerta!60, fill=alerta!10, minimum width=1.5cm, minimum height=0.7cm, align=center},
+  aresta/.style={acento, thick}]
+\node[font=\tiny, color=suave] (voce) at (0,3.15) {pessoa};
+\node[term, draw=acento, line width=1pt] (lider) at (0,2.1) {\textbf{Narrador}\\[-1pt]{\tiny Maestro · Leader}};
+\node[font=\small, color=alerta] at (0.95,2.62) {$\blacktriangle$};
+\node[term] (a) at (-1.6,0.2) {\textbf{Ana}\\[-1pt]{\tiny Claude Code}};
+\node[term] (b) at (1.6,0.2) {\textbf{Bia}\\[-1pt]{\tiny Codex}};
+\node[nota] (n) at (0,-1.0) {\tiny nota\\[-2pt]\tiny ``contrato''};
+\draw[->, suave] (voce) -- (lider);
+\draw[aresta] (lider) -- node[left, font=\tiny, color=suave, pos=0.45] {recruit} (a);
+\draw[aresta] (lider) -- node[right, font=\tiny, color=suave, pos=0.45] {recruit} (b);
+\draw[alerta!70, dashed] (a) -- (n); \draw[alerta!70, dashed] (b) -- (n);
+% backend
+\node[draw=linha, fill=white, rounded corners=3pt, minimum width=5.6cm, minimum height=1.1cm, align=center,
+  font=\tiny] (be) at (0,-2.45) {%
+  \textbf{\scriptsize Backend NarraTer (Rust)}\\[1pt]
+  terminais reais (PTY) \;·\; fila que espera o alvo ficar ocioso\\
+  leitor de estado: tela + título + \emph{transcript} \;·\; valida a aresta\\
+  histórico gravado no disco (\texttt{activity.jsonl})};
+\end{tikzpicture}
+\vspace{0.4em}
+
+\parbox{0.95\linewidth}{\tiny\color{suave} Instruções chegam por arquivo, que qualquer CLI lê: \emph{skills} e papéis como
+\texttt{CLAUDE.md}/\texttt{AGENTS.md}. Nenhum agente precisa de plugin ou protocolo próprio.}
+\end{column}
+\end{columns}
+\end{frame}
+
+% =====================================================================
+\section{Como foi testado}
+
+\begin{frame}{Como os testes evoluíram}
+\centering
+\begin{tikzpicture}[>=Stealth,
+  etapa/.style={draw=linha, fill=fundo, rounded corners=3pt, align=left, font=\tiny, anchor=north, inner sep=4pt},
+  data/.style={font=\scriptsize\bfseries, color=acento},
+  achado/.style={font=\tiny, color=ruim!85!black, align=center, text width=2.3cm}]
+\draw[->, suave, thick] (-0.6,0) -- (14.3,0);
+\foreach \x/\d in {0.85/{julho}, 3.8/{01/10}, 6.75/{14/10}, 9.7/{15/10 manhã}, 12.65/{15/10 tarde}}
+  { \fill[acento] (\x,0) circle (2.2pt); \node[data, above] at (\x,0.08) {\d}; }
+
+\node[etapa] at (0.85,-0.25) {\parbox[t][3.75cm][t]{2.55cm}{\raggedright \textbf{\scriptsize 0. No olho}\\[3pt]
+  \textbf{Como:} rodar e ver se os agentes respondiam.\\[3pt]
+  \textbf{Mede:} nada; impressão.\\[3pt]
+  \textbf{Achou:} o modelo cooperativo (MCP, \emph{hooks}) \textcolor{ruim}{só funcionava com o Claude}.}};
+\node[etapa] at (3.8,-0.25) {\parbox[t][3.75cm][t]{2.55cm}{\raggedright \textbf{\scriptsize 1. Sonda}\\[1pt]{\color{suave}\texttt{turn\_probe}}\\[3pt]
+  \textbf{Como:} manda um prompt a um programa real e mostra o que o leitor de estado viu.\\[3pt]
+  \textbf{Mede:} se a heurística acerta um caso, um de cada vez.\\[3pt]
+  \textbf{Achou:} a tela funciona com qualquer CLI, mas \textcolor{ruim}{sem saber quanto erra}.}};
+\node[etapa] at (6.75,-0.25) {\parbox[t][3.75cm][t]{2.55cm}{\raggedright \textbf{\scriptsize 2. Oráculo}\\[1pt]{\color{suave}\texttt{turn\_eval}}\\[3pt]
+  \textbf{Como:} compara o leitor com um \textbf{oráculo independente} (timestamp, \emph{hooks} só no avaliador); gravações viram testes.\\[3pt]
+  \textbf{Mede:} acertos, prematuros, latência.\\[3pt]
+  \textbf{Resultado:} tmux 6/6 prematuros $\to$ \textcolor{ok}{0/20}; permissão nunca vista $\to$ \textcolor{ok}{0,1--0,2~s}.}};
+\node[etapa] at (9.7,-0.25) {\parbox[t][3.75cm][t]{2.55cm}{\raggedright \textbf{\scriptsize 3. Benchmark A--D}\\[1pt]{\color{suave}12 rodadas}\\[3pt]
+  \textbf{Como:} a mesma tarefa com 3 agentes, 31 testes escondidos, rodadas zeradas, ordem contrabalançada.\\[3pt]
+  \textbf{Mede:} tokens, custo, tempo, pedidos, trabalho feito.\\[3pt]
+  \textbf{Resultado:} 31/31 em todas; custo \textcolor{ruim}{US\$\,0,69 $\to$ 1,02}. Respostas cortadas.}};
+\node[etapa] at (12.65,-0.25) {\parbox[t][3.75cm][t]{2.55cm}{\raggedright \textbf{\scriptsize 4. Versões E, F, G}\\[1pt]{\color{suave}12 rodadas}\\[3pt]
+  \textbf{Como:} cada versão corrige uma falha vista na anterior e é medida de novo no mesmo benchmark.\\[3pt]
+  \textbf{Mede:} o mesmo + asks prontos antes da hora.\\[3pt]
+  \textbf{Resultado:} antes da hora 4/27 $\to$ \textcolor{ok}{0/40}; cortadas \textcolor{ok}{0}; custo \textcolor{ok}{US\$\,0,74}.}};
+
+% o que cada etapa deixou em aberto
+\foreach \a/\b/\t in {0.85/3.8/{funciona com\\qualquer agente?}, 3.8/6.75/{quanto\\ele erra?}, 6.75/9.7/{e na orquestração\\inteira, quanto custa?}, 9.7/12.65/{de onde vem\\o custo?}}
+  { \draw[->, acento!70, thick] (\a+1.2,-4.4) to[bend right=25] node[below, font=\tiny, color=acento!80!black, align=center] {\t} (\b-1.2,-4.4); }
+\end{tikzpicture}
+\vspace{-0.2em}
+
+\parbox{\linewidth}{\scriptsize Cada etapa nasceu de uma pergunta que a anterior não respondia. \textbf{Próxima:} comparar com um
+\textbf{agente único} (direto e em loop) na mesma tarefa, para responder quando a orquestração compensa.}
+\end{frame}
+
+\end{document}
