@@ -1,4 +1,4 @@
-% Dois slides avulsos: como o NarraTer orquestra hoje e a evolução dos testes.
+% Slides avulsos: como o NarraTer é feito (técnico), como se usa e a evolução dos testes.
 % Compilar: cd docs/apresentacao && pdflatex ferramenta-e-testes.tex
 % Gráficos leem os dados do benchmark em ../relatorios/dados/ (gerados por bench/orquestracao/agregar.py).
 % Imagens vêm de ../pesquisa/img/.
@@ -83,6 +83,171 @@
 \begin{document}
 
 % =====================================================================
+\section{Como o NarraTer é feito}
+
+\begin{frame}{Arquitetura: três peças}
+\centering
+\begin{tikzpicture}[>=Stealth, font=\tiny,
+  caixa/.style={draw=linha, fill=fundo, rounded corners=3pt, align=left, inner sep=5pt, anchor=north west, font=\scriptsize},
+  tit/.style={font=\small\bfseries},
+  seta/.style={->, thick, acento}]
+% frontend
+\node[caixa, text width=5.9cm] (fe) at (0,0) {{\small\textbf{Frontend}} {\color{suave}(React + TS, na janela do Tauri)}\\[3pt]
+  \textbullet\ canvas infinito (React Flow)\\
+  \textbullet\ cada terminal desenhado por um \textbf{xterm.js}\\
+  \textbullet\ dono do \textbf{grafo}: nós, arestas, notas (Zustand)\\
+  \textbullet\ executa \texttt{recruit}, \texttt{note}, \texttt{connect}};
+% backend
+\node[caixa, text width=5.9cm] (be) at (7.75,0) {{\small\textbf{Backend}} {\color{suave}(Rust, Tauri 2)}\\[3pt]
+  \textbullet\ \texttt{pty.rs}: um \textbf{pseudo-terminal} por nó\\
+  \textbullet\ \texttt{screen.rs}: emulador \textbf{vt100} decide o estado\\
+  \textbullet\ \texttt{ipc.rs}: \textbf{socket Unix}, fila, permissões\\
+  \textbullet\ \texttt{transcript.rs}, \texttt{asks.rs}: respostas e pedidos};
+% cli
+\node[caixa, text width=5.9cm] (cli) at (7.75,-3.5) {{\small\textbf{CLI} \texttt{narrater}} {\color{suave}(binário Rust)}\\[3pt]
+  \textbullet\ em \texttt{\textasciitilde/.local/bin/narrater}\\
+  \textbullet\ \textbf{sem lógica}: argumentos $\to$ JSON $\to$ socket\\
+  \textbullet\ quem chama é o \textbf{agente}, pelo shell dele};
+\node[caixa, text width=5.9cm, draw=alerta!50, fill=alerta!8] (ag) at (0,-3.5) {{\small\textbf{Os agentes}} {\color{suave}(programas de terceiros)}\\[3pt]
+  Claude Code, Codex, Gemini CLI, shell\dots\ \textbf{sem modificação}. Aprendem a CLI por \textbf{arquivos}: \emph{skills} em \texttt{\textasciitilde/.claude/skills} e \texttt{\textasciitilde/.agents/skills}; papel em \texttt{CLAUDE.md}/\texttt{AGENTS.md}.};
+% setas
+\draw[seta] ([yshift=-12pt]fe.north east) -- node[above, color=suave, align=center] {\texttt{invoke}\\[-1pt]spawn, teclas, arestas} ([yshift=-12pt]be.north west);
+\draw[seta] ([yshift=-38pt]be.north west) -- node[below, color=suave, align=center] {eventos\\[-1pt]saída, estado, pedidos} ([yshift=-38pt]fe.north east);
+\draw[seta] ([yshift=-20pt]ag.north east) -- node[above, color=suave] {roda no shell} ([yshift=-20pt]cli.north west);
+\draw[seta] (cli.north) -- node[right, color=suave] {JSON pelo socket Unix} (be.south);
+\end{tikzpicture}
+\end{frame}
+
+\begin{frame}[fragile]{O que é um terminal no NarraTer}
+\setbeamerfont{itemize/enumerate body}{size=\footnotesize}
+\begin{columns}[T]
+\begin{column}{0.5\linewidth}
+\footnotesize
+Quando um nó de terminal aparece no canvas, o frontend chama \texttt{pty\_spawn} e o backend:
+\begin{enumerate}\setlength\itemsep{0.3em}
+\item escreve o \textbf{papel} em \texttt{.narrater/roles/<id>/CLAUDE.md} e \texttt{AGENTS.md}, e inicia o agente
+  nessa pasta, porque toda CLI lê esses arquivos sozinha;
+\item abre um \textbf{pseudo-terminal} (PTY) e roda o programa nele, dentro de uma sessão \texttt{tmux} própria
+  quando a sessão é persistente (sobrevive ao app fechar);
+\item injeta a \textbf{identidade} do terminal no ambiente:
+\begin{lstlisting}[basicstyle=\ttfamily\tiny, breaklines=false]
+NARRATER_SOCKET=/tmp/narrater-<pid>/narrater.sock
+NARRATER_ID=<id do nó>   NARRATER_LABEL=Ana
+NARRATER_TOKEN=<segredo deste terminal>
+\end{lstlisting}
+\item lê a saída do PTY e manda \textbf{para dois lugares}.
+\end{enumerate}
+\end{column}
+\begin{column}{0.47\linewidth}
+\centering
+\begin{tikzpicture}[>=Stealth, font=\scriptsize,
+  b/.style={draw=linha, fill=fundo, rounded corners=3pt, align=center, minimum width=2.3cm, minimum height=0.8cm}]
+\node[b, draw=alerta!60, fill=alerta!10] (p) at (0,2.6) {\texttt{codex}\\[-1pt]{\tiny processo real}};
+\node[b] (pty) at (0,1.2) {PTY};
+\node[b] (x) at (-1.5,-0.5) {xterm.js\\[-1pt]{\tiny o que você vê}};
+\node[b] (v) at (1.5,-0.5) {vt100 sem tela\\[-1pt]{\tiny o que o app ``lê''}};
+\node[b, draw=acento, minimum width=2.6cm] (st) at (1.5,-2.1) {estado do turno\\[-1pt]{\tiny trabalhando · pronto · precisa de você}};
+\draw[<->, thick, suave] (p) -- (pty);
+\draw[->, thick, acento] (pty) -- node[left, font=\tiny, color=suave] {\texttt{pty\_output}} (x);
+\draw[->, thick, acento] (pty) -- (v);
+\draw[->, thick, acento] (v) -- node[right, font=\tiny, color=suave, align=left] {a cada 200~ms} (st);
+\draw[->, suave, dashed] (x.north) to[bend left=30] node[left, font=\tiny] {teclado} (pty.west);
+\end{tikzpicture}
+\vspace{0.3em}
+
+{\tiny\color{suave} O agente nunca sabe que está no NarraTer: para ele, é um terminal comum.}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{O que acontece num \texttt{narrater ask}}
+\setbeamerfont{itemize/enumerate body}{size=\scriptsize}
+\begin{columns}[T]
+\begin{column}{0.44\linewidth}
+\footnotesize
+O agente líder roda, no shell dele:
+\begin{lstlisting}[basicstyle=\ttfamily\tiny, breaklines=false]
+narrater ask "Ana" "Rode os testes e me diga o resultado"
+\end{lstlisting}
+A CLI só lê o ambiente e manda ao socket:
+\begin{lstlisting}[basicstyle=\ttfamily\tiny, breaklines=false]
+{"from": "<NARRATER_ID>", "token": "<NARRATER_TOKEN>",
+ "mode": "ask", "to": "Ana", "msg": "Rode os testes..."}
+\end{lstlisting}
+\vspace{0.2em}
+{\scriptsize O socket fica numa pasta só do usuário (permissões 0700/0600). O \emph{token} prova que o pedido
+veio mesmo daquele terminal: o nome que a CLI manda nunca é aceito sem conferência.}
+\end{column}
+\begin{column}{0.54\linewidth}
+\scriptsize
+\begin{enumerate}\setlength\itemsep{0.25em}
+\item \textbf{Autentica}: o \emph{token} bate com o do terminal \texttt{from}?
+\item \textbf{Autoriza}: existe aresta entre o chamador e ``Ana''? (\texttt{resolve\_target}). Sem aresta, erro.
+\item \textbf{Registra} o pedido em \texttt{asks.jsonl} (sobrevive a reinício) e \textbf{anota o tamanho} do
+  \emph{transcript} da Ana, para achar a resposta depois.
+\item \textbf{Enfileira} \texttt{[narrater from Narrador]: Rode os testes\dots}
+\item \textbf{Entrega} quando a Ana fica ociosa: \emph{digita} o texto no PTY dela (colagem entre colchetes se o
+  programa aceitar, senão texto + Enter após 300~ms).
+\item \textbf{Espera o fim do turno}: tela (mudou? rodapé ``esc to interrupt''? título da janela?) e
+  \emph{transcript} (\texttt{system/turn\_duration}).
+\item \textbf{Responde}: o último texto da Ana no \emph{transcript}, ou a tela se não houver. A CLI imprime, e o
+  líder lê como a saída de qualquer comando.
+\end{enumerate}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{O que acontece num \texttt{narrater recruit}}
+\setbeamerfont{itemize/enumerate body}{size=\scriptsize}
+\begin{columns}[T]
+\begin{column}{0.56\linewidth}
+\scriptsize
+\begin{lstlisting}[basicstyle=\ttfamily\tiny, breaklines=false]
+narrater recruit "Ana" --preset Codex --role Developer
+\end{lstlisting}
+\begin{enumerate}\setlength\itemsep{0.25em}
+\item A \textbf{CLI} monta o JSON \texttt{\{mode: canvas, action: recruit, name, preset, role\}} e manda ao socket.
+\item O \textbf{backend} autentica o \emph{token}. Como o grafo pertence ao frontend, ele emite
+  \texttt{canvas\_request} e espera a resposta.
+\item O \textbf{frontend} (\texttt{managerCommands.ts}) confere se o chamador está em \textbf{modo Maestro}
+  (senão, erro), resolve o \emph{preset} (o comando do Codex) e o papel, e cria o \textbf{nó} num lugar livre ao
+  lado do líder, com a \textbf{aresta} líder $\to$ Ana.
+\item A mudança no grafo dispara duas coisas: \texttt{connections\_sync} (o backend recebe a nova tabela de
+  permissões) e \texttt{pty\_spawn} (o terminal da Ana nasce, como no slide anterior).
+\item O frontend devolve \texttt{ok: recruited 'Ana' ..., connected to you}, que volta pela CLI ao líder.
+\end{enumerate}
+\end{column}
+\begin{column}{0.41\linewidth}
+\centering
+\begin{tikzpicture}[>=Stealth, font=\tiny, y=0.4cm,
+  lane/.style={draw=linha, fill=fundo, rounded corners=2pt, minimum width=1.25cm, minimum height=0.5cm, font=\tiny\bfseries}]
+\node[lane] at (0,0) {CLI};
+\node[lane] at (1.6,0) {Backend};
+\node[lane] at (3.2,0) {Frontend};
+\foreach \x in {0,1.6,3.2} \draw[linha, thick] (\x,-0.6) -- (\x,-11.2);
+\draw[->, acento, thick] (0,-1.4) -- node[above] {JSON} (1.6,-1.4);
+\node[left, color=suave] at (1.55,-2.2) {token ok};
+\draw[->, acento, thick] (1.6,-3.0) -- node[above] {\texttt{canvas\_request}} (3.2,-3.0);
+\node[left, color=suave, align=right] at (3.15,-4.2) {Maestro?};
+\node[left, color=suave, align=right] at (3.15,-5.0) {nó + aresta};
+\draw[->, acento, thick] (3.2,-6.0) -- node[above] {\texttt{connections\_sync}} (1.6,-6.0);
+\draw[->, acento, thick] (3.2,-7.2) -- node[above] {\texttt{pty\_spawn}} (1.6,-7.2);
+\node[left, color=alerta!80!black, align=right] at (1.55,-8.1) {inicia \texttt{codex}};
+\draw[->, acento, thick] (3.2,-9.0) -- node[above] {\texttt{canvas\_respond}} (1.6,-9.0);
+\draw[->, acento, thick] (1.6,-10.2) -- node[above] {``ok: recruited''} (0,-10.2);
+\end{tikzpicture}
+\vspace{0.3em}
+
+\parbox{\linewidth}{\scriptsize\textbf{Em resumo:} recrutar não cria um ``agente'' abstrato. Cria um nó, abre um
+processo real do Codex num pseudo-terminal, entrega as instruções por arquivo e uma aresta que dá permissão de conversar.}
+\end{column}
+\end{columns}
+\end{frame}
+
+% =====================================================================
+\section{Como se usa}
+
+% =====================================================================
 \begin{frame}[fragile]{Como o NarraTer monta uma orquestração hoje}
 \begin{columns}[T]
 \begin{column}{0.49\linewidth}
@@ -138,6 +303,8 @@ narrater wait
 \end{frame}
 
 % =====================================================================
+\section{Como foi testado}
+
 \begin{frame}{Como os testes evoluíram}
 \centering
 \begin{tikzpicture}[>=Stealth,
